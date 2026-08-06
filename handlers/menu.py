@@ -85,13 +85,9 @@ async def button_handler(update, context):
         )
 
     elif data == "tasks_list":
+        # list_tasks uses update.effective_message (works for CallbackQuery)
         from handlers.task import list_tasks
-        old_message = update.message
-        update.message = query.message
-        try:
-            await list_tasks(update, context)
-        finally:
-            update.message = old_message
+        await list_tasks(update, context)
 
     elif data == "tasks_back":
         await query.message.reply_text("منوی اصلی:", reply_markup=main_menu())
