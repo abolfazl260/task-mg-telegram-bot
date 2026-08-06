@@ -28,7 +28,11 @@ from services.team_service import (
     ROLE_VIEWER,
     can_edit,
 )
-from services.task_service import get_team_tasks, get_all_user_tasks
+from services.task_service import (
+    get_team_tasks,
+    get_all_user_tasks,
+    link_user_category_to_team,
+)
 
 
 def _e(value) -> str:
@@ -132,6 +136,18 @@ def _user_categories(user_id) -> list:
     return cats
 
 
+def _sync_category_tasks(user_id, team: dict) -> int:
+    """Link personal tasks of same category name into this team."""
+
+    if not team:
+        return 0
+    name = (team.get("name") or "").strip()
+    team_id = team.get("team_id")
+    if not name or not team_id:
+        return 0
+    return link_user_category_to_team(user_id, name, team_id)
+
+
 async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args or []
     user = update.effective_user
@@ -151,8 +167,10 @@ async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("نام دسته‌بندی مشترک را وارد کنید:")
             return
         team = create_team(user_id, name, user=user)
+        n = _sync_category_tasks(user_id, team)
+        extra = f"\n🔗 {n} تسک شخصی این دسته به فضای مشترک وصل شد." if n else ""
         await update.message.reply_text(
-            f"✅ دسته‌بندی مشترک ساخته شد\n\n" + _codes_text(team, bot_user),
+            f"✅ دسته‌بندی مشترک ساخته شد{extra}\n\n" + _codes_text(team, bot_user),
             parse_mode="HTML",
             reply_markup=_share_role_keyboard(team["team_id"]),
         )
@@ -211,9 +229,16 @@ async def _do_join(update, context, code: str):
     name = (team or team_preview).get("name")
     tid = (team or team_preview).get("team_id")
 
+    # if joiner has personal tasks in same category, link them too (editor+)
+    linked = 0
+    if ok and team and role_preview in (ROLE_EDITOR, ROLE_OWNER):
+        linked = _sync_category_tasks(user.id, team)
+
+    extra = f"\n🔗 {linked} تسک شخصی هم‌نام به این دسته وصل شد." if linked else ""
+
     if msg:
         await msg.reply_text(
-            f"{'✅' if ok else '⚠️'} {_e(text)}\n\n"
+            f"{'✅' if ok else '⚠️'} {_e(text)}{extra}\n\n"
             f"📂 دسته‌بندی: <b>{_e(name)}</b>\n"
             f"🆔 <code>{_e(tid)}</code>\n"
             f"نقش: {role_fa}",
@@ -229,6 +254,8 @@ def _help_text() -> str:
         "۲) انتخاب کن کدام دسته‌بندی را می‌خواهی به اشتراک بگذاری\n"
         "۳) نقش را انتخاب کن (ویرایشگر / مشاهده)\n"
         "۴) پیام دعوت را فوروارد کن\n\n"
+        "وقتی دسته‌ای را به اشتراک می‌گذاری، تسک‌های شخصی همان دسته "
+        "به‌صورت خودکار وارد فضای مشترک می‌شوند.\n\n"
         "<b>ساخت مستقیم:</b> /team create نام\n"
         "<b>عضویت:</b> لینک دعوت یا /team join کد\n"
     )
@@ -311,17 +338,18 @@ async def _start_share_wizard(update, context):
     await msg.reply_text(
         "📤 <b>اشتراک‌گذاری بر اساس دسته‌بندی</b>\n\n"
         "کدام دسته‌بندی را می‌خواهی به اشتراک بگذاری؟\n"
-        "(فقط همان دسته برای طرف مقابل مشترک می‌شود)",
+        "(تسک‌های شخصی همان دسته هم وارد فضای مشترک می‌شوند)",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
 
 
-async def _after_category_chosen(update, context, team: dict):
+async def _after_category_chosen(update, context, team: dict, linked: int = 0):
     query = update.callback_query
+    extra = f"\n🔗 {linked} تسک به این دسته وصل شد." if linked else ""
     await query.message.reply_text(
         f"📂 دسته‌بندی انتخاب‌شده: <b>{_e(team['name'])}</b>\n"
-        f"🆔 <code>{_e(team['team_id'])}</code>\n\n"
+        f"🆔 <code>{_e(team['team_id'])}</code>{extra}\n\n"
         f"با چه نقشی دعوت می‌کنی؟",
         parse_mode="HTML",
         reply_markup=_share_role_keyboard(team["team_id"]),
@@ -393,7 +421,8 @@ async def team_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not team or not can_edit(team_id, user_id):
             await query.message.reply_text("دسترسی ندارید یا دسته پیدا نشد.")
             return
-        await _after_category_chosen(update, context, team)
+        linked = _sync_category_tasks(user_id, team)
+        await _after_category_chosen(update, context, team, linked=linked)
         return
 
     if data.startswith("team_sharepick_c_"):
@@ -401,7 +430,9 @@ async def team_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         team = None
         for item in get_user_teams(user_id):
             t = item["team"]
-            if t.get("name") == cat and item["role"] in (ROLE_OWNER, ROLE_EDITOR):
+            if (t.get("name") or "").strip().lower() == cat.strip().lower() and item["role"] in (
+                ROLE_OWNER, ROLE_EDITOR
+            ):
                 team = t
                 break
         if not team:
@@ -409,7 +440,8 @@ async def team_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(
                 f"✅ فضای مشترک برای دسته «{cat}» ساخته شد."
             )
-        await _after_category_chosen(update, context, team)
+        linked = _sync_category_tasks(user_id, team)
+        await _after_category_chosen(update, context, team, linked=linked)
         return
 
     if data == "team_create":
@@ -520,6 +552,9 @@ async def _send_share_invite(query, user_id, team_id, role, bot_username):
         await query.message.reply_text("فقط مالک و ویرایشگر می‌توانند دعوت بفرستند.")
         return
 
+    # ensure owner's category tasks are linked before inviting others
+    _sync_category_tasks(user_id, team)
+
     bot_username = bot_username or BOT_USERNAME or "TaskManagerpersian_Bot"
     text = _invite_message(team, role, bot_username)
     role_title = "ویرایشگر" if role == ROLE_EDITOR else "مشاهده‌کننده"
@@ -544,6 +579,9 @@ async def _open_team(update, context, team_id: str):
         await update.callback_query.message.reply_text("پیدا نشد یا عضو نیستید.")
         return
 
+    # link personal category tasks of current user into this shared space
+    linked = _sync_category_tasks(user_id, team)
+
     active = get_team_tasks(team_id, active_only=True)
     members = get_team_members(team_id)
     preview = "، ".join(_e(member_display(m)) for m in members[:5])
@@ -557,6 +595,8 @@ async def _open_team(update, context, team_id: str):
         f"تسک فعال: {len(active)}\n"
         f"اعضا ({len(members)}): {preview}\n"
     )
+    if linked:
+        text += f"🔗 {linked} تسک شخصی هم‌نام به این دسته وصل شد.\n"
 
     buttons = [
         [InlineKeyboardButton("📋 تسک‌های این دسته", callback_data=f"team_tasks_{team_id}")],
@@ -588,10 +628,14 @@ async def _show_team_tasks(update, context, team_id: str):
         await update.callback_query.message.reply_text("دسترسی ندارید.")
         return
 
+    # sync then list
+    _sync_category_tasks(user_id, team)
     tasks = get_team_tasks(team_id, active_only=True)
     if not tasks:
         await update.callback_query.message.reply_text(
-            f"دسته «{team['name']}» تسک فعالی ندارد."
+            f"دسته «{team['name']}» تسک فعالی ندارد.\n"
+            f"اگر تسک شخصی با همین نام دسته داری، یک‌بار «باز کردن این دسته» را بزن "
+            f"تا وصل شوند؛ یا با «➕ تسک در این دسته» تسک جدید بساز."
         )
         return
 
@@ -631,8 +675,10 @@ async def handle_team_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await update.message.reply_text("نام خالی بود.")
             return True
         team = create_team(user_id, text, user=user)
+        n = _sync_category_tasks(user_id, team)
+        extra = f"\n🔗 {n} تسک شخصی وصل شد." if n else ""
         await update.message.reply_text(
-            f"✅ ساخته شد\n\n" + _codes_text(team, bot_user),
+            f"✅ ساخته شد{extra}\n\n" + _codes_text(team, bot_user),
             parse_mode="HTML",
             reply_markup=_share_role_keyboard(team["team_id"]),
         )
@@ -644,8 +690,10 @@ async def handle_team_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await update.message.reply_text("نام خالی بود.")
             return True
         team = create_team(user_id, text, user=user)
+        n = _sync_category_tasks(user_id, team)
+        extra = f"\n🔗 {n} تسک شخصی وصل شد." if n else ""
         await update.message.reply_text(
-            f"📂 دسته‌بندی «<b>{_e(team['name'])}</b>» آماده اشتراک است.\n"
+            f"📂 دسته‌بندی «<b>{_e(team['name'])}</b>» آماده اشتراک است.{extra}\n"
             f"نقش دعوت را انتخاب کن:",
             parse_mode="HTML",
             reply_markup=_share_role_keyboard(team["team_id"]),
