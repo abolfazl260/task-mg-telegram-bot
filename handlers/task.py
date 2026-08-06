@@ -6,14 +6,17 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from services.task_service import (
     create_task,
-    get_active_tasks
+    get_active_tasks,
+    get_task_by_id,
+    change_task_status
 )
 
 from services.excel_service import build_excel_bytes
 
 from utils.keyboard import (
     priority_keyboard,
-    deadline_keyboard
+    deadline_keyboard,
+    task_action_keyboard
 )
 
 PAGE_SIZE = 10
@@ -29,7 +32,6 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-
 async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if "step" not in context.user_data:
@@ -38,7 +40,6 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     step = context.user_data["step"]
     text = update.message.text
     task = context.user_data["new_task"]
-
 
     if step == "title":
 
@@ -52,8 +53,6 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
-
-
     if step == "deadline_custom":
 
         task["deadline"] = text
@@ -66,8 +65,6 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
-
-
     if step == "category":
 
         task["category"] = text
@@ -79,8 +76,6 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         return
-
-
 
     if step == "tags":
 
@@ -102,7 +97,6 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-
 async def priority_selected(update, context):
 
     query = update.callback_query
@@ -122,7 +116,6 @@ async def priority_selected(update, context):
     )
 
 
-
 async def deadline_selected(update, context):
 
     query = update.callback_query
@@ -134,7 +127,6 @@ async def deadline_selected(update, context):
         ""
     )
 
-
     if value == "custom":
 
         context.user_data["step"] = "deadline_custom"
@@ -144,8 +136,6 @@ async def deadline_selected(update, context):
         )
 
         return
-
-
 
     days = int(value)
 
@@ -159,11 +149,9 @@ async def deadline_selected(update, context):
 
     context.user_data["step"] = "category"
 
-
     await query.message.reply_text(
         "📂 دسته‌بندی را وارد کنید یا /skip بزنید:"
     )
-
 
 
 async def skip_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -171,7 +159,6 @@ async def skip_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
     step = context.user_data.get("step")
 
     task = context.user_data.get("new_task")
-
 
     if step == "category":
 
@@ -184,8 +171,6 @@ async def skip_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         return
-
-
 
     if step == "tags":
 
@@ -429,6 +414,46 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
     )
 
+    # =====================
+    # پیام‌های تعاملی با دکمه‌های عملیات برای هر تسک
+    # =====================
+
+    await update.message.reply_text(
+        "⬇️ برای تغییر وضعیت هر تسک، از دکمه‌های زیر استفاده کنید:"
+    )
+
+    for task in first_page:
+        priority_emoji = {
+            "high": "🔴",
+            "medium": "🟠",
+            "low": "🟢"
+        }.get(task.get("priority"), "🟢")
+
+        status_emoji = {
+            "pending": "⏳",
+            "in_progress": "🚀",
+            "done": "✅",
+            "cancelled": "❌"
+        }.get(task.get("status"), "⏳")
+
+        title = task.get("title", "-")
+        task_id = task.get("id", "")
+        deadline = task.get("deadline", "-")
+
+        caption = (
+            f"{priority_emoji} {status_emoji} **{title}**\n"
+            f"📅 {deadline} | 🆔 `{task_id}`"
+        )
+
+        await update.message.reply_text(
+            caption,
+            reply_markup=task_action_keyboard(
+                task_id,
+                task.get("status", "pending")
+            ),
+            parse_mode="Markdown"
+        )
+
 
 async def download_excel(update, context):
 
@@ -533,4 +558,76 @@ async def detail_page(update, context):
             keyboard
         )
     )
-    
+
+
+# =====================
+# Action Handlers (شروع / انجام شد / لغو)
+# =====================
+
+STATUS_LABELS = {
+    "pending": "⏳ در انتظار",
+    "in_progress": "🚀 در حال انجام",
+    "done": "✅ انجام شده",
+    "cancelled": "❌ لغو شده",
+}
+
+
+async def _handle_status_change(update, context, new_status: str):
+
+    query = update.callback_query
+    await query.answer()
+
+    # callback_data format: start_XXXX / done_XXXX / cancel_XXXX / pending_XXXX
+    prefix = query.data.split("_")[0]
+    task_id = query.data.replace(f"{prefix}_", "", 1)
+
+    task = get_task_by_id(task_id)
+
+    if not task:
+        await query.edit_message_text(
+            "⚠️ این تسک پیدا نشد."
+        )
+        return
+
+    # security: only owner can change
+    if str(task.get("user_id")) != str(update.effective_user.id):
+        await query.answer("شما مجاز به تغییر این تسک نیستید.", show_alert=True)
+        return
+
+    success = change_task_status(task_id, new_status)
+
+    if not success:
+        await query.edit_message_text(
+            "❌ خطا در تغییر وضعیت تسک."
+        )
+        return
+
+    title = task.get("title", "-")
+    label = STATUS_LABELS.get(new_status, new_status)
+
+    # update the message to show new status and remove/hide old buttons
+    await query.edit_message_text(
+        f"{label}\n\n**{title}**\n🆔 `{task_id}`",
+        parse_mode="Markdown"
+    )
+
+    # optional confirmation
+    await query.message.reply_text(
+        f"وضعیت تسک «{title}» به {label} تغییر کرد."
+    )
+
+
+async def start_task(update, context):
+    await _handle_status_change(update, context, "in_progress")
+
+
+async def done_task(update, context):
+    await _handle_status_change(update, context, "done")
+
+
+async def cancel_task(update, context):
+    await _handle_status_change(update, context, "cancelled")
+
+
+async def pending_task(update, context):
+    await _handle_status_change(update, context, "pending")
