@@ -21,6 +21,12 @@ def main_menu():
         ],
         [
             InlineKeyboardButton(
+                "👥 تیم‌ها",
+                callback_data="teams"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 "🧩 تمپلیت‌ها",
                 callback_data="templates"
             )
@@ -78,19 +84,26 @@ async def button_handler(update, context):
         )
 
     elif data == "tasks":
-        # Show options first — do not dump everything
         await query.message.reply_text(
             "📋 بخش تسک‌ها\n\nچه کاری می‌خواهید انجام دهید؟",
             reply_markup=tasks_options_keyboard(),
         )
 
     elif data == "tasks_list":
-        # list_tasks uses update.effective_message (works for CallbackQuery)
         from handlers.task import list_tasks
         await list_tasks(update, context)
 
     elif data == "tasks_back":
         await query.message.reply_text("منوی اصلی:", reply_markup=main_menu())
+
+    elif data == "teams":
+        from handlers.team import team_command
+        # simulate command without args → menu
+        class _Ctx:
+            args = []
+            user_data = context.user_data
+            bot = context.bot
+        await team_command(update, context)
 
     elif data == "templates":
 
