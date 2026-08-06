@@ -25,7 +25,6 @@ def priority_keyboard():
     ])
 
 
-
 def deadline_keyboard():
 
     return InlineKeyboardMarkup([
@@ -68,20 +67,40 @@ def deadline_keyboard():
     ])
 
 
+def task_action_keyboard(task_id: str, current_status: str = "pending"):
+    """Action buttons based on current task status."""
 
-def task_action_keyboard(task_id):
+    buttons = []
 
-    return InlineKeyboardMarkup([
-        [
+    if current_status == "pending":
+        buttons.append([
             InlineKeyboardButton(
                 "🚀 شروع",
                 callback_data=f"start_{task_id}"
             )
-        ],
-        [
+        ])
+
+    if current_status in ("pending", "in_progress"):
+        buttons.append([
             InlineKeyboardButton(
                 "✅ انجام شد",
                 callback_data=f"done_{task_id}"
             )
-        ]
-    ])
+        ])
+        buttons.append([
+            InlineKeyboardButton(
+                "❌ لغو",
+                callback_data=f"cancel_{task_id}"
+            )
+        ])
+
+    if current_status == "in_progress":
+        # allow going back to pending if needed
+        buttons.insert(0, [
+            InlineKeyboardButton(
+                "⏸ بازگشت به انتظار",
+                callback_data=f"pending_{task_id}"
+            )
+        ])
+
+    return InlineKeyboardMarkup(buttons)
