@@ -1,5 +1,6 @@
 import csv
 import os
+from datetime import datetime
 
 FILE_PATH = "data/tasks.csv"
 
@@ -14,6 +15,7 @@ HEADERS = [
     "tags",
     "description",
     "created_at",
+    "completed_at",
 ]
 
 
@@ -27,51 +29,52 @@ def init_csv():
             writer.writerow(HEADERS)
         return
 
-    # migrate old CSV that lacks description column
     with open(FILE_PATH, "r", encoding="utf-8") as file:
         reader = csv.DictReader(file)
-        old_fields = reader.fieldnames or []
+        old_fields = list(reader.fieldnames or [])
         rows = list(reader)
 
-    if "description" not in old_fields:
+    missing = [h for h in HEADERS if h not in old_fields]
+    if missing:
         for row in rows:
-            row.setdefault("description", "")
+            for h in HEADERS:
+                row.setdefault(h, "")
 
         with open(FILE_PATH, "w", newline="", encoding="utf-8") as file:
             writer = csv.DictWriter(file, fieldnames=HEADERS, extrasaction="ignore")
             writer.writeheader()
             for row in rows:
-                # ensure all keys exist
-                out = {h: row.get(h, "") for h in HEADERS}
-                writer.writerow(out)
+                writer.writerow({h: row.get(h, "") for h in HEADERS})
 
 
 def save_task(data):
-    """data is a list matching HEADERS order."""
-
     with open(FILE_PATH, "a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         writer.writerow(data)
 
 
 def read_tasks():
-
     if not os.path.exists(FILE_PATH):
         return []
 
     with open(FILE_PATH, "r", encoding="utf-8") as file:
-        reader = csv.DictReader(file)
-        rows = list(reader)
+        rows = list(csv.DictReader(file))
 
-    # normalize missing description
     for row in rows:
-        row.setdefault("description", "")
-
+        for h in HEADERS:
+            row.setdefault(h, "")
     return rows
 
 
-def update_task_status(task_id: str, new_status: str) -> bool:
+def _write_all(tasks):
+    with open(FILE_PATH, "w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=HEADERS, extrasaction="ignore")
+        writer.writeheader()
+        for task in tasks:
+            writer.writerow({h: task.get(h, "") for h in HEADERS})
 
+
+def update_task_status(task_id: str, new_status: str) -> bool:
     if not os.path.exists(FILE_PATH):
         return False
 
@@ -81,17 +84,17 @@ def update_task_status(task_id: str, new_status: str) -> bool:
     for task in tasks:
         if task.get("id") == task_id:
             task["status"] = new_status
+            if new_status == "done":
+                task["completed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            elif new_status in ("pending", "in_progress", "cancelled"):
+                # clear completion timestamp if reopened/cancelled
+                if new_status != "done":
+                    task["completed_at"] = ""
             updated = True
             break
 
     if not updated:
         return False
 
-    with open(FILE_PATH, "w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=HEADERS, extrasaction="ignore")
-        writer.writeheader()
-        for task in tasks:
-            out = {h: task.get(h, "") for h in HEADERS}
-            writer.writerow(out)
-
+    _write_all(tasks)
     return True
