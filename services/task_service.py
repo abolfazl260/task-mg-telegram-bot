@@ -4,9 +4,10 @@ from datetime import datetime
 from services.csv_manager import (
     save_task,
     read_tasks,
-    update_task_status
+    update_task_status,
+    _write_all,
 )
-from services.team_service import get_user_teams, can_edit, is_member
+from services.team_service import get_user_teams, can_edit, is_member, get_team
 
 
 def create_task(
@@ -21,6 +22,12 @@ def create_task(
 ):
 
     task_id = str(uuid.uuid4())[:8]
+
+    # if team task and no category, use team name
+    if team_id and not (category or "").strip():
+        team = get_team(team_id)
+        if team:
+            category = team.get("name") or ""
 
     save_task([
         task_id,
@@ -42,6 +49,56 @@ def create_task(
 
 def _user_team_ids(user_id):
     return {item["team"]["team_id"] for item in get_user_teams(user_id)}
+
+
+def link_user_category_to_team(user_id, category: str, team_id: str) -> int:
+    """
+    Attach user's personal tasks (no team_id) whose category matches
+    to the shared team. Returns number of tasks linked.
+    """
+
+    cat = (category or "").strip()
+    if not cat or not team_id:
+        return 0
+
+    uid = str(user_id).strip()
+    cat_key = cat.lower()
+    tasks = read_tasks()
+    linked = 0
+
+    for task in tasks:
+        if str(task.get("user_id") or "").strip() != uid:
+            continue
+        if (task.get("team_id") or "").strip():
+            continue
+        tcat = (task.get("category") or "").strip()
+        if tcat.lower() != cat_key:
+            continue
+        task["team_id"] = team_id
+        # keep category in sync with shared space name
+        if not tcat:
+            task["category"] = cat
+        linked += 1
+
+    if linked:
+        _write_all(tasks)
+    return linked
+
+
+def link_team_name_category_for_owner(team_id: str) -> int:
+    """
+    For team owner: link any of their personal tasks whose category
+    equals the team name into this team. Safe to call repeatedly.
+    """
+
+    team = get_team(team_id)
+    if not team:
+        return 0
+    owner_id = team.get("owner_id")
+    name = (team.get("name") or "").strip()
+    if not owner_id or not name:
+        return 0
+    return link_user_category_to_team(owner_id, name, team_id)
 
 
 def get_active_tasks(user_id, team_id=None):
@@ -105,6 +162,12 @@ def get_all_user_tasks(user_id, team_id=None):
 
 
 def get_team_tasks(team_id: str, active_only=True):
+    # auto-link owner personal category tasks once (idempotent)
+    try:
+        link_team_name_category_for_owner(team_id)
+    except Exception:
+        pass
+
     tasks = read_tasks()
     result = []
     for task in tasks:
