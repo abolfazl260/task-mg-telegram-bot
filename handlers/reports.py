@@ -38,6 +38,16 @@ def _parse_created(created_at: str):
             return None
 
 
+def _jalali_str(deadline: str) -> str:
+    if not deadline:
+        return "—"
+    try:
+        d = datetime.strptime(deadline, "%Y-%m-%d").date()
+        return jdatetime.date.fromgregorian(date=d).strftime("%Y/%m/%d")
+    except Exception:
+        return "—"
+
+
 def reports_menu_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 کل تسک‌ها", callback_data="report_all")],
@@ -51,8 +61,9 @@ def reports_menu_keyboard():
         [InlineKeyboardButton("🌡 هیت‌مپ ماهانه", callback_data="report_heatmap")],
         [InlineKeyboardButton("📈 روند هفتگی", callback_data="report_trend")],
         [InlineKeyboardButton("☀️ برنامه امروز", callback_data="report_today")],
-        [InlineKeyboardButton("📊 مقایسه ماهانه", callback_data="report_compare")],
+        [InlineKeyboardButton("📊 مقایسه سه‌ماهه", callback_data="report_compare")],
         [InlineKeyboardButton("📈 نرخ انجام / میانگین زمان", callback_data="report_perf")],
+        [InlineKeyboardButton("📊 نمودار پیشرفت", callback_data="report_progress_bar")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="report_back")],
     ])
 
@@ -96,7 +107,10 @@ async def report_by_priority(update: Update, context: ContextTypes.DEFAULT_TYPE)
     groups = {"high": [], "medium": [], "low": []}
     for task in tasks:
         p = task.get("priority", "low")
-        groups.setdefault(p, groups["low"]).append(task) if p in groups else groups["low"].append(task)
+        if p in groups:
+            groups[p].append(task)
+        else:
+            groups["low"].append(task)
     text = "# 🎯 گزارش بر اساس اولویت\n\n"
     for key, label, emoji in [("high", "بالا", "🔴"), ("medium", "متوسط", "🟠"), ("low", "پایین", "🟢")]:
         items = groups[key]
@@ -104,9 +118,15 @@ async def report_by_priority(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not items:
             text += "_موردی نیست_\n\n"
             continue
-        text += "| # | عنوان | وضعیت | مهلت |\n|---|---|---|---|\n"
+        text += "| # | عنوان | وضعیت | مهلت (میلادی) | مهلت (شمسی) | دسته‌بندی |\n|---|---|---|---|---|---|\n"
         for i, task in enumerate(items, start=1):
-            text += f"| {i} | {task.get('title', '-')} | {_status_label(task.get('status'))} | {task.get('deadline') or '—'} |\n"
+            deadline = task.get("deadline") or "—"
+            jalali = _jalali_str(task.get("deadline") or "")
+            cat = task.get("category") or "—"
+            text += (
+                f"| {i} | {task.get('title', '-')} | {_status_label(task.get('status'))} "
+                f"| {deadline} | {jalali} | {cat} |\n"
+            )
         text += "\n"
     await _send_rich(context, update.effective_chat.id, text)
 
@@ -410,7 +430,7 @@ async def report_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def reports_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
-    from handlers.extra_reports import report_compare_months, report_performance
+    from handlers.extra_reports import report_compare_months, report_performance, report_progress_bar
     routes = {
         "report_all": report_all_tasks,
         "report_priority": report_by_priority,
@@ -425,6 +445,7 @@ async def reports_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "report_today": report_today,
         "report_compare": report_compare_months,
         "report_perf": report_performance,
+        "report_progress_bar": report_progress_bar,
     }
     if data == "report_back":
         await query.answer()
