@@ -6,7 +6,7 @@ Share flow (category-based):
   3) Bot sends ready-to-forward invite with correct deep link
 """
 
-from collections import defaultdict
+import html
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -31,9 +31,12 @@ from services.team_service import (
 from services.task_service import get_team_tasks, get_all_user_tasks
 
 
-async def _bot_username(context) -> str:
-    """Always prefer live username; fallback to config (TaskManagerpersian_Bot)."""
+def _e(value) -> str:
+    """HTML-escape dynamic text for Telegram HTML parse_mode."""
+    return html.escape(str(value if value is not None else ""))
 
+
+async def _bot_username(context) -> str:
     try:
         if context.bot.username:
             return context.bot.username
@@ -52,33 +55,37 @@ def _deep_link(bot_username: str, code: str) -> str:
 def _invite_message(team: dict, role: str, bot_username: str) -> str:
     code = team.get("editor_code") if role == ROLE_EDITOR else team.get("viewer_code")
     link = _deep_link(bot_username, code)
+    name = _e(team.get("name"))
+    tid = _e(team.get("team_id"))
+    code_e = _e(code)
     role_fa = (
         "✏️ ویرایشگر — می‌تواند تسک بسازد و وضعیت را عوض کند"
         if role == ROLE_EDITOR
         else "👁 مشاهده‌کننده — فقط مشاهده تسک‌ها"
     )
-
     return (
         f"📨 دعوت به دسته‌بندی مشترک\n\n"
-        f"📂 دسته‌بندی در حال اشتراک: **{team.get('name')}**\n"
-        f"🆔 `{team.get('team_id')}`\n"
+        f"📂 دسته‌بندی در حال اشتراک: <b>{name}</b>\n"
+        f"🆔 <code>{tid}</code>\n"
         f"نقش این دعوت: {role_fa}\n\n"
         f"عضویت با یک کلیک:\n{link}\n\n"
-        f"یا در ربات بفرست:\n/team join {code}\n\n"
-        f"—\nفقط همین دسته‌بندی («{team.get('name')}») به اشتراک گذاشته می‌شود."
+        f"یا در ربات بفرست:\n/team join {code_e}\n\n"
+        f"—\nفقط همین دسته‌بندی («{name}») به اشتراک گذاشته می‌شود."
     )
 
 
 def _codes_text(team: dict, bot_username: str) -> str:
-    ed = team.get("editor_code")
-    vw = team.get("viewer_code")
+    ed = team.get("editor_code") or ""
+    vw = team.get("viewer_code") or ""
+    name = _e(team.get("name"))
+    tid = _e(team.get("team_id"))
     return (
-        f"📂 دسته‌بندی: **{team.get('name')}**\n"
-        f"🆔 `{team.get('team_id')}`\n\n"
+        f"📂 دسته‌بندی: <b>{name}</b>\n"
+        f"🆔 <code>{tid}</code>\n\n"
         f"✏️ لینک ویرایشگر:\n{_deep_link(bot_username, ed)}\n"
-        f"کد: `{ed}`\n\n"
+        f"کد: <code>{_e(ed)}</code>\n\n"
         f"👁 لینک مشاهده:\n{_deep_link(bot_username, vw)}\n"
-        f"کد: `{vw}`\n\n"
+        f"کد: <code>{_e(vw)}</code>\n\n"
         f"⚠️ هر لینک نقش جدا دارد."
     )
 
@@ -89,8 +96,8 @@ def _format_members_list(team_name: str, members: list) -> str:
     viewers = [m for m in members if m.get("role") == ROLE_VIEWER]
 
     lines = [
-        f"👥 اعضای «{team_name}»\n",
-        f"تعداد کل: **{len(members)}** نفر\n",
+        f"👥 اعضای «{_e(team_name)}»\n",
+        f"تعداد کل: <b>{len(members)}</b> نفر\n",
     ]
 
     def section(title, items):
@@ -98,8 +105,10 @@ def _format_members_list(team_name: str, members: list) -> str:
             return
         lines.append(f"\n{title} ({len(items)}):")
         for i, m in enumerate(items, start=1):
-            lines.append(f"  {i}. {member_display(m)}")
-            lines.append(f"     🆔 `{m.get('user_id')}` · {m.get('joined_at') or '—'}")
+            lines.append(f"  {i}. {_e(member_display(m))}")
+            lines.append(
+                f"     🆔 <code>{_e(m.get('user_id'))}</code> · {_e(m.get('joined_at') or '—')}"
+            )
 
     section("👑 مالک", owners)
     section("✏️ ویرایشگر", editors)
@@ -108,8 +117,6 @@ def _format_members_list(team_name: str, members: list) -> str:
 
 
 def _user_categories(user_id) -> list:
-    """Unique non-empty categories from personal (non-team) tasks."""
-
     cats = []
     seen = set()
     for t in get_all_user_tasks(user_id):
@@ -146,7 +153,7 @@ async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         team = create_team(user_id, name, user=user)
         await update.message.reply_text(
             f"✅ دسته‌بندی مشترک ساخته شد\n\n" + _codes_text(team, bot_user),
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=_share_role_keyboard(team["team_id"]),
         )
         return
@@ -155,8 +162,8 @@ async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(args) < 2:
             context.user_data["step"] = "team_join_code"
             await update.message.reply_text(
-                "کد دعوت یا لینک را بفرست:\nمثال: `ABC12X`",
-                parse_mode="Markdown",
+                "کد دعوت یا لینک را بفرست:\nمثال: <code>ABC12X</code>",
+                parse_mode="HTML",
             )
             return
         await _do_join(update, context, _extract_code(" ".join(args[1:])))
@@ -171,7 +178,7 @@ async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if action in ("help", "راهنما"):
-        await update.message.reply_text(_help_text(), parse_mode="Markdown")
+        await update.message.reply_text(_help_text(), parse_mode="HTML")
         return
 
     await _show_team_menu(update, context)
@@ -206,24 +213,24 @@ async def _do_join(update, context, code: str):
 
     if msg:
         await msg.reply_text(
-            f"{'✅' if ok else '⚠️'} {text}\n\n"
-            f"📂 دسته‌بندی: **{name}**\n"
-            f"🆔 `{tid}`\n"
+            f"{'✅' if ok else '⚠️'} {_e(text)}\n\n"
+            f"📂 دسته‌بندی: <b>{_e(name)}</b>\n"
+            f"🆔 <code>{_e(tid)}</code>\n"
             f"نقش: {role_fa}",
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
 
 
 def _help_text() -> str:
     return (
-        "👥 **دسته‌بندی مشترک / تیم**\n\n"
-        "**اشتراک‌گذاری (پیشنهادی):**\n"
-        "۱) `/team share` یا دکمه 📤 اشتراک دسته‌بندی\n"
-        "۲) انتخاب کن **کدام دسته‌بندی** را می‌خواهی به اشتراک بگذاری\n"
+        "👥 <b>دسته‌بندی مشترک / تیم</b>\n\n"
+        "<b>اشتراک‌گذاری (پیشنهادی):</b>\n"
+        "۱) /team share یا دکمه 📤 اشتراک دسته‌بندی\n"
+        "۲) انتخاب کن کدام دسته‌بندی را می‌خواهی به اشتراک بگذاری\n"
         "۳) نقش را انتخاب کن (ویرایشگر / مشاهده)\n"
         "۴) پیام دعوت را فوروارد کن\n\n"
-        "**ساخت مستقیم:** `/team create نام`\n"
-        "**عضویت:** لینک دعوت یا `/team join کد`\n"
+        "<b>ساخت مستقیم:</b> /team create نام\n"
+        "<b>عضویت:</b> لینک دعوت یا /team join کد\n"
     )
 
 
@@ -238,7 +245,7 @@ def _share_role_keyboard(team_id: str) -> InlineKeyboardMarkup:
             callback_data=f"team_share_vw_{team_id}",
         )],
         [InlineKeyboardButton(
-            f"📂 باز کردن این دسته",
+            "📂 باز کردن این دسته",
             callback_data=f"team_open_{team_id}",
         )],
     ])
@@ -254,21 +261,18 @@ async def _show_team_menu(update, context):
     ])
     text = (
         "👥 دسته‌بندی مشترک\n\n"
-        "برای اشتراک، اول **انتخاب کن کدام دسته** را می‌خواهی به اشتراک بگذاری."
+        "برای اشتراک، اول انتخاب کن کدام دسته را می‌خواهی به اشتراک بگذاری."
     )
     target = update.callback_query.message if update.callback_query else update.message
     await target.reply_text(text, reply_markup=keyboard)
 
 
 async def _start_share_wizard(update, context):
-    """Step 1: ask which category/space to share."""
-
     user_id = update.effective_user.id
     msg = update.callback_query.message if update.callback_query else update.message
 
     buttons = []
 
-    # Existing shared spaces user can invite to
     for item in get_user_teams(user_id):
         t = item["team"]
         role = item["role"]
@@ -281,9 +285,7 @@ async def _start_share_wizard(update, context):
             )
         ])
 
-    # Personal task categories → can create/share as shared category
     for cat in _user_categories(user_id)[:15]:
-        # avoid duplicate names already listed as teams
         buttons.append([
             InlineKeyboardButton(
                 f"🏷 {cat[:28]} (از تسک‌های من)",
@@ -299,7 +301,6 @@ async def _start_share_wizard(update, context):
     ])
 
     if len(buttons) <= 2:
-        # only new + cancel
         await msg.reply_text(
             "هنوز دسته‌بندی یا فضای مشترکی نداری.\n"
             "یک نام جدید بساز یا اول چند تسک با دسته ثبت کن.",
@@ -308,23 +309,21 @@ async def _start_share_wizard(update, context):
         return
 
     await msg.reply_text(
-        "📤 **اشتراک‌گذاری بر اساس دسته‌بندی**\n\n"
+        "📤 <b>اشتراک‌گذاری بر اساس دسته‌بندی</b>\n\n"
         "کدام دسته‌بندی را می‌خواهی به اشتراک بگذاری؟\n"
         "(فقط همان دسته برای طرف مقابل مشترک می‌شود)",
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
 
 
 async def _after_category_chosen(update, context, team: dict):
-    """Step 2: ask editor vs viewer for this category."""
-
     query = update.callback_query
     await query.message.reply_text(
-        f"📂 دسته‌بندی انتخاب‌شده: **{team['name']}**\n"
-        f"🆔 `{team['team_id']}`\n\n"
+        f"📂 دسته‌بندی انتخاب‌شده: <b>{_e(team['name'])}</b>\n"
+        f"🆔 <code>{_e(team['team_id'])}</code>\n\n"
         f"با چه نقشی دعوت می‌کنی؟",
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=_share_role_keyboard(team["team_id"]),
     )
 
@@ -348,8 +347,8 @@ async def _list_teams(update, context):
         role = item["role"]
         n = len(get_team_members(t["team_id"]))
         lines.append(
-            f"• **{t['name']}** — {role_label(role)} · 👤 {n}\n"
-            f"  🆔 `{t['team_id']}`"
+            f"• <b>{_e(t['name'])}</b> — {role_label(role)} · 👤 {n}\n"
+            f"  🆔 <code>{_e(t['team_id'])}</code>"
         )
         buttons.append([
             InlineKeyboardButton(
@@ -360,7 +359,7 @@ async def _list_teams(update, context):
 
     await msg.reply_text(
         "\n".join(lines),
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
 
@@ -399,7 +398,6 @@ async def team_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("team_sharepick_c_"):
         cat = data.replace("team_sharepick_c_", "", 1)
-        # find existing team with same name owned/editable, else create
         team = None
         for item in get_user_teams(user_id):
             t = item["team"]
@@ -421,9 +419,7 @@ async def team_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "team_join":
         context.user_data["step"] = "team_join_code"
-        await query.message.reply_text(
-            "کد دعوت یا لینک کامل را بفرست:",
-        )
+        await query.message.reply_text("کد دعوت یا لینک کامل را بفرست:")
         return
 
     if data == "team_list":
@@ -431,7 +427,7 @@ async def team_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "team_help":
-        await query.message.reply_text(_help_text(), parse_mode="Markdown")
+        await query.message.reply_text(_help_text(), parse_mode="HTML")
         return
 
     if data.startswith("team_open_"):
@@ -461,7 +457,7 @@ async def team_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         await query.message.reply_text(
             _codes_text(team, bot_user),
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=_share_role_keyboard(team_id),
         )
         return
@@ -471,8 +467,8 @@ async def team_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ok, msg, team = regenerate_codes(user_id, team_id)
         if ok and team:
             await query.message.reply_text(
-                f"✅ {msg}\n\n" + _codes_text(team, bot_user),
-                parse_mode="Markdown",
+                f"✅ {_e(msg)}\n\n" + _codes_text(team, bot_user),
+                parse_mode="HTML",
             )
         else:
             await query.message.reply_text("⚠️ " + msg)
@@ -493,7 +489,7 @@ async def team_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         await query.message.reply_text(
             _format_members_list(team["name"], get_team_members(team_id)),
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
         return
 
@@ -524,15 +520,14 @@ async def _send_share_invite(query, user_id, team_id, role, bot_username):
         await query.message.reply_text("فقط مالک و ویرایشگر می‌توانند دعوت بفرستند.")
         return
 
-    # force correct bot username in link
     bot_username = bot_username or BOT_USERNAME or "TaskManagerpersian_Bot"
     text = _invite_message(team, role, bot_username)
     role_title = "ویرایشگر" if role == ROLE_EDITOR else "مشاهده‌کننده"
     await query.message.reply_text(
         f"📤 دعوت ({role_title})\n"
-        f"📂 دسته‌بندی در حال اشتراک: **{team['name']}**\n\n"
+        f"📂 دسته‌بندی در حال اشتراک: <b>{_e(team['name'])}</b>\n\n"
         f"این پیام را فوروارد کن:\n\n{text}",
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
@@ -551,13 +546,13 @@ async def _open_team(update, context, team_id: str):
 
     active = get_team_tasks(team_id, active_only=True)
     members = get_team_members(team_id)
-    preview = "، ".join(member_display(m) for m in members[:5])
+    preview = "، ".join(_e(member_display(m)) for m in members[:5])
     if len(members) > 5:
         preview += f" و {len(members) - 5} نفر دیگر"
 
     text = (
-        f"📂 دسته‌بندی مشترک: **{team['name']}**\n"
-        f"🆔 `{team_id}`\n"
+        f"📂 دسته‌بندی مشترک: <b>{_e(team['name'])}</b>\n"
+        f"🆔 <code>{_e(team_id)}</code>\n"
         f"نقش شما: {role_label(role)}\n"
         f"تسک فعال: {len(active)}\n"
         f"اعضا ({len(members)}): {preview}\n"
@@ -582,7 +577,7 @@ async def _open_team(update, context, team_id: str):
     buttons.append([InlineKeyboardButton("🔙 لیست", callback_data="team_list")])
 
     await update.callback_query.message.reply_text(
-        text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons)
+        text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons)
     )
 
 
@@ -603,19 +598,20 @@ async def _show_team_tasks(update, context, team_id: str):
     pr = {"high": "🔴", "medium": "🟠", "low": "🟢"}
     st = {"pending": "⏳", "in_progress": "🚀"}
     lines = [
-        f"📋 تسک‌های دسته «{team['name']}» — {len(tasks)}\n",
-        f"📂 دسته‌بندی مشترک: **{team['name']}**\n",
+        f"📋 تسک‌های دسته «{_e(team['name'])}» — {len(tasks)}\n",
+        f"📂 دسته‌بندی مشترک: <b>{_e(team['name'])}</b>\n",
     ]
     for i, t in enumerate(tasks[:30], start=1):
         lines.append(
             f"{i}. {pr.get(t.get('priority'), '🟢')}{st.get(t.get('status'), '⏳')} "
-            f"{t.get('title', '-')} | {t.get('deadline') or '—'} | `{t.get('id')}`"
+            f"{_e(t.get('title', '-'))} | {_e(t.get('deadline') or '—')} | "
+            f"<code>{_e(t.get('id'))}</code>"
         )
     if not can_edit(team_id, user_id):
         lines.append("\n👁 فقط مشاهده.")
 
     await update.callback_query.message.reply_text(
-        "\n".join(lines), parse_mode="Markdown"
+        "\n".join(lines), parse_mode="HTML"
     )
 
 
@@ -637,7 +633,7 @@ async def handle_team_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         team = create_team(user_id, text, user=user)
         await update.message.reply_text(
             f"✅ ساخته شد\n\n" + _codes_text(team, bot_user),
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=_share_role_keyboard(team["team_id"]),
         )
         return True
@@ -649,9 +645,9 @@ async def handle_team_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             return True
         team = create_team(user_id, text, user=user)
         await update.message.reply_text(
-            f"📂 دسته‌بندی «**{team['name']}**» آماده اشتراک است.\n"
+            f"📂 دسته‌بندی «<b>{_e(team['name'])}</b>» آماده اشتراک است.\n"
             f"نقش دعوت را انتخاب کن:",
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=_share_role_keyboard(team["team_id"]),
         )
         return True
