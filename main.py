@@ -41,9 +41,10 @@ from handlers.templates import (
     templates_callback
 )
 
-from handlers.search_share import search_command, share_command
-from handlers.extra_reports import report_compare_months, report_performance
-from services.reminders import check_deadline_reminders
+from handlers.search_share import search_command, share_command, share_category_callback
+from handlers.extra_reports import report_compare_months, report_performance, report_progress_bar
+from handlers.import_bulk import import_callback
+from services.reminders import morning_today_tasks, midday_summary_and_weekly
 from services.csv_manager import init_csv
 
 
@@ -54,23 +55,29 @@ async def post_init(app: Application):
     commands = [
         BotCommand("start", "شروع ربات و منوی اصلی"),
         BotCommand("add", "افزودن تسک جدید"),
-        BotCommand("tasks", "مشاهده تسک‌های فعال"),
+        BotCommand("tasks", "منوی تسک‌ها"),
         BotCommand("search", "جستجوی تسک"),
-        BotCommand("share", "اشتراک‌گذاری لیست"),
+        BotCommand("share", "اشتراک‌گذاری لیست / دسته"),
         BotCommand("templates", "تمپلیت‌های آماده"),
         BotCommand("reports", "گزارشات و آمار"),
         BotCommand("skip", "رد کردن فیلد اختیاری"),
     ]
     await app.bot.set_my_commands(commands)
 
-    # Daily reminder at 09:00 server time
     if app.job_queue:
+        # 07:00 — today's tasks list
         app.job_queue.run_daily(
-            check_deadline_reminders,
-            time=dt_time(hour=9, minute=0),
-            name="deadline_reminders",
+            morning_today_tasks,
+            time=dt_time(hour=7, minute=0),
+            name="morning_today_tasks",
         )
-        logging.info("Deadline reminder job scheduled (09:00).")
+        # 11:00 — daily summary + weekly report
+        app.job_queue.run_daily(
+            midday_summary_and_weekly,
+            time=dt_time(hour=11, minute=0),
+            name="midday_summary_weekly",
+        )
+        logging.info("Jobs scheduled: 07:00 morning tasks, 11:00 summary+weekly.")
     else:
         logging.warning("JobQueue not available — reminders disabled.")
 
@@ -106,20 +113,24 @@ def main():
     app.add_handler(CallbackQueryHandler(sort_tasks_callback, pattern="^sort_"))
 
     app.add_handler(CallbackQueryHandler(reports_callback, pattern="^report_"))
-    # direct extra reports if menu uses them before reports_callback routes updated
     app.add_handler(CallbackQueryHandler(report_compare_months, pattern="^report_compare$"))
     app.add_handler(CallbackQueryHandler(report_performance, pattern="^report_perf$"))
+    app.add_handler(CallbackQueryHandler(report_progress_bar, pattern="^report_progress_bar$"))
 
     app.add_handler(CallbackQueryHandler(templates_callback, pattern="^tpl_"))
     app.add_handler(CallbackQueryHandler(priority_selected, pattern="^priority_"))
     app.add_handler(CallbackQueryHandler(deadline_selected, pattern="^deadline_"))
+
+    app.add_handler(CallbackQueryHandler(share_category_callback, pattern="^share_cat_"))
+    app.add_handler(CallbackQueryHandler(import_callback, pattern="^import_"))
 
     app.add_handler(
         CallbackQueryHandler(
             button_handler,
             pattern=(
                 "^(?!priority_|deadline_|detail_page_|download_csv|"
-                "start_|done_|cancel_|pending_|report_|tpl_|sort_)"
+                "start_|done_|cancel_|pending_|report_|tpl_|sort_|"
+                "share_cat_|import_)"
             )
         )
     )
