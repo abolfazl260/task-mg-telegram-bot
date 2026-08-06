@@ -12,10 +12,13 @@ from services.team_service import (
     leave_team,
     regenerate_codes,
     role_label,
+    member_display,
     ROLE_OWNER,
+    ROLE_EDITOR,
+    ROLE_VIEWER,
     can_edit,
 )
-from services.task_service import get_team_tasks, create_task
+from services.task_service import get_team_tasks
 
 
 def _codes_text(team: dict) -> str:
@@ -28,6 +31,35 @@ def _codes_text(team: dict) -> str:
     )
 
 
+def _format_members_list(team_name: str, members: list) -> str:
+    """Readable roster of team members."""
+
+    owners = [m for m in members if m.get("role") == ROLE_OWNER]
+    editors = [m for m in members if m.get("role") == ROLE_EDITOR]
+    viewers = [m for m in members if m.get("role") == ROLE_VIEWER]
+
+    lines = [
+        f"👥 اعضای تیم «{team_name}»\n",
+        f"تعداد کل: **{len(members)}** نفر\n",
+    ]
+
+    def section(title, items):
+        if not items:
+            return
+        lines.append(f"\n{title} ({len(items)}):")
+        for i, m in enumerate(items, start=1):
+            label = member_display(m)
+            joined = m.get("joined_at") or "—"
+            lines.append(f"  {i}. {label}")
+            lines.append(f"     🆔 `{m.get('user_id')}` · عضویت: {joined}")
+
+    section("👑 مالک", owners)
+    section("✏️ ویرایشگر", editors)
+    section("👁 مشاهده‌کننده", viewers)
+
+    return "\n".join(lines)
+
+
 async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /team
@@ -37,7 +69,8 @@ async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
 
     args = context.args or []
-    user_id = update.effective_user.id
+    user = update.effective_user
+    user_id = user.id
 
     if not args:
         await _show_team_menu(update, context)
@@ -51,7 +84,7 @@ async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["step"] = "team_create_name"
             await update.message.reply_text("نام تیم را وارد کنید:")
             return
-        team = create_team(user_id, name)
+        team = create_team(user_id, name, user=user)
         text = (
             f"✅ تیم «**{team['name']}**» ساخته شد.\n"
             f"🆔 `{team['team_id']}`\n\n"
@@ -68,7 +101,7 @@ async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         code = args[1].strip()
-        ok, msg, team = join_team_by_code(user_id, code)
+        ok, msg, team = join_team_by_code(user_id, code, user=user)
         await update.message.reply_text(
             ("✅ " if ok else "⚠️ ") + msg
             + (f"\n🆔 `{team['team_id']}`" if team and ok else ""),
@@ -84,7 +117,6 @@ async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(_help_text(), parse_mode="Markdown")
         return
 
-    # unknown → menu
     await _show_team_menu(update, context)
 
 
@@ -99,7 +131,8 @@ def _help_text() -> str:
         "✏️ ویرایشگر — ساخت و تغییر تسک تیمی\n"
         "👁 مشاهده‌کننده — فقط مشاهده\n\n"
         "هر تیم دو کد جدا دارد (ادیتور / مشاهده).\n"
-        "می‌توانید عضو چند تیم همزمان باشید."
+        "می‌توانید عضو چند تیم همزمان باشید.\n"
+        "از داخل هر تیم دکمه **👥 اعضا** لیست افراد را نشان می‌دهد."
     )
 
 
@@ -134,13 +167,14 @@ async def _list_teams(update, context):
     for item in items:
         t = item["team"]
         role = item["role"]
+        members = get_team_members(t["team_id"])
         lines.append(
             f"• **{t['name']}** — {role_label(role)}\n"
-            f"  🆔 `{t['team_id']}`"
+            f"  🆔 `{t['team_id']}` · 👤 {len(members)} عضو"
         )
         buttons.append([
             InlineKeyboardButton(
-                f"📂 {t['name'][:20]}",
+                f"📂 {t['name'][:20]} ({len(members)})",
                 callback_data=f"team_open_{t['team_id']}",
             )
         ])
@@ -156,7 +190,8 @@ async def team_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
-    user_id = update.effective_user.id
+    user = update.effective_user
+    user_id = user.id
 
     if data == "team_menu":
         await _show_team_menu(update, context)
@@ -227,10 +262,8 @@ async def team_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text("دسترسی ندارید.")
             return
         members = get_team_members(team_id)
-        lines = [f"👥 اعضای «{team['name']}»:\n"]
-        for m in members:
-            lines.append(f"• `{m.get('user_id')}` — {role_label(m.get('role'))}")
-        await query.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        text = _format_members_list(team["name"], members)
+        await query.message.reply_text(text, parse_mode="Markdown")
         return
 
     if data.startswith("team_tasks_"):
@@ -268,16 +301,31 @@ async def _open_team(update, context, team_id: str):
         return
 
     active = get_team_tasks(team_id, active_only=True)
+    members = get_team_members(team_id)
+
+    # short preview of members
+    preview_names = []
+    for m in members[:5]:
+        preview_names.append(member_display(m))
+    extra = len(members) - 5
+    preview = "، ".join(preview_names)
+    if extra > 0:
+        preview += f" و {extra} نفر دیگر"
+
     text = (
         f"📂 **{team['name']}**\n"
         f"🆔 `{team_id}`\n"
         f"نقش شما: {role_label(role)}\n"
         f"تسک فعال: {len(active)}\n"
+        f"اعضا ({len(members)}): {preview}\n"
     )
 
     buttons = [
         [InlineKeyboardButton("📋 تسک‌های تیم", callback_data=f"team_tasks_{team_id}")],
-        [InlineKeyboardButton("👥 اعضا", callback_data=f"team_members_{team_id}")],
+        [InlineKeyboardButton(
+            f"👥 اعضا ({len(members)})",
+            callback_data=f"team_members_{team_id}",
+        )],
     ]
     if can_edit(team_id, user_id):
         buttons.insert(0, [
@@ -344,14 +392,15 @@ async def handle_team_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return False
 
     text = (update.message.text or "").strip()
-    user_id = update.effective_user.id
+    user = update.effective_user
+    user_id = user.id
 
     if step == "team_create_name":
         context.user_data.pop("step", None)
         if not text:
             await update.message.reply_text("نام خالی بود.")
             return True
-        team = create_team(user_id, text)
+        team = create_team(user_id, text, user=user)
         await update.message.reply_text(
             f"✅ تیم «**{team['name']}**» ساخته شد.\n🆔 `{team['team_id']}`\n\n"
             + _codes_text(team),
@@ -361,7 +410,7 @@ async def handle_team_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     if step == "team_join_code":
         context.user_data.pop("step", None)
-        ok, msg, team = join_team_by_code(user_id, text)
+        ok, msg, team = join_team_by_code(user_id, text, user=user)
         await update.message.reply_text(
             ("✅ " if ok else "⚠️ ") + msg,
             parse_mode="Markdown",
