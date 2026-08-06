@@ -18,6 +18,7 @@ from utils.keyboard import (
 )
 from utils.date_parse import parse_deadline_input
 from handlers.search_share import handle_search_text
+from handlers.import_bulk import handle_import_text
 
 PAGE_SIZE = 10
 
@@ -56,6 +57,10 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # bulk import flow
+    if await handle_import_text(update, context):
+        return
+
     # search flow
     if await handle_search_text(update, context):
         return
@@ -66,7 +71,7 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     step = context.user_data["step"]
     text = update.message.text
     task = context.user_data.get("new_task")
-    if task is None and step != "search_query":
+    if task is None and step not in ("search_query", "import_bulk"):
         return
 
     if step == "title":
@@ -391,7 +396,6 @@ async def sort_tasks_callback(update, context):
     key = query.data.replace("sort_", "")
     if key not in ("deadline", "priority", "created"):
         key = "deadline"
-    # use query.message as reply target
     await _render_task_list(update, context, sort_key=key)
 
 
