@@ -203,7 +203,6 @@ async def report_by_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def report_stuck(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Tasks in_progress for more than 3 days (based on created_at)."""
 
     query = update.callback_query
     await query.answer()
@@ -307,7 +306,6 @@ async def report_by_tags(update: Update, context: ContextTypes.DEFAULT_TYPE):
             groups["بدون تگ"].append(task)
             continue
 
-        # support comma or space separated tags
         parts = [t.strip() for t in raw.replace(",", " ").split() if t.strip()]
         if not parts:
             groups["بدون تگ"].append(task)
@@ -403,7 +401,6 @@ async def report_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def report_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """7-day calendar starting from today."""
 
     query = update.callback_query
     await query.answer()
@@ -465,7 +462,7 @@ async def report_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def report_heatmap(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Monthly heatmap based on number of deadlines per day."""
+    """Monthly heatmap: full calendar grid, then intensity emoji in each cell."""
 
     query = update.callback_query
     await query.answer()
@@ -488,9 +485,9 @@ async def report_heatmap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     max_c = max(counts.values()) if counts else 0
 
     def intensity(n):
-        if n == 0:
+        if n <= 0:
             return "⬜"
-        if max_c == 0:
+        if max_c <= 0:
             return "⬜"
         ratio = n / max_c
         if ratio <= 0.25:
@@ -507,34 +504,51 @@ async def report_heatmap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         title_month = f"{year}/{month}"
 
+    # Build full month grid (Sat-first for Iran)
     cal = calendar.Calendar(firstweekday=5)
     weeks = cal.monthdayscalendar(year, month)
 
     text = f"# 🌡 هیت‌مپ ماهانه — {title_month}\n\n"
-    text += "تراکم تسک‌ها بر اساس مهلت در هر روز:\n\n"
+    text += "تراکم تسک‌ها بر اساس مهلت در هر روز ماه:\n\n"
+
+    # Header row
     text += "| شنبه | یکشنبه | دوشنبه | سه‌شنبه | چهارشنبه | پنجشنبه | جمعه |\n"
-    text += "|---|---|---|---|---|---|---|\n"
+    text += "| :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n"
 
     for week in weeks:
         cells = []
         for day in week:
             if day == 0:
-                cells.append(" ")
+                # empty cell outside the month
+                cells.append("·")
             else:
                 n = counts.get(day, 0)
-                cells.append(f"{intensity(n)}\n**{day}**" + (f" ({n})" if n else ""))
+                emoji = intensity(n)
+                # day number + emoji on same visual cell
+                if n > 0:
+                    cells.append(f"{emoji}<br>**{day}**<br>({n})")
+                else:
+                    cells.append(f"{emoji}<br>**{day}**")
         text += "| " + " | ".join(cells) + " |\n"
 
     text += (
-        "\n\n📌 راهنما:\n"
-        "⬜ هیچ — 🟩 کم — 🟨 متوسط — 🟧 زیاد — 🟥 خیلی زیاد"
+        "\n\n📌 **راهنما**\n\n"
+        "| ایموجی | معنی |\n"
+        "|---|---|\n"
+        "| ⬜ | بدون تسک |\n"
+        "| 🟩 | تراکم کم |\n"
+        "| 🟨 | تراکم متوسط |\n"
+        "| 🟧 | تراکم زیاد |\n"
+        "| 🟥 | تراکم خیلی زیاد |\n"
     )
+
+    if counts:
+        text += f"\n📊 پرتراکم‌ترین روز: **{max(counts, key=counts.get)}** با {max_c} تسک"
 
     await _send_rich(context, update.effective_chat.id, text)
 
 
 async def report_trend(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Weekly trend: tasks created per day (last 7 days) as emoji bar chart."""
 
     query = update.callback_query
     await query.answer()
@@ -552,8 +566,6 @@ async def report_trend(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if 0 <= (today - d).days <= 6:
                 created_counts[d] += 1
 
-        # approximate: done tasks counted on created day if status is done
-        # (we don't store completed_at yet)
         if task.get("status") == "done" and created:
             d = created.date()
             if 0 <= (today - d).days <= 6:
@@ -596,7 +608,6 @@ async def report_trend(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def report_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Tasks whose deadline is today."""
 
     query = update.callback_query
     await query.answer()
