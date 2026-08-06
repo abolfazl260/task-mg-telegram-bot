@@ -10,14 +10,14 @@ from services.task_service import (
     get_task_by_id,
     change_task_status
 )
-
 from services.csv_export import build_csv_bytes
-
 from utils.keyboard import (
     priority_keyboard,
     deadline_keyboard,
     task_action_keyboard
 )
+from utils.date_parse import parse_deadline_input
+from handlers.search_share import handle_search_text
 
 PAGE_SIZE = 10
 
@@ -34,6 +34,8 @@ STATUS_LABEL = {
     "cancelled": "❌ لغو شده",
 }
 
+PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+
 
 def _finalize_task(user_id, task):
     return create_task(
@@ -48,29 +50,28 @@ def _finalize_task(user_id, task):
 
 
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     context.user_data["new_task"] = {}
     context.user_data["step"] = "title"
-
-    await update.message.reply_text(
-        "📝 عنوان تسک را وارد کنید:"
-    )
+    await update.message.reply_text("📝 عنوان تسک را وارد کنید:")
 
 
 async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # search flow
+    if await handle_search_text(update, context):
+        return
 
     if "step" not in context.user_data:
         return
 
     step = context.user_data["step"]
     text = update.message.text
-    task = context.user_data["new_task"]
+    task = context.user_data.get("new_task")
+    if task is None and step != "search_query":
+        return
 
     if step == "title":
-
         task["title"] = text
         context.user_data["step"] = "priority"
-
         await update.message.reply_text(
             "🎯 اولویت را انتخاب کنید:",
             reply_markup=priority_keyboard()
@@ -78,55 +79,48 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if step == "deadline_custom":
-
-        task["deadline"] = text
+        parsed = parse_deadline_input(text)
+        if not parsed:
+            await update.message.reply_text(
+                "⚠️ تاریخ نامعتبر است.\n"
+                "مثال میلادی: `2026-08-20`\n"
+                "مثال شمسی: `1405-05-29`",
+                parse_mode="Markdown",
+            )
+            return
+        task["deadline"] = parsed
         context.user_data["step"] = "category"
-
         await update.message.reply_text(
             "📂 دسته‌بندی را وارد کنید یا /skip بزنید:"
         )
         return
 
     if step == "category":
-
         task["category"] = text
         context.user_data["step"] = "tags"
-
-        await update.message.reply_text(
-            "🏷 تگ را وارد کنید یا /skip بزنید:"
-        )
+        await update.message.reply_text("🏷 تگ را وارد کنید یا /skip بزنید:")
         return
 
     if step == "tags":
-
         task["tags"] = text
         context.user_data["step"] = "description"
-
         await update.message.reply_text(
             "📄 توضیح / یادداشت را وارد کنید یا /skip بزنید:\n(اختیاری)"
         )
         return
 
     if step == "description":
-
         task["description"] = text
-
         task_id = _finalize_task(update.effective_user.id, task)
         context.user_data.clear()
-
-        await update.message.reply_text(
-            f"✅ تسک ثبت شد\n🆔 {task_id}"
-        )
+        await update.message.reply_text(f"✅ تسک ثبت شد\n🆔 {task_id}")
 
 
 async def priority_selected(update, context):
-
     query = update.callback_query
     await query.answer()
-
     priority = query.data.replace("priority_", "")
     context.user_data["new_task"]["priority"] = priority
-
     await query.message.reply_text(
         "📅 زمان انجام را انتخاب کنید:\n(می‌توانید بدون زمان‌بندی ثبت کنید)",
         reply_markup=deadline_keyboard()
@@ -134,51 +128,43 @@ async def priority_selected(update, context):
 
 
 async def deadline_selected(update, context):
-
     query = update.callback_query
     await query.answer()
-
     value = query.data.replace("deadline_", "")
 
     if value == "custom":
         context.user_data["step"] = "deadline_custom"
         await query.message.reply_text(
-            "📅 تاریخ دقیق را وارد کنید:\nمثال: 2026-08-20"
+            "📅 تاریخ دقیق را وارد کنید:\n"
+            "• میلادی: `2026-08-20`\n"
+            "• شمسی: `1405-05-29`",
+            parse_mode="Markdown",
         )
         return
 
     if value == "none":
         context.user_data["new_task"]["deadline"] = ""
         context.user_data["step"] = "category"
-        await query.message.reply_text(
-            "📂 دسته‌بندی را وارد کنید یا /skip بزنید:"
-        )
+        await query.message.reply_text("📂 دسته‌بندی را وارد کنید یا /skip بزنید:")
         return
 
     days = int(value)
     deadline = datetime.now() + timedelta(days=days)
     context.user_data["new_task"]["deadline"] = deadline.strftime("%Y-%m-%d")
     context.user_data["step"] = "category"
-
-    await query.message.reply_text(
-        "📂 دسته‌بندی را وارد کنید یا /skip بزنید:"
-    )
+    await query.message.reply_text("📂 دسته‌بندی را وارد کنید یا /skip بزنید:")
 
 
 async def skip_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     step = context.user_data.get("step")
     task = context.user_data.get("new_task")
-
     if not task:
         return
 
     if step == "category":
         task["category"] = ""
         context.user_data["step"] = "tags"
-        await update.message.reply_text(
-            "🏷 تگ را وارد کنید یا /skip بزنید:"
-        )
+        await update.message.reply_text("🏷 تگ را وارد کنید یا /skip بزنید:")
         return
 
     if step == "tags":
@@ -193,54 +179,53 @@ async def skip_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task["description"] = ""
         task_id = _finalize_task(update.effective_user.id, task)
         context.user_data.clear()
-        await update.message.reply_text(
-            f"✅ تسک ثبت شد\n🆔 {task_id}"
+        await update.message.reply_text(f"✅ تسک ثبت شد\n🆔 {task_id}")
+
+
+def sort_tasks(tasks, key: str = "deadline"):
+    if key == "priority":
+        return sorted(
+            tasks,
+            key=lambda x: PRIORITY_ORDER.get(x.get("priority"), 9),
         )
-
-
-def sort_tasks(tasks):
+    if key == "created":
+        return sorted(
+            tasks,
+            key=lambda x: x.get("created_at") or "",
+            reverse=True,
+        )
+    # default deadline
     return sorted(tasks, key=lambda x: x.get("deadline") or "9999-99-99")
 
 
 def build_detail_table(tasks, start_index=1):
-
     text = "# 📋 فهرست اقدامات\n\n| شماره | جزئیات |\n|---|---|\n"
-
     for index, task in enumerate(tasks, start=start_index):
-
-        priority = {
-            "high": "🔴", "medium": "🟠", "low": "🟢"
-        }.get(task.get("priority"), "🟢")
-
+        priority = {"high": "🔴", "medium": "🟠", "low": "🟢"}.get(
+            task.get("priority"), "🟢"
+        )
         status = {
             "pending": "⏳", "in_progress": "🚀",
-            "done": "✅", "cancelled": "❌"
+            "done": "✅", "cancelled": "❌",
         }.get(task.get("status"), "⏳")
-
         text += f"| {index} | {priority} {task.get('title','-')} {status} |\n"
-
     text += (
-        "\n\n📌 راهنما\n\n"
-        "🔴 بالا\n🟠 متوسط\n🟢 پایین\n\n"
+        "\n\n📌 راهنما\n\n🔴 بالا\n🟠 متوسط\n🟢 پایین\n\n"
         "⏳ در انتظار\n🚀 در حال انجام\n✅ انجام شده\n❌ لغو شده\n"
     )
     return text
 
 
 def build_full_report(tasks):
-
     table = "# 📊 گزارش پیگیری اقدامات\n\n"
     table += "| # | موضوع | دسته | تگ | اولویت | میلادی | شمسی | زمان | وضعیت | توضیح |\n"
     table += "|---|---|---|---|---|---|---|---|---|---|\n"
 
     for index, task in enumerate(tasks, start=1):
-
-        priority = {
-            "high": "🔴", "medium": "🟠", "low": "🟢"
-        }.get(task.get("priority"), "🟢")
-
+        priority = {"high": "🔴", "medium": "🟠", "low": "🟢"}.get(
+            task.get("priority"), "🟢"
+        )
         deadline = task.get("deadline") or "-"
-
         try:
             deadline_date = datetime.strptime(deadline, "%Y-%m-%d").date()
             diff = (deadline_date - datetime.now().date()).days
@@ -252,38 +237,27 @@ def build_full_report(tasks):
                 remaining = f"⚠️{diff}"
             else:
                 remaining = f"🕒{diff}"
-            jalali_date = (
-                jdatetime.date.fromgregorian(date=deadline_date).strftime("%Y/%m/%d")
-            )
+            jalali_date = jdatetime.date.fromgregorian(
+                date=deadline_date
+            ).strftime("%Y/%m/%d")
         except Exception:
             remaining = "-"
             jalali_date = "-"
 
         status = {
             "pending": "⏳", "in_progress": "🚀",
-            "done": "✅", "cancelled": "❌"
+            "done": "✅", "cancelled": "❌",
         }.get(task.get("status"), "-")
-
         desc = (task.get("description") or "-").replace("\n", " ")[:40]
-
         table += (
-            f"| {index} "
-            f"| {task.get('title','-')} "
-            f"| {task.get('category') or '-'} "
-            f"| {task.get('tags') or '-'} "
-            f"| {priority} "
-            f"| {deadline} "
-            f"| {jalali_date} "
-            f"| {remaining} "
-            f"| {status} "
-            f"| {desc} |\n"
+            f"| {index} | {task.get('title','-')} | {task.get('category') or '-'} "
+            f"| {task.get('tags') or '-'} | {priority} | {deadline} "
+            f"| {jalali_date} | {remaining} | {status} | {desc} |\n"
         )
-
     return table
 
 
 def format_task_card(task: dict) -> str:
-
     title = task.get("title", "-")
     task_id = task.get("id", "")
     priority = PRIORITY_LABEL.get(task.get("priority"), task.get("priority", "-"))
@@ -299,9 +273,9 @@ def format_task_card(task: dict) -> str:
     if task.get("deadline"):
         try:
             deadline_date = datetime.strptime(task["deadline"], "%Y-%m-%d").date()
-            jalali = (
-                jdatetime.date.fromgregorian(date=deadline_date).strftime("%Y/%m/%d")
-            )
+            jalali = jdatetime.date.fromgregorian(
+                date=deadline_date
+            ).strftime("%Y/%m/%d")
             diff = (deadline_date - datetime.now().date()).days
             if diff < 0:
                 remaining = f"🔻 {abs(diff)} روز گذشته"
@@ -329,15 +303,16 @@ def format_task_card(task: dict) -> str:
     )
 
 
-async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
+async def _render_task_list(update, context, sort_key="deadline", edit=False):
+    message = update.effective_message
     tasks = get_active_tasks(update.effective_user.id)
 
     if not tasks:
-        await update.message.reply_text("🎉 تسک فعال ندارید")
+        await message.reply_text("🎉 تسک فعال ندارید")
         return
 
-    tasks = sort_tasks(tasks)
+    tasks = sort_tasks(tasks, sort_key)
+    context.user_data["tasks_sort"] = sort_key
 
     high_count = medium_count = low_count = 0
     for task in tasks:
@@ -348,17 +323,31 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             low_count += 1
 
-    await update.message.reply_text(
+    sort_label = {
+        "deadline": "ددلاین",
+        "priority": "اولویت",
+        "created": "تاریخ ایجاد",
+    }.get(sort_key, sort_key)
+
+    await message.reply_text(
         f"\n# 🚦 وضعیت اولویت‌ها\n\n"
-        f"🔴 بالا\n\n{high_count} تسک\n\n"
-        f"🟠 متوسط\n\n{medium_count} تسک\n\n"
-        f"🟢 پایین\n\n{low_count} تسک\n"
+        f"🔴 بالا — {high_count}\n"
+        f"🟠 متوسط — {medium_count}\n"
+        f"🟢 پایین — {low_count}\n\n"
+        f"🔀 مرتب‌سازی فعلی: **{sort_label}**",
+        parse_mode="Markdown",
     )
 
     first_page = tasks[:PAGE_SIZE]
     text = build_detail_table(first_page)
 
-    keyboard = []
+    keyboard = [
+        [
+            InlineKeyboardButton("📅 ددلاین", callback_data="sort_deadline"),
+            InlineKeyboardButton("🎯 اولویت", callback_data="sort_priority"),
+            InlineKeyboardButton("🕐 ایجاد", callback_data="sort_created"),
+        ]
+    ]
     if len(tasks) > PAGE_SIZE:
         keyboard.append([
             InlineKeyboardButton("➡️ صفحه بعد", callback_data="detail_page_2")
@@ -367,10 +356,7 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         InlineKeyboardButton("📥 دانلود CSV", callback_data="download_csv")
     ])
 
-    await update.message.reply_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
     table = build_full_report(tasks)
     await context.bot._post(
@@ -381,59 +367,65 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         },
     )
 
-    await update.message.reply_text(
-        "⬇️ جزئیات کامل هر تسک + دکمه‌های تغییر وضعیت:"
-    )
+    await message.reply_text("⬇️ جزئیات کامل هر تسک + دکمه‌های تغییر وضعیت:")
 
     for task in first_page:
-        await update.message.reply_text(
+        await message.reply_text(
             format_task_card(task),
             reply_markup=task_action_keyboard(
                 task.get("id", ""),
-                task.get("status", "pending")
+                task.get("status", "pending"),
             ),
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
 
 
-async def download_csv(update, context):
+async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    sort_key = context.user_data.get("tasks_sort", "deadline")
+    await _render_task_list(update, context, sort_key=sort_key)
 
+
+async def sort_tasks_callback(update, context):
     query = update.callback_query
     await query.answer()
+    key = query.data.replace("sort_", "")
+    if key not in ("deadline", "priority", "created"):
+        key = "deadline"
+    # use query.message as reply target
+    await _render_task_list(update, context, sort_key=key)
 
+
+async def download_csv(update, context):
+    query = update.callback_query
+    await query.answer()
     buffer, count = build_csv_bytes(update.effective_user.id)
-
     if count == 0:
         await query.message.reply_text("🎉 تسک فعالی برای دانلود ندارید")
         return
-
     await query.message.reply_document(
         document=buffer,
         filename="tasks.csv",
-        caption=f"📥 {count} تسک فعال (فرمت CSV)"
+        caption=f"📥 {count} تسک فعال (فرمت CSV)",
     )
 
 
 async def detail_page(update, context):
-
     query = update.callback_query
     await query.answer()
-
     try:
         page = int(query.data.replace("detail_page_", ""))
     except ValueError:
         page = 1
 
     tasks = get_active_tasks(update.effective_user.id)
-
     if not tasks:
         await query.message.reply_text("🎉 تسک فعال ندارید")
         return
 
-    tasks = sort_tasks(tasks)
+    sort_key = context.user_data.get("tasks_sort", "deadline")
+    tasks = sort_tasks(tasks, sort_key)
     total_pages = max(1, -(-len(tasks) // PAGE_SIZE))
     page = min(page, total_pages)
-
     start_index = ((page - 1) * PAGE_SIZE) + 1
     start = (page - 1) * PAGE_SIZE
     end = start + PAGE_SIZE
@@ -452,10 +444,7 @@ async def detail_page(update, context):
         keyboard.append(nav)
     keyboard.append([InlineKeyboardButton("📥 دانلود CSV", callback_data="download_csv")])
 
-    await query.edit_message_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 STATUS_LABELS = {
@@ -467,13 +456,10 @@ STATUS_LABELS = {
 
 
 async def _handle_status_change(update, context, new_status: str):
-
     query = update.callback_query
     await query.answer()
-
     prefix = query.data.split("_")[0]
     task_id = query.data.replace(f"{prefix}_", "", 1)
-
     task = get_task_by_id(task_id)
 
     if not task:
@@ -485,19 +471,16 @@ async def _handle_status_change(update, context, new_status: str):
         return
 
     success = change_task_status(task_id, new_status)
-
     if not success:
         await query.edit_message_text("❌ خطا در تغییر وضعیت تسک.")
         return
 
     task["status"] = new_status
+    if new_status == "done":
+        task["completed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
     label = STATUS_LABELS.get(new_status, new_status)
 
-    await query.edit_message_text(
-        format_task_card(task),
-        parse_mode="Markdown"
-    )
-
+    await query.edit_message_text(format_task_card(task), parse_mode="Markdown")
     await query.message.reply_text(
         f"وضعیت تسک «{task.get('title', '-')}» به {label} تغییر کرد."
     )
