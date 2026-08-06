@@ -57,6 +57,21 @@ def get_active_tasks(user_id):
     return result
 
 
+def get_all_user_tasks(user_id):
+    """All tasks of a user regardless of status."""
+
+    tasks = read_tasks()
+
+    result = []
+
+    for task in tasks:
+
+        if str(task.get("user_id")).strip() == str(user_id).strip():
+            result.append(task)
+
+    return result
+
+
 def get_task_by_id(task_id: str):
 
     tasks = read_tasks()
