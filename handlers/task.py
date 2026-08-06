@@ -85,7 +85,7 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_id=update.effective_user.id,
             title=task["title"],
             priority=task["priority"],
-            deadline=task["deadline"],
+            deadline=task.get("deadline", ""),
             category=task.get("category", ""),
             tags=task.get("tags", "")
         )
@@ -111,7 +111,7 @@ async def priority_selected(update, context):
     context.user_data["new_task"]["priority"] = priority
 
     await query.message.reply_text(
-        "📅 زمان انجام را انتخاب کنید:",
+        "📅 زمان انجام را انتخاب کنید:\n(می‌توانید بدون زمان‌بندی ثبت کنید)",
         reply_markup=deadline_keyboard()
     )
 
@@ -133,6 +133,18 @@ async def deadline_selected(update, context):
 
         await query.message.reply_text(
             "📅 تاریخ دقیق را وارد کنید:\nمثال: 2026-08-20"
+        )
+
+        return
+
+    if value == "none":
+
+        context.user_data["new_task"]["deadline"] = ""
+
+        context.user_data["step"] = "category"
+
+        await query.message.reply_text(
+            "📂 دسته‌بندی را وارد کنید یا /skip بزنید:"
         )
 
         return
@@ -180,7 +192,7 @@ async def skip_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_id=update.effective_user.id,
             title=task["title"],
             priority=task["priority"],
-            deadline=task["deadline"],
+            deadline=task.get("deadline", ""),
             category="",
             tags=""
         )
@@ -195,10 +207,7 @@ async def skip_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def sort_tasks(tasks):
     return sorted(
         tasks,
-        key=lambda x: x.get(
-            "deadline",
-            "9999-99-99"
-        )
+        key=lambda x: x.get("deadline") or "9999-99-99"
     )
 
 
@@ -262,10 +271,7 @@ def build_full_report(tasks):
             "🟢"
         )
 
-        deadline = task.get(
-            "deadline",
-            "-"
-        )
+        deadline = task.get("deadline") or "-"
 
         try:
 
@@ -316,8 +322,8 @@ def build_full_report(tasks):
             f"| {index} "
             f"| {task.get('title','-')} "
             f"| {task.get('owner','بزودی')} "
-            f"| {task.get('category','-')} "
-            f"| {task.get('tags','-')} "
+            f"| {task.get('category','-') or '-'} "
+            f"| {task.get('tags','-') or '-'} "
             f"| {priority} "
             f"| {deadline} "
             f"| {jalali_date} "
@@ -361,10 +367,6 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🟢 پایین\n\n{low_count} تسک\n"
     )
 
-    # =====================
-    # جزئیات - جدول دو ستونه (صفحه اول) + دکمه دانلود CSV
-    # =====================
-
     first_page = tasks[:PAGE_SIZE]
 
     text = build_detail_table(first_page)
@@ -382,7 +384,6 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         )
 
-    # دکمه دانلود CSV روی صفحه اول
     keyboard.append(
         [
             InlineKeyboardButton(
@@ -399,10 +400,6 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     )
 
-    # =====================
-    # جدول کامل همه داده ها (ریچ مسیج)
-    # =====================
-
     table = build_full_report(tasks)
 
     await context.bot._post(
@@ -414,10 +411,6 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
         }
     )
-
-    # =====================
-    # پیام‌های تعاملی با دکمه‌های عملیات برای هر تسک
-    # =====================
 
     await update.message.reply_text(
         "⬇️ برای تغییر وضعیت هر تسک، از دکمه‌های زیر استفاده کنید:"
@@ -439,7 +432,7 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         title = task.get("title", "-")
         task_id = task.get("id", "")
-        deadline = task.get("deadline", "-")
+        deadline = task.get("deadline") or "بدون ددلاین"
 
         caption = (
             f"{priority_emoji} {status_emoji} **{title}**\n"
@@ -553,7 +546,6 @@ async def detail_page(update, context):
     if nav:
         keyboard.append(nav)
 
-    # keep CSV download available on every page
     keyboard.append(
         [
             InlineKeyboardButton(
@@ -571,10 +563,6 @@ async def detail_page(update, context):
     )
 
 
-# =====================
-# Action Handlers (شروع / انجام شد / لغو)
-# =====================
-
 STATUS_LABELS = {
     "pending": "⏳ در انتظار",
     "in_progress": "🚀 در حال انجام",
@@ -588,7 +576,6 @@ async def _handle_status_change(update, context, new_status: str):
     query = update.callback_query
     await query.answer()
 
-    # callback_data format: start_XXXX / done_XXXX / cancel_XXXX / pending_XXXX
     prefix = query.data.split("_")[0]
     task_id = query.data.replace(f"{prefix}_", "", 1)
 
@@ -600,7 +587,6 @@ async def _handle_status_change(update, context, new_status: str):
         )
         return
 
-    # security: only owner can change
     if str(task.get("user_id")) != str(update.effective_user.id):
         await query.answer("شما مجاز به تغییر این تسک نیستید.", show_alert=True)
         return
@@ -616,13 +602,11 @@ async def _handle_status_change(update, context, new_status: str):
     title = task.get("title", "-")
     label = STATUS_LABELS.get(new_status, new_status)
 
-    # update the message to show new status and remove/hide old buttons
     await query.edit_message_text(
         f"{label}\n\n**{title}**\n🆔 `{task_id}`",
         parse_mode="Markdown"
     )
 
-    # optional confirmation
     await query.message.reply_text(
         f"وضعیت تسک «{title}» به {label} تغییر کرد."
     )
