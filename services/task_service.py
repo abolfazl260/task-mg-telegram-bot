@@ -31,6 +31,7 @@ def create_task(
         tags,
         description or "",
         datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "",  # completed_at
     ])
 
     return task_id
@@ -80,3 +81,33 @@ def change_task_status(task_id: str, new_status: str) -> bool:
         return False
 
     return update_task_status(task_id, new_status)
+
+
+def search_tasks(user_id, query: str):
+    """Search in title, category, tags, description."""
+
+    q = (query or "").strip().lower()
+    if not q:
+        return []
+
+    result = []
+    for task in get_all_user_tasks(user_id):
+        blob = " ".join([
+            task.get("title") or "",
+            task.get("category") or "",
+            task.get("tags") or "",
+            task.get("description") or "",
+        ]).lower()
+        if q in blob:
+            result.append(task)
+    return result
+
+
+def get_all_user_ids():
+    """Distinct user ids that have at least one task (for reminders)."""
+    seen = set()
+    for task in read_tasks():
+        uid = str(task.get("user_id") or "").strip()
+        if uid:
+            seen.add(uid)
+    return list(seen)
