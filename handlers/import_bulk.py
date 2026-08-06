@@ -76,21 +76,30 @@ async def start_import_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("❌ انصراف", callback_data="import_cancel")],
     ])
 
-    msg = update.callback_query.message if update.callback_query else update.message
+    if update.callback_query:
+        msg = update.callback_query.message
+    else:
+        msg = update.message
+
     await msg.reply_text(IMPORT_HELP, parse_mode="Markdown", reply_markup=keyboard)
 
 
 async def import_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    data = query.data
 
-    if query.data == "import_show_prompt":
+    if data == "import_bulk":
+        await start_import_flow(update, context)
+        return
+
+    if data == "import_show_prompt":
         await query.message.reply_text(
             "📋 پرامپت آماده برای ChatGPT (کپی کن):\n\n" + GPT_PROMPT
         )
         return
 
-    if query.data == "import_cancel":
+    if data == "import_cancel":
         context.user_data.pop("step", None)
         await query.message.reply_text("ایمپورت لغو شد.")
         return
@@ -122,9 +131,6 @@ async def handle_import_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     start = 0
     if lines[0].upper().startswith("TASKS"):
         start = 1
-    else:
-        # still try to parse if looks like data rows
-        pass
 
     data_lines = lines[start:]
     if not data_lines:
