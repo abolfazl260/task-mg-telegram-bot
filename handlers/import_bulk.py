@@ -20,7 +20,7 @@ from utils.date_parse import parse_deadline_input
 
 IMPORT_HELP = """📥 **ایمپورت گروهی تسک**
 
-ساختار متن را دقیقاً به این شکل بفرستید (می‌توانید کپی کنید):
+ساختار متن را دقیقاً به این شکل بفرستید:
 
 ```
 TASKS
@@ -34,14 +34,13 @@ TASKS
 • هر خط = یک تسک
 • فیلدها با `|` جدا می‌شوند
 • ترتیب: عنوان | اولویت | مهلت | دسته | تگ | توضیح
-• اولویت: `high` / `medium` / `low` (پیش‌فرض medium)
+• اولویت: `high` / `medium` / `low`
 • مهلت: میلادی یا شمسی یا خالی
-• حداکثر حدود ۳۰–۴۰ تسک در هر پیام (محدودیت تلگرام ~۴۰۹۶ کاراکتر)
+• حداکثر حدود ۳۰–۴۰ تسک در هر پیام
 
-بعد از ارسال متن، ربات تسک‌ها را ثبت می‌کند.
+از دکمه‌های زیر یک **نمونه آماده** بگیر، ویرایش کن و بفرست.
 """
 
-# Copy-paste prompt for ChatGPT / other AI to generate the block
 GPT_PROMPT = """متن زیر را کپی کن و به ChatGPT بده تا لیست تسک‌هایت را به فرمت درست تبدیل کند:
 
 ---
@@ -65,23 +64,81 @@ TASKS
 ---
 """
 
+# Ready-to-paste sample templates for common use cases
+SAMPLE_TEMPLATES = {
+    "checklist": {
+        "title": "✅ چک‌لیست",
+        "body": """TASKS
+بررسی مدارک | high |  | چک‌لیست | مهم | موارد ضروری را تیک بزن
+تماس با مشتری | medium |  | چک‌لیست | پیگیری | 
+ارسال ایمیل تأیید | medium |  | چک‌لیست |  | 
+آپلود فایل‌ها در درایو | low |  | چک‌لیست |  | 
+بازبینی نهایی قبل از تحویل | high |  | چک‌لیست | مهم | 
+بستن تسک‌های انجام‌شده | low |  | چک‌لیست |  | """,
+    },
+    "shopping": {
+        "title": "🛒 لیست خرید",
+        "body": """TASKS
+نان سنگک | medium |  | خرید | نانوایی | ۲ عدد
+شیر کم‌چرب | medium |  | خرید | لبنیات | ۱ لیتر
+تخم‌مرغ | medium |  | خرید | پروتئین | یک شانه
+برنج | low |  | خرید | خشکبار | ۲ کیلو
+گوجه‌فرنگی | medium |  | خرید | سبزی | ۱ کیلو
+خیار | low |  | خرید | سبزی | 
+ماست | medium |  | خرید | لبنیات | 
+شوینده ظرف | low |  | خرید | منزل | """,
+    },
+    "study": {
+        "title": "📚 برنامه درسی",
+        "body": """TASKS
+زیست دوازدهم — فصل مولکول‌های اطلاعاتی | high |  | مطالعه | زیست | صفحه ۱ تا ۱۶
+فیزیک دوازدهم — حرکت بر خط راست | high |  | مطالعه | فیزیک | صفحه ۱ تا ۲۶
+شیمی دوازدهم — قدردانی از زحمات و کیمیاگران | medium |  | مطالعه | شیمی | صفحه ۱ تا ۲۴
+ریاضی دوازدهم — تابع | high |  | مطالعه | ریاضی | صفحه ۱ تا ۴۶
+تست زیست — ۲۰ سؤال طبقه‌بندی | medium |  | مطالعه | تست | تحلیل غلط‌ها
+مرور خلاصه فیزیک هفته | medium |  | مطالعه | مرور | 
+عمومی — فارسی درس ۱ | low |  | مطالعه | عمومی | """,
+    },
+    "shift": {
+        "title": "🍽️ شیفت رستوران",
+        "body": """TASKS
+شیفت صبح — آماده‌سازی سالن | high |  | شیفت رستوران | صبح | باز کردن، چیدمان میزها
+شیفت صبح — کنترل موجودی یخچال | high |  | شیفت رستوران | صبح | گزارش کسری
+شیفت ظهر — پذیرش و سالن | medium |  | شیفت رستوران | ظهر | 
+شیفت عصر — آشپزخانه کمک‌کار | medium |  | شیفت رستوران | عصر | 
+شیفت شب — بستن صندوق | high |  | شیفت رستوران | شب | شمارش و گزارش
+شیفت شب — نظافت نهایی سالن و آشپزخانه | high |  | شیفت رستوران | شب | 
+تحویل شیفت به نفر بعدی | medium |  | شیفت رستوران |  | موارد باز را بنویس""",
+    },
+}
 
-async def start_import_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show help + GPT prompt and set step for receiving bulk text."""
 
-    context.user_data["step"] = "import_bulk"
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 کپی پرامپت GPT", callback_data="import_show_prompt")],
+def _samples_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ نمونه چک‌لیست", callback_data="import_tpl_checklist")],
+        [InlineKeyboardButton("🛒 نمونه لیست خرید", callback_data="import_tpl_shopping")],
+        [InlineKeyboardButton("📚 نمونه برنامه درسی", callback_data="import_tpl_study")],
+        [InlineKeyboardButton("🍽️ نمونه شیفت رستوران", callback_data="import_tpl_shift")],
+        [InlineKeyboardButton("📋 پرامپت GPT", callback_data="import_show_prompt")],
         [InlineKeyboardButton("❌ انصراف", callback_data="import_cancel")],
     ])
+
+
+async def start_import_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show help + sample templates and set step for receiving bulk text."""
+
+    context.user_data["step"] = "import_bulk"
 
     if update.callback_query:
         msg = update.callback_query.message
     else:
         msg = update.message
 
-    await msg.reply_text(IMPORT_HELP, parse_mode="Markdown", reply_markup=keyboard)
+    await msg.reply_text(
+        IMPORT_HELP,
+        parse_mode="Markdown",
+        reply_markup=_samples_keyboard(),
+    )
 
 
 async def import_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -97,6 +154,24 @@ async def import_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(
             "📋 پرامپت آماده برای ChatGPT (کپی کن):\n\n" + GPT_PROMPT
         )
+        context.user_data["step"] = "import_bulk"
+        return
+
+    if data.startswith("import_tpl_"):
+        key = data.replace("import_tpl_", "", 1)
+        sample = SAMPLE_TEMPLATES.get(key)
+        if not sample:
+            await query.message.reply_text("نمونه پیدا نشد.")
+            return
+        context.user_data["step"] = "import_bulk"
+        await query.message.reply_text(
+            f"📥 نمونه «{sample['title']}»\n\n"
+            f"متن زیر را کپی کن، در صورت نیاز ویرایش کن، و همین‌جا بفرست تا ثبت شود:\n\n"
+            f"```\n{sample['body']}\n```",
+            parse_mode="Markdown",
+        )
+        # also send plain (easy copy on mobile)
+        await query.message.reply_text(sample["body"])
         return
 
     if data == "import_cancel":
@@ -116,7 +191,6 @@ async def handle_import_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("متن خالی بود.")
         return True
 
-    # Allow user to cancel
     if text.lower() in ("cancel", "لغو", "انصراف"):
         context.user_data.pop("step", None)
         await update.message.reply_text("ایمپورت لغو شد.")
@@ -127,7 +201,6 @@ async def handle_import_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("متنی پیدا نشد.")
         return True
 
-    # Expect first non-empty line to be TASKS (case-insensitive)
     start = 0
     if lines[0].upper().startswith("TASKS"):
         start = 1
@@ -136,15 +209,14 @@ async def handle_import_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not data_lines:
         await update.message.reply_text(
             "بعد از خط TASKS هیچ تسکی نبود.\n"
-            "نمونه:\nTASKS\nعنوان | high | 2026-08-20 | کار | تگ | توضیح"
+            "از دکمه‌های نمونه استفاده کن یا متن را با فرمت درست بفرست."
         )
         return True
 
-    # Telegram soft limit: refuse huge paste
     if len(text) > 4000:
         await update.message.reply_text(
             "⚠️ متن خیلی طولانی است (محدودیت تلگرام).\n"
-            "لطفاً حداکثر حدود ۳۰–۴۰ تسک در هر پیام بفرستید و بقیه را جداگانه."
+            "لطفاً حداکثر حدود ۳۰–۴۰ تسک در هر پیام بفرستید."
         )
         return True
 
@@ -152,7 +224,6 @@ async def handle_import_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     errors = []
 
     for i, line in enumerate(data_lines, start=1):
-        # skip markdown code fences if user pasted with ```
         if line.startswith("```"):
             continue
 
