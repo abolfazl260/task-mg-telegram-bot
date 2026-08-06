@@ -14,13 +14,13 @@ def create_task(
         priority,
         deadline,
         category,
-        tags
+        tags,
+        description="",
 ):
 
     task_id = str(uuid.uuid4())[:8]
 
     save_task([
-
         task_id,
         str(user_id),
         title,
@@ -29,10 +29,8 @@ def create_task(
         deadline,
         category,
         tags,
-        datetime.now().strftime(
-            "%Y-%m-%d %H:%M"
-        )
-
+        description or "",
+        datetime.now().strftime("%Y-%m-%d %H:%M"),
     ])
 
     return task_id
@@ -41,31 +39,22 @@ def create_task(
 def get_active_tasks(user_id):
 
     tasks = read_tasks()
-
     result = []
 
     for task in tasks:
-
         if str(task.get("user_id")).strip() == str(user_id).strip():
-
-            if task.get("status") in [
-                "pending",
-                "in_progress"
-            ]:
+            if task.get("status") in ["pending", "in_progress"]:
                 result.append(task)
 
     return result
 
 
 def get_all_user_tasks(user_id):
-    """All tasks of a user regardless of status."""
 
     tasks = read_tasks()
-
     result = []
 
     for task in tasks:
-
         if str(task.get("user_id")).strip() == str(user_id).strip():
             result.append(task)
 
@@ -84,7 +73,6 @@ def get_task_by_id(task_id: str):
 
 
 def change_task_status(task_id: str, new_status: str) -> bool:
-    """Change task status. Valid: pending, in_progress, done, cancelled"""
 
     valid = {"pending", "in_progress", "done", "cancelled"}
 
