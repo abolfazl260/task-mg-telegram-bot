@@ -1,5 +1,6 @@
 import logging
 
+from telegram import BotCommand
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -21,11 +22,16 @@ from handlers.task import (
     deadline_selected,
     skip_field,
     detail_page,
-    download_excel,
+    download_csv,
     start_task,
     done_task,
     cancel_task,
     pending_task
+)
+
+from handlers.reports import (
+    show_reports_menu,
+    reports_callback
 )
 
 from services.csv_manager import init_csv
@@ -36,101 +42,95 @@ logging.basicConfig(
 )
 
 
+async def post_init(app: Application):
+    """Register bot commands so Telegram suggests them automatically."""
+
+    commands = [
+        BotCommand("start", "شروع ربات و منوی اصلی"),
+        BotCommand("add", "افزودن تسک جدید"),
+        BotCommand("tasks", "مشاهده تسک‌های فعال"),
+        BotCommand("reports", "گزارشات و آمار"),
+        BotCommand("skip", "رد کردن فیلد اختیاری"),
+    ]
+
+    await app.bot.set_my_commands(commands)
+    logging.info("Bot commands registered.")
+
+
 def main():
 
     init_csv()
 
-    app = Application.builder().token(BOT_TOKEN).build()
-
-    app.add_handler(
-        CommandHandler(
-            "start",
-            start
-        )
-    )
-
-    # Task action handlers (must be before the generic button_handler)
-    app.add_handler(
-        CallbackQueryHandler(
-            start_task,
-            pattern="^start_"
-        )
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(post_init)
+        .build()
     )
 
     app.add_handler(
-        CallbackQueryHandler(
-            done_task,
-            pattern="^done_"
-        )
+        CommandHandler("start", start)
     )
 
     app.add_handler(
-        CallbackQueryHandler(
-            cancel_task,
-            pattern="^cancel_"
-        )
+        CommandHandler("add", add_task)
     )
 
     app.add_handler(
-        CallbackQueryHandler(
-            pending_task,
-            pattern="^pending_"
-        )
+        CommandHandler("tasks", list_tasks)
     )
 
     app.add_handler(
-        CallbackQueryHandler(
-            detail_page,
-            pattern="^detail_page_"
-        )
+        CommandHandler("reports", show_reports_menu)
     )
 
     app.add_handler(
-        CallbackQueryHandler(
-            download_excel,
-            pattern="^download_excel"
-        )
+        CommandHandler("skip", skip_field)
+    )
+
+    # Task action handlers
+    app.add_handler(
+        CallbackQueryHandler(start_task, pattern="^start_")
+    )
+    app.add_handler(
+        CallbackQueryHandler(done_task, pattern="^done_")
+    )
+    app.add_handler(
+        CallbackQueryHandler(cancel_task, pattern="^cancel_")
+    )
+    app.add_handler(
+        CallbackQueryHandler(pending_task, pattern="^pending_")
     )
 
     app.add_handler(
-        CommandHandler(
-            "add",
-            add_task
-        )
+        CallbackQueryHandler(detail_page, pattern="^detail_page_")
     )
 
     app.add_handler(
-        CommandHandler(
-            "tasks",
-            list_tasks
-        )
+        CallbackQueryHandler(download_csv, pattern="^download_csv")
+    )
+
+    # Reports callbacks
+    app.add_handler(
+        CallbackQueryHandler(reports_callback, pattern="^report_")
     )
 
     app.add_handler(
-        CommandHandler(
-            "skip",
-            skip_field
-        )
+        CallbackQueryHandler(priority_selected, pattern="^priority_")
     )
 
     app.add_handler(
-        CallbackQueryHandler(
-            priority_selected,
-            pattern="^priority_"
-        )
+        CallbackQueryHandler(deadline_selected, pattern="^deadline_")
     )
 
-    app.add_handler(
-        CallbackQueryHandler(
-            deadline_selected,
-            pattern="^deadline_"
-        )
-    )
-
+    # Generic menu buttons (must be last among callbacks)
     app.add_handler(
         CallbackQueryHandler(
             button_handler,
-            pattern="^(?!priority_|deadline_|detail_page_|download_excel|start_|done_|cancel_|pending_)"
+            pattern=(
+                "^(?!priority_|deadline_|detail_page_|download_csv|"
+                "start_|done_|cancel_|pending_|report_)"
+            )
         )
     )
 
@@ -141,9 +141,7 @@ def main():
         )
     )
 
-    logging.info(
-        "Task Bot Started..."
-    )
+    logging.info("Task Bot Started...")
 
     app.run_polling()
 
