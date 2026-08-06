@@ -16,6 +16,7 @@ HEADERS = [
     "description",
     "created_at",
     "completed_at",
+    "team_id",
 ]
 
 
@@ -87,7 +88,6 @@ def update_task_status(task_id: str, new_status: str) -> bool:
             if new_status == "done":
                 task["completed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
             elif new_status in ("pending", "in_progress", "cancelled"):
-                # clear completion timestamp if reopened/cancelled
                 if new_status != "done":
                     task["completed_at"] = ""
             updated = True
