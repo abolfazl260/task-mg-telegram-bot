@@ -126,6 +126,7 @@ async def templates_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 deadline=item["deadline"],
                 category=item["category"],
                 tags=item["tags"],
+                description=item.get("description", ""),
             )
             created_ids.append(task_id)
 
