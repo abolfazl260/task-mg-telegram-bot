@@ -63,6 +63,12 @@ def deadline_keyboard():
                 "✍️ تاریخ دقیق",
                 callback_data="deadline_custom"
             )
+        ],
+        [
+            InlineKeyboardButton(
+                "⏳ بدون زمان‌بندی",
+                callback_data="deadline_none"
+            )
         ]
     ])
 
@@ -95,7 +101,6 @@ def task_action_keyboard(task_id: str, current_status: str = "pending"):
         ])
 
     if current_status == "in_progress":
-        # allow going back to pending if needed
         buttons.insert(0, [
             InlineKeyboardButton(
                 "⏸ بازگشت به انتظار",
