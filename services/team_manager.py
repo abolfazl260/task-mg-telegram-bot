@@ -2,7 +2,6 @@
 
 import csv
 import os
-from datetime import datetime
 
 TEAMS_PATH = "data/teams.csv"
 MEMBERS_PATH = "data/team_members.csv"
@@ -20,6 +19,8 @@ MEMBER_HEADERS = [
     "team_id",
     "user_id",
     "role",  # owner | editor | viewer
+    "display_name",
+    "username",
     "joined_at",
 ]
 
@@ -29,6 +30,24 @@ def _ensure_file(path, headers):
     if not os.path.exists(path):
         with open(path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(headers)
+        return
+
+    # migrate missing columns
+    with open(path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        old_fields = list(reader.fieldnames or [])
+        rows = list(reader)
+
+    missing = [h for h in headers if h not in old_fields]
+    if missing:
+        for row in rows:
+            for h in headers:
+                row.setdefault(h, "")
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=headers, extrasaction="ignore")
+            w.writeheader()
+            for row in rows:
+                w.writerow({h: row.get(h, "") for h in headers})
 
 
 def init_teams():
