@@ -1,7 +1,8 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from handlers.task import list_tasks, add_task
+from handlers.task import list_tasks
 from handlers.reports import show_reports_menu
+from handlers.templates import show_templates_menu
 
 
 def main_menu():
@@ -17,6 +18,12 @@ def main_menu():
             InlineKeyboardButton(
                 "📋 تسک‌ها",
                 callback_data="tasks"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🧩 تمپلیت‌ها",
+                callback_data="templates"
             )
         ],
         [
@@ -55,31 +62,17 @@ async def button_handler(update, context):
 
     elif data == "tasks":
 
-        # reuse list_tasks by faking a message-like call
-        # create a simple wrapper
-        class FakeMessage:
-            def __init__(self, original):
-                self.chat = original.chat
-                self.message_id = original.message_id
-                self.from_user = original.from_user
-
-            async def reply_text(self, *args, **kwargs):
-                return await original.reply_text(*args, **kwargs)
-
-            async def reply_document(self, *args, **kwargs):
-                return await original.reply_document(*args, **kwargs)
-
-        original = query.message
-        fake_update = update
-        # list_tasks expects update.message
-        # we temporarily set it
         old_message = update.message
-        update.message = original
+        update.message = query.message
 
         try:
             await list_tasks(update, context)
         finally:
             update.message = old_message
+
+    elif data == "templates":
+
+        await show_templates_menu(update, context)
 
     elif data == "stats":
 
