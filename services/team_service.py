@@ -37,7 +37,6 @@ def _now():
 
 def _gen_code(length=6) -> str:
     alphabet = string.ascii_uppercase + string.digits
-    # avoid ambiguous chars
     alphabet = alphabet.replace("O", "").replace("0", "").replace("I", "").replace("1", "")
     existing = set()
     for t in read_teams():
@@ -50,7 +49,41 @@ def _gen_code(length=6) -> str:
     return uuid.uuid4().hex[:length].upper()
 
 
-def create_team(owner_id, name: str) -> dict:
+def _user_profile(user) -> tuple:
+    """Extract (display_name, username) from telegram User or dict-like."""
+
+    if user is None:
+        return "", ""
+    if isinstance(user, dict):
+        first = (user.get("first_name") or "").strip()
+        last = (user.get("last_name") or "").strip()
+        uname = (user.get("username") or "").strip()
+        display = (first + (" " + last if last else "")).strip() or uname or str(user.get("id", ""))
+        return display[:80], uname[:64]
+    # telegram.User
+    first = getattr(user, "first_name", None) or ""
+    last = getattr(user, "last_name", None) or ""
+    uname = getattr(user, "username", None) or ""
+    display = (first + (" " + last if last else "")).strip() or uname or str(getattr(user, "id", ""))
+    return display[:80], (uname or "")[:64]
+
+
+def member_display(m: dict) -> str:
+    """Human-readable member label."""
+
+    name = (m.get("display_name") or "").strip()
+    uname = (m.get("username") or "").strip()
+    uid = m.get("user_id") or ""
+    if name and uname:
+        return f"{name} (@{uname})"
+    if name:
+        return name
+    if uname:
+        return f"@{uname}"
+    return f"کاربر {uid}"
+
+
+def create_team(owner_id, name: str, user=None) -> dict:
     """Create team; owner is added as owner role. Returns team dict."""
 
     init_teams()
@@ -60,6 +93,8 @@ def create_team(owner_id, name: str) -> dict:
     viewer_code = _gen_code()
     while viewer_code == editor_code:
         viewer_code = _gen_code()
+
+    display, username = _user_profile(user)
 
     team = {
         "team_id": team_id,
@@ -74,6 +109,8 @@ def create_team(owner_id, name: str) -> dict:
         "team_id": team_id,
         "user_id": str(owner_id),
         "role": ROLE_OWNER,
+        "display_name": display,
+        "username": username,
         "joined_at": _now(),
     })
     return team
@@ -117,7 +154,7 @@ def can_edit(team_id: str, user_id) -> bool:
     return role in EDIT_ROLES
 
 
-def join_team_by_code(user_id, code: str) -> tuple:
+def join_team_by_code(user_id, code: str, user=None) -> tuple:
     """
     Join team via invite code.
     Returns (ok, message, team_or_none).
@@ -130,25 +167,41 @@ def join_team_by_code(user_id, code: str) -> tuple:
 
     team_id = team["team_id"]
     uid = str(user_id)
+    display, username = _user_profile(user)
 
     existing = get_member_role(team_id, uid)
     if existing:
-        # already member — optionally upgrade viewer → editor if using editor code
         if existing == ROLE_VIEWER and role == ROLE_EDITOR:
             members = read_members()
             for m in members:
                 if m.get("team_id") == team_id and str(m.get("user_id")) == uid:
                     m["role"] = ROLE_EDITOR
+                    if display:
+                        m["display_name"] = display
+                    if username:
+                        m["username"] = username
                     break
             write_members(members)
             return True, f"نقش شما در «{team['name']}» به ویرایشگر ارتقا یافت.", team
+        # refresh name if empty
+        if display:
+            members = read_members()
+            for m in members:
+                if m.get("team_id") == team_id and str(m.get("user_id")) == uid:
+                    if not (m.get("display_name") or "").strip():
+                        m["display_name"] = display
+                    if username and not (m.get("username") or "").strip():
+                        m["username"] = username
+                    break
+            write_members(members)
         return False, f"شما از قبل عضو «{team['name']}» هستید (نقش: {existing}).", team
 
-    # owner cannot re-join as lower role via code on same team (already owner)
     append_member({
         "team_id": team_id,
         "user_id": uid,
         "role": role,
+        "display_name": display,
+        "username": username,
         "joined_at": _now(),
     })
     role_fa = "ویرایشگر" if role == ROLE_EDITOR else "مشاهده‌کننده"
@@ -170,11 +223,16 @@ def get_user_teams(user_id) -> list:
 
 
 def get_team_members(team_id: str) -> list:
-    return [m for m in read_members() if m.get("team_id") == team_id]
+    """Members sorted: owner, editors, viewers."""
+
+    order = {ROLE_OWNER: 0, ROLE_EDITOR: 1, ROLE_VIEWER: 2}
+    members = [m for m in read_members() if m.get("team_id") == team_id]
+    members.sort(key=lambda m: (order.get(m.get("role"), 9), (m.get("display_name") or "").lower()))
+    return members
 
 
 def leave_team(user_id, team_id: str) -> tuple:
-    """Leave team. Owner cannot leave (must transfer/delete later)."""
+    """Leave team. Owner cannot leave."""
 
     uid = str(user_id)
     role = get_member_role(team_id, uid)
@@ -183,7 +241,10 @@ def leave_team(user_id, team_id: str) -> tuple:
     if role == ROLE_OWNER:
         return False, "مالک تیم نمی‌تواند خارج شود. تیم را حذف کنید یا مالکیت را منتقل کنید."
 
-    members = [m for m in read_members() if not (m.get("team_id") == team_id and str(m.get("user_id")) == uid)]
+    members = [
+        m for m in read_members()
+        if not (m.get("team_id") == team_id and str(m.get("user_id")) == uid)
+    ]
     write_members(members)
     team = get_team(team_id)
     name = team["name"] if team else team_id
