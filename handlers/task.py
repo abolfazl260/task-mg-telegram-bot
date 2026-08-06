@@ -21,6 +21,19 @@ from utils.keyboard import (
 
 PAGE_SIZE = 10
 
+PRIORITY_LABEL = {
+    "high": "🔴 بالا",
+    "medium": "🟠 متوسط",
+    "low": "🟢 پایین",
+}
+
+STATUS_LABEL = {
+    "pending": "⏳ در انتظار",
+    "in_progress": "🚀 در حال انجام",
+    "done": "✅ انجام شده",
+    "cancelled": "❌ لغو شده",
+}
+
 
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -334,6 +347,54 @@ def build_full_report(tasks):
     return table
 
 
+def format_task_card(task: dict) -> str:
+    """Full detail card for a single task (used with action buttons)."""
+
+    title = task.get("title", "-")
+    task_id = task.get("id", "")
+    priority = PRIORITY_LABEL.get(task.get("priority"), task.get("priority", "-"))
+    status = STATUS_LABEL.get(task.get("status"), task.get("status", "-"))
+    deadline = task.get("deadline") or "بدون ددلاین"
+    category = task.get("category") or "—"
+    tags = task.get("tags") or "—"
+    created = task.get("created_at") or "—"
+
+    jalali = "—"
+    remaining = "—"
+    if task.get("deadline"):
+        try:
+            deadline_date = datetime.strptime(task["deadline"], "%Y-%m-%d").date()
+            jalali = (
+                jdatetime.date
+                .fromgregorian(date=deadline_date)
+                .strftime("%Y/%m/%d")
+            )
+            diff = (deadline_date - datetime.now().date()).days
+            if diff < 0:
+                remaining = f"🔻 {abs(diff)} روز گذشته"
+            elif diff == 0:
+                remaining = "⏰ امروز"
+            elif diff <= 3:
+                remaining = f"⚠️ {diff} روز مانده"
+            else:
+                remaining = f"🕒 {diff} روز مانده"
+        except Exception:
+            pass
+
+    return (
+        f"**{title}**\n\n"
+        f"🆔 `{task_id}`\n"
+        f"🎯 اولویت: {priority}\n"
+        f"📌 وضعیت: {status}\n"
+        f"📅 مهلت: {deadline}\n"
+        f"🗓️ شمسی: {jalali}\n"
+        f"⏳ باقی‌مانده: {remaining}\n"
+        f"📂 دسته: {category}\n"
+        f"🏷 تگ: {tags}\n"
+        f"🕐 ثبت: {created}"
+    )
+
+
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     tasks = get_active_tasks(
@@ -413,36 +474,16 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await update.message.reply_text(
-        "⬇️ برای تغییر وضعیت هر تسک، از دکمه‌های زیر استفاده کنید:"
+        "⬇️ جزئیات کامل هر تسک + دکمه‌های تغییر وضعیت:"
     )
 
     for task in first_page:
-        priority_emoji = {
-            "high": "🔴",
-            "medium": "🟠",
-            "low": "🟢"
-        }.get(task.get("priority"), "🟢")
-
-        status_emoji = {
-            "pending": "⏳",
-            "in_progress": "🚀",
-            "done": "✅",
-            "cancelled": "❌"
-        }.get(task.get("status"), "⏳")
-
-        title = task.get("title", "-")
-        task_id = task.get("id", "")
-        deadline = task.get("deadline") or "بدون ددلاین"
-
-        caption = (
-            f"{priority_emoji} {status_emoji} **{title}**\n"
-            f"📅 {deadline} | 🆔 `{task_id}`"
-        )
+        caption = format_task_card(task)
 
         await update.message.reply_text(
             caption,
             reply_markup=task_action_keyboard(
-                task_id,
+                task.get("id", ""),
                 task.get("status", "pending")
             ),
             parse_mode="Markdown"
@@ -599,16 +640,17 @@ async def _handle_status_change(update, context, new_status: str):
         )
         return
 
-    title = task.get("title", "-")
+    # refresh task data after status change
+    task["status"] = new_status
     label = STATUS_LABELS.get(new_status, new_status)
 
     await query.edit_message_text(
-        f"{label}\n\n**{title}**\n🆔 `{task_id}`",
+        format_task_card(task),
         parse_mode="Markdown"
     )
 
     await query.message.reply_text(
-        f"وضعیت تسک «{title}» به {label} تغییر کرد."
+        f"وضعیت تسک «{task.get('title', '-')}» به {label} تغییر کرد."
     )
 
 
