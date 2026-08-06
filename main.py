@@ -21,7 +21,11 @@ from handlers.task import (
     deadline_selected,
     skip_field,
     detail_page,
-    download_excel
+    download_excel,
+    start_task,
+    done_task,
+    cancel_task,
+    pending_task
 )
 
 from services.csv_manager import init_csv
@@ -42,6 +46,35 @@ def main():
         CommandHandler(
             "start",
             start
+        )
+    )
+
+    # Task action handlers (must be before the generic button_handler)
+    app.add_handler(
+        CallbackQueryHandler(
+            start_task,
+            pattern="^start_"
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            done_task,
+            pattern="^done_"
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            cancel_task,
+            pattern="^cancel_"
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            pending_task,
+            pattern="^pending_"
         )
     )
 
@@ -97,7 +130,7 @@ def main():
     app.add_handler(
         CallbackQueryHandler(
             button_handler,
-            pattern="^(?!priority_|deadline_|detail_page_|download_excel)"
+            pattern="^(?!priority_|deadline_|detail_page_|download_excel|start_|done_|cancel_|pending_)"
         )
     )
 
