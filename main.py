@@ -44,8 +44,10 @@ from handlers.templates import (
 from handlers.search_share import search_command, share_command, share_category_callback
 from handlers.extra_reports import report_compare_months, report_performance, report_progress_bar
 from handlers.import_bulk import import_callback
+from handlers.team import team_command, team_callback
 from services.reminders import morning_today_tasks, midday_summary_and_weekly
 from services.csv_manager import init_csv
+from services.team_manager import init_teams
 
 
 logging.basicConfig(level=logging.INFO)
@@ -56,6 +58,7 @@ async def post_init(app: Application):
         BotCommand("start", "شروع ربات و منوی اصلی"),
         BotCommand("add", "افزودن تسک جدید"),
         BotCommand("tasks", "منوی تسک‌ها"),
+        BotCommand("team", "تیم و فضای مشترک"),
         BotCommand("search", "جستجوی تسک"),
         BotCommand("share", "اشتراک‌گذاری لیست / دسته"),
         BotCommand("templates", "تمپلیت‌های آماده"),
@@ -65,13 +68,11 @@ async def post_init(app: Application):
     await app.bot.set_my_commands(commands)
 
     if app.job_queue:
-        # 07:00 — today's tasks list
         app.job_queue.run_daily(
             morning_today_tasks,
             time=dt_time(hour=7, minute=0),
             name="morning_today_tasks",
         )
-        # 11:00 — daily summary + weekly report
         app.job_queue.run_daily(
             midday_summary_and_weekly,
             time=dt_time(hour=11, minute=0),
@@ -86,6 +87,7 @@ async def post_init(app: Application):
 
 def main():
     init_csv()
+    init_teams()
 
     app = (
         Application.builder()
@@ -97,6 +99,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("add", add_task))
     app.add_handler(CommandHandler("tasks", list_tasks))
+    app.add_handler(CommandHandler("team", team_command))
     app.add_handler(CommandHandler("search", search_command))
     app.add_handler(CommandHandler("share", share_command))
     app.add_handler(CommandHandler("templates", show_templates_menu))
@@ -123,6 +126,7 @@ def main():
 
     app.add_handler(CallbackQueryHandler(share_category_callback, pattern="^share_cat_"))
     app.add_handler(CallbackQueryHandler(import_callback, pattern="^import_"))
+    app.add_handler(CallbackQueryHandler(team_callback, pattern="^team_"))
 
     app.add_handler(
         CallbackQueryHandler(
@@ -130,7 +134,7 @@ def main():
             pattern=(
                 "^(?!priority_|deadline_|detail_page_|download_csv|"
                 "start_|done_|cancel_|pending_|report_|tpl_|sort_|"
-                "share_cat_|import_)"
+                "share_cat_|import_|team_)"
             )
         )
     )
