@@ -3,7 +3,8 @@ from datetime import datetime
 
 from services.csv_manager import (
     save_task,
-    read_tasks
+    read_tasks,
+    update_task_status
 )
 
 
@@ -37,7 +38,6 @@ def create_task(
     return task_id
 
 
-
 def get_active_tasks(user_id):
 
     tasks = read_tasks()
@@ -45,8 +45,6 @@ def get_active_tasks(user_id):
     result = []
 
     for task in tasks:
-
-        print(task)
 
         if str(task.get("user_id")).strip() == str(user_id).strip():
 
@@ -57,3 +55,25 @@ def get_active_tasks(user_id):
                 result.append(task)
 
     return result
+
+
+def get_task_by_id(task_id: str):
+
+    tasks = read_tasks()
+
+    for task in tasks:
+        if task.get("id") == task_id:
+            return task
+
+    return None
+
+
+def change_task_status(task_id: str, new_status: str) -> bool:
+    """Change task status. Valid: pending, in_progress, done, cancelled"""
+
+    valid = {"pending", "in_progress", "done", "cancelled"}
+
+    if new_status not in valid:
+        return False
+
+    return update_task_status(task_id, new_status)
