@@ -11,7 +11,7 @@ from services.task_service import (
     change_task_status
 )
 
-from services.excel_service import build_excel_bytes
+from services.csv_export import build_csv_bytes
 
 from utils.keyboard import (
     priority_keyboard,
@@ -362,7 +362,7 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # =====================
-    # جزئیات - جدول دو ستونه (صفحه اول)
+    # جزئیات - جدول دو ستونه (صفحه اول) + دکمه دانلود CSV
     # =====================
 
     first_page = tasks[:PAGE_SIZE]
@@ -382,11 +382,12 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         )
 
+    # دکمه دانلود CSV روی صفحه اول
     keyboard.append(
         [
             InlineKeyboardButton(
-                "📥 دانلود اکسل",
-                callback_data="download_excel"
+                "📥 دانلود CSV",
+                callback_data="download_csv"
             )
         ]
     )
@@ -455,13 +456,13 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def download_excel(update, context):
+async def download_csv(update, context):
 
     query = update.callback_query
 
     await query.answer()
 
-    buffer, count = build_excel_bytes(
+    buffer, count = build_csv_bytes(
         update.effective_user.id
     )
 
@@ -473,8 +474,8 @@ async def download_excel(update, context):
 
     await query.message.reply_document(
         document=buffer,
-        filename="tasks.xlsx",
-        caption=f"📥 {count} تسک فعال"
+        filename="tasks.csv",
+        caption=f"📥 {count} تسک فعال (فرمت CSV)"
     )
 
 
@@ -551,6 +552,16 @@ async def detail_page(update, context):
 
     if nav:
         keyboard.append(nav)
+
+    # keep CSV download available on every page
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                "📥 دانلود CSV",
+                callback_data="download_csv"
+            )
+        ]
+    )
 
     await query.edit_message_text(
         text,
