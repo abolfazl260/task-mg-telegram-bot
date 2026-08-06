@@ -59,6 +59,7 @@ def reports_menu_keyboard():
         [InlineKeyboardButton("📅 تقویم ماه جاری", callback_data="report_calendar")],
         [InlineKeyboardButton("📆 تقویم ۷ روزه", callback_data="report_week")],
         [InlineKeyboardButton("🌡 هیت‌مپ ماهانه", callback_data="report_heatmap")],
+        [InlineKeyboardButton("🔥 هیت‌مپ هفته", callback_data="report_heatmap_week")],
         [InlineKeyboardButton("📈 روند هفتگی", callback_data="report_trend")],
         [InlineKeyboardButton("☀️ برنامه امروز", callback_data="report_today")],
         [InlineKeyboardButton("📊 مقایسه سه‌ماهه", callback_data="report_compare")],
@@ -373,6 +374,96 @@ async def report_heatmap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_rich(context, update.effective_chat.id, text)
 
 
+async def report_heatmap_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Weekly heatmap: density of tasks by deadline for the next 7 days."""
+
+    query = update.callback_query
+    await query.answer()
+    tasks = get_all_user_tasks(update.effective_user.id)
+    today = date.today()
+
+    # counts for today .. today+6
+    counts = {}
+    titles_by_day = defaultdict(list)
+    for i in range(7):
+        d = today + timedelta(days=i)
+        counts[d] = 0
+
+    for task in tasks:
+        deadline = task.get("deadline") or ""
+        try:
+            d = datetime.strptime(deadline, "%Y-%m-%d").date()
+        except Exception:
+            continue
+        if d in counts:
+            counts[d] += 1
+            titles_by_day[d].append(task.get("title", "-"))
+
+    max_c = max(counts.values()) if counts else 0
+
+    def intensity(n):
+        if n <= 0:
+            return "⬜"
+        if max_c <= 0:
+            return "⬜"
+        ratio = n / max_c
+        if ratio <= 0.25:
+            return "🟩"
+        if ratio <= 0.5:
+            return "🟨"
+        if ratio <= 0.75:
+            return "🟧"
+        return "🟥"
+
+    day_names_fa = ["دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه", "یکشنبه"]
+
+    text = "# 🔥 هیت‌مپ هفته (۷ روز آینده)\n\nتراکم تسک‌ها بر اساس مهلت:\n\n"
+    text += "| روز | تاریخ | شمسی | تراکم | تعداد |\n|---|---|---|---|---|\n"
+
+    for i in range(7):
+        d = today + timedelta(days=i)
+        n = counts[d]
+        emoji = intensity(n)
+        label = "امروز" if i == 0 else ("فردا" if i == 1 else day_names_fa[d.weekday()])
+        try:
+            j_str = jdatetime.date.fromgregorian(date=d).strftime("%Y/%m/%d")
+        except Exception:
+            j_str = "—"
+        bar = emoji * min(n, 5) if n else "⬜"
+        text += f"| **{label}** | {d.isoformat()} | {j_str} | {bar} | {n} |\n"
+
+    text += "\n\n📌 **راهنما**\n\n| ایموجی | معنی |\n|---|---|\n| ⬜ | بدون تسک |\n| 🟩 | تراکم کم |\n| 🟨 | تراکم متوسط |\n| 🟧 | تراکم زیاد |\n| 🟥 | تراکم خیلی زیاد |\n"
+
+    # detail of days that have tasks
+    days_with = [d for d in sorted(counts.keys()) if counts[d] > 0]
+    if days_with:
+        text += "\n### 📌 جزئیات روزها\n\n"
+        for d in days_with:
+            try:
+                j_str = jdatetime.date.fromgregorian(date=d).strftime("%Y/%m/%d")
+            except Exception:
+                j_str = d.isoformat()
+            label = "امروز" if d == today else ("فردا" if d == today + timedelta(days=1) else day_names_fa[d.weekday()])
+            text += f"**{label} ({j_str})** — {counts[d]} تسک:\n"
+            for t in titles_by_day[d][:6]:
+                text += f"• {t}\n"
+            if len(titles_by_day[d]) > 6:
+                text += f"• ... و {len(titles_by_day[d]) - 6} مورد دیگر\n"
+            text += "\n"
+    else:
+        text += "\n_در ۷ روز آینده تسکی با مهلت ثبت‌شده ندارید._\n"
+
+    if max_c > 0:
+        busiest = max(counts, key=counts.get)
+        try:
+            j_busy = jdatetime.date.fromgregorian(date=busiest).strftime("%Y/%m/%d")
+        except Exception:
+            j_busy = busiest.isoformat()
+        text += f"\n📊 پرتراکم‌ترین روز: **{j_busy}** با {max_c} تسک"
+
+    await _send_rich(context, update.effective_chat.id, text)
+
+
 async def report_trend(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -441,6 +532,7 @@ async def reports_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "report_calendar": report_calendar,
         "report_week": report_week,
         "report_heatmap": report_heatmap,
+        "report_heatmap_week": report_heatmap_week,
         "report_trend": report_trend,
         "report_today": report_today,
         "report_compare": report_compare_months,
