@@ -37,6 +37,7 @@ def build_csv_bytes(user_id):
         "مهلت (میلادی)",
         "مهلت (شمسی)",
         "وضعیت",
+        "توضیح",
         "تاریخ ثبت",
     ])
 
@@ -65,10 +66,10 @@ def build_csv_bytes(user_id):
             deadline,
             jalali_date,
             status_map.get(task.get("status"), "-"),
+            task.get("description", "") or "-",
             task.get("created_at", "-"),
         ])
 
-    # convert to bytes with UTF-8 BOM for Excel compatibility
     data = output.getvalue().encode("utf-8-sig")
     buffer = io.BytesIO(data)
     buffer.seek(0)
