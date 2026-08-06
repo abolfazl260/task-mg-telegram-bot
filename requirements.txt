@@ -2,3 +2,4 @@ python-telegram-bot[job-queue]==22.0
 python-dotenv
 pandas
 openpyxl
+jdatetime
