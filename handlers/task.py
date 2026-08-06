@@ -8,7 +8,8 @@ from services.task_service import (
     create_task,
     get_active_tasks,
     get_task_by_id,
-    change_task_status
+    change_task_status,
+    user_can_modify_task,
 )
 from services.csv_export import build_csv_bytes
 from utils.keyboard import (
@@ -19,6 +20,7 @@ from utils.keyboard import (
 from utils.date_parse import parse_deadline_input
 from handlers.search_share import handle_search_text
 from handlers.import_bulk import handle_import_text
+from handlers.team import handle_team_text
 
 PAGE_SIZE = 10
 
@@ -47,6 +49,7 @@ def _finalize_task(user_id, task):
         category=task.get("category", ""),
         tags=task.get("tags", ""),
         description=task.get("description", ""),
+        team_id=task.get("team_id", "") or "",
     )
 
 
@@ -57,6 +60,10 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # team create/join text steps
+    if await handle_team_text(update, context):
+        return
+
     # bulk import flow
     if await handle_import_text(update, context):
         return
@@ -71,7 +78,7 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     step = context.user_data["step"]
     text = update.message.text
     task = context.user_data.get("new_task")
-    if task is None and step not in ("search_query", "import_bulk"):
+    if task is None and step not in ("search_query", "import_bulk", "team_create_name", "team_join_code"):
         return
 
     if step == "title":
@@ -117,14 +124,22 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if step == "description":
         task["description"] = text
         task_id = _finalize_task(update.effective_user.id, task)
+        team_note = ""
+        if task.get("team_id"):
+            team_note = f"\n👥 تیم: `{task['team_id']}`"
         context.user_data.clear()
-        await update.message.reply_text(f"✅ تسک ثبت شد\n🆔 {task_id}")
+        await update.message.reply_text(
+            f"✅ تسک ثبت شد\n🆔 {task_id}{team_note}",
+            parse_mode="Markdown",
+        )
 
 
 async def priority_selected(update, context):
     query = update.callback_query
     await query.answer()
     priority = query.data.replace("priority_", "")
+    if "new_task" not in context.user_data:
+        context.user_data["new_task"] = {}
     context.user_data["new_task"]["priority"] = priority
     await query.message.reply_text(
         "📅 زمان انجام را انتخاب کنید:\n(می‌توانید بدون زمان‌بندی ثبت کنید)",
@@ -183,8 +198,14 @@ async def skip_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if step == "description":
         task["description"] = ""
         task_id = _finalize_task(update.effective_user.id, task)
+        team_note = ""
+        if task.get("team_id"):
+            team_note = f"\n👥 تیم: `{task['team_id']}`"
         context.user_data.clear()
-        await update.message.reply_text(f"✅ تسک ثبت شد\n🆔 {task_id}")
+        await update.message.reply_text(
+            f"✅ تسک ثبت شد\n🆔 {task_id}{team_note}",
+            parse_mode="Markdown",
+        )
 
 
 def sort_tasks(tasks, key: str = "deadline"):
@@ -199,7 +220,6 @@ def sort_tasks(tasks, key: str = "deadline"):
             key=lambda x: x.get("created_at") or "",
             reverse=True,
         )
-    # default deadline
     return sorted(tasks, key=lambda x: x.get("deadline") or "9999-99-99")
 
 
@@ -213,10 +233,11 @@ def build_detail_table(tasks, start_index=1):
             "pending": "⏳", "in_progress": "🚀",
             "done": "✅", "cancelled": "❌",
         }.get(task.get("status"), "⏳")
-        text += f"| {index} | {priority} {task.get('title','-')} {status} |\n"
+        team_mark = " 👥" if task.get("team_id") else ""
+        text += f"| {index} | {priority} {task.get('title','-')} {status}{team_mark} |\n"
     text += (
         "\n\n📌 راهنما\n\n🔴 بالا\n🟠 متوسط\n🟢 پایین\n\n"
-        "⏳ در انتظار\n🚀 در حال انجام\n✅ انجام شده\n❌ لغو شده\n"
+        "⏳ در انتظار\n🚀 در حال انجام\n✅ انجام شده\n❌ لغو شده\n👥 تیمی\n"
     )
     return text
 
@@ -272,6 +293,7 @@ def format_task_card(task: dict) -> str:
     tags = task.get("tags") or "—"
     created = task.get("created_at") or "—"
     description = task.get("description") or "—"
+    team_id = task.get("team_id") or ""
 
     jalali = "—"
     remaining = "—"
@@ -293,9 +315,12 @@ def format_task_card(task: dict) -> str:
         except Exception:
             pass
 
+    team_line = f"👥 تیم: `{team_id}`\n" if team_id else ""
+
     return (
         f"**{title}**\n\n"
         f"🆔 `{task_id}`\n"
+        f"{team_line}"
         f"🎯 اولویت: {priority}\n"
         f"📌 وضعیت: {status}\n"
         f"📅 مهلت: {deadline}\n"
@@ -375,12 +400,15 @@ async def _render_task_list(update, context, sort_key="deadline", edit=False):
     await message.reply_text("⬇️ جزئیات کامل هر تسک + دکمه‌های تغییر وضعیت:")
 
     for task in first_page:
+        # viewers of team tasks still see cards; action buttons only if can modify
+        can_mod = user_can_modify_task(update.effective_user.id, task)
+        kb = task_action_keyboard(
+            task.get("id", ""),
+            task.get("status", "pending"),
+        ) if can_mod else None
         await message.reply_text(
             format_task_card(task),
-            reply_markup=task_action_keyboard(
-                task.get("id", ""),
-                task.get("status", "pending"),
-            ),
+            reply_markup=kb,
             parse_mode="Markdown",
         )
 
@@ -470,8 +498,11 @@ async def _handle_status_change(update, context, new_status: str):
         await query.edit_message_text("⚠️ این تسک پیدا نشد.")
         return
 
-    if str(task.get("user_id")) != str(update.effective_user.id):
-        await query.answer("شما مجاز به تغییر این تسک نیستید.", show_alert=True)
+    if not user_can_modify_task(update.effective_user.id, task):
+        await query.answer(
+            "شما مجاز به تغییر این تسک نیستید (مشاهده‌کننده یا غیرعضو).",
+            show_alert=True,
+        )
         return
 
     success = change_task_status(task_id, new_status)
