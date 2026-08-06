@@ -34,6 +34,11 @@ from handlers.reports import (
     reports_callback
 )
 
+from handlers.templates import (
+    show_templates_menu,
+    templates_callback
+)
+
 from services.csv_manager import init_csv
 
 
@@ -49,6 +54,7 @@ async def post_init(app: Application):
         BotCommand("start", "شروع ربات و منوی اصلی"),
         BotCommand("add", "افزودن تسک جدید"),
         BotCommand("tasks", "مشاهده تسک‌های فعال"),
+        BotCommand("templates", "تمپلیت‌های آماده"),
         BotCommand("reports", "گزارشات و آمار"),
         BotCommand("skip", "رد کردن فیلد اختیاری"),
     ]
@@ -68,60 +74,28 @@ def main():
         .build()
     )
 
-    app.add_handler(
-        CommandHandler("start", start)
-    )
-
-    app.add_handler(
-        CommandHandler("add", add_task)
-    )
-
-    app.add_handler(
-        CommandHandler("tasks", list_tasks)
-    )
-
-    app.add_handler(
-        CommandHandler("reports", show_reports_menu)
-    )
-
-    app.add_handler(
-        CommandHandler("skip", skip_field)
-    )
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("add", add_task))
+    app.add_handler(CommandHandler("tasks", list_tasks))
+    app.add_handler(CommandHandler("templates", show_templates_menu))
+    app.add_handler(CommandHandler("reports", show_reports_menu))
+    app.add_handler(CommandHandler("skip", skip_field))
 
     # Task action handlers
-    app.add_handler(
-        CallbackQueryHandler(start_task, pattern="^start_")
-    )
-    app.add_handler(
-        CallbackQueryHandler(done_task, pattern="^done_")
-    )
-    app.add_handler(
-        CallbackQueryHandler(cancel_task, pattern="^cancel_")
-    )
-    app.add_handler(
-        CallbackQueryHandler(pending_task, pattern="^pending_")
-    )
+    app.add_handler(CallbackQueryHandler(start_task, pattern="^start_"))
+    app.add_handler(CallbackQueryHandler(done_task, pattern="^done_"))
+    app.add_handler(CallbackQueryHandler(cancel_task, pattern="^cancel_"))
+    app.add_handler(CallbackQueryHandler(pending_task, pattern="^pending_"))
 
-    app.add_handler(
-        CallbackQueryHandler(detail_page, pattern="^detail_page_")
-    )
+    app.add_handler(CallbackQueryHandler(detail_page, pattern="^detail_page_"))
+    app.add_handler(CallbackQueryHandler(download_csv, pattern="^download_csv"))
 
-    app.add_handler(
-        CallbackQueryHandler(download_csv, pattern="^download_csv")
-    )
+    # Reports & Templates
+    app.add_handler(CallbackQueryHandler(reports_callback, pattern="^report_"))
+    app.add_handler(CallbackQueryHandler(templates_callback, pattern="^tpl_"))
 
-    # Reports callbacks
-    app.add_handler(
-        CallbackQueryHandler(reports_callback, pattern="^report_")
-    )
-
-    app.add_handler(
-        CallbackQueryHandler(priority_selected, pattern="^priority_")
-    )
-
-    app.add_handler(
-        CallbackQueryHandler(deadline_selected, pattern="^deadline_")
-    )
+    app.add_handler(CallbackQueryHandler(priority_selected, pattern="^priority_"))
+    app.add_handler(CallbackQueryHandler(deadline_selected, pattern="^deadline_"))
 
     # Generic menu buttons (must be last among callbacks)
     app.add_handler(
@@ -129,7 +103,7 @@ def main():
             button_handler,
             pattern=(
                 "^(?!priority_|deadline_|detail_page_|download_csv|"
-                "start_|done_|cancel_|pending_|report_)"
+                "start_|done_|cancel_|pending_|report_|tpl_)"
             )
         )
     )
