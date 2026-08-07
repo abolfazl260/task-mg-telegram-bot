@@ -21,9 +21,6 @@ WEB_APP_URL = os.getenv(
     "https://machino24.ir/telegram-mini-app-tasksmg/",
 ).strip()
 
-# Optional backend/core API URL for the Mini App frontend when it is hosted elsewhere.
-WEB_APP_API_BASE_URL = os.getenv("WEB_APP_API_BASE_URL", "").strip().rstrip("/")
-
 
 if not BOT_TOKEN:
     raise Exception(

@@ -46,9 +46,7 @@ pip install -r requirements.txt
 BOT_TOKEN=123456:ABC-DEF...
 # آدرس وب اپ به صورت پارامتری؛ در محیط‌های مختلف می‌توانید آن را تغییر دهید
 WEB_APP_URL=https://machino24.ir/telegram-mini-app-tasksmg/
-# اگر Core/API روی آدرس جداست، این مقدار را هم تنظیم کنید
-WEB_APP_API_BASE_URL=https://api.example.com
-```
+
 
 ### اجرا
 
@@ -62,10 +60,7 @@ python main.py
 
 ```env
 WEB_APP_URL=https://machino24.ir/telegram-mini-app-tasksmg/
-WEB_APP_API_BASE_URL=https://api.example.com
 ```
-
-اگر Core/API روی دامنه یا سرور دیگری است، `WEB_APP_API_BASE_URL` را تنظیم کنید تا به صورت پارامتری با نام `api_base_url` به وب اپ پاس داده شود. راهنمای کامل اتصال Frontend و Backend در [`docs/telegram-mini-app-integration.md`](docs/telegram-mini-app-integration.md) آمده است.
 
 بعد از تنظیم این مقدار، کاربران می‌توانند از دو مسیر وب اپ را باز کنند:
 

@@ -1,6 +1,6 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
-from services.web_app import get_web_app_url
+from config import WEB_APP_URL
 
 from handlers.reports import show_reports_menu
 from handlers.templates import show_templates_menu
@@ -56,7 +56,7 @@ def main_menu():
         [
             InlineKeyboardButton(
                 "🌐 وب اپ",
-                web_app=WebAppInfo(url=get_web_app_url())
+                web_app=WebAppInfo(url=WEB_APP_URL)
             )
         ],
         [

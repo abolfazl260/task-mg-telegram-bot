@@ -1,7 +1,7 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import ContextTypes
 
-from services.web_app import get_web_app_url
+from config import WEB_APP_URL
 
 
 def web_app_keyboard():
@@ -9,7 +9,7 @@ def web_app_keyboard():
         [
             InlineKeyboardButton(
                 "🌐 باز کردن وب اپ",
-                web_app=WebAppInfo(url=get_web_app_url()),
+                web_app=WebAppInfo(url=WEB_APP_URL),
             )
         ]
     ])
