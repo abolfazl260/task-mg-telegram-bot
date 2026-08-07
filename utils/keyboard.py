@@ -108,4 +108,11 @@ def task_action_keyboard(task_id: str, current_status: str = "pending"):
             )
         ])
 
+    buttons.append([
+        InlineKeyboardButton("👤 مسئول", callback_data=f"owner_{task_id}")
+    ])
+    buttons.append([
+        InlineKeyboardButton("🙋 برعهده گرفتن", callback_data=f"take_{task_id}")
+    ])
+
     return InlineKeyboardMarkup(buttons)

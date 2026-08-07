@@ -19,6 +19,7 @@ def create_task(
         tags,
         description="",
         team_id="",
+        assignee=None,
 ):
 
     task_id = str(uuid.uuid4())[:8]
@@ -42,6 +43,10 @@ def create_task(
         datetime.now().strftime("%Y-%m-%d %H:%M"),
         "",  # completed_at
         team_id or "",
+        str((assignee or {}).get("user_id") or ""),
+        (assignee or {}).get("display_name") or "",
+        (assignee or {}).get("username") or "",
+        _assignment_stamp(user_id, "", (assignee or {}).get("display_name") or "", "assigned") if assignee else "",
     ])
 
     return task_id
@@ -239,3 +244,42 @@ def get_all_user_ids():
         if uid:
             seen.add(uid)
     return list(seen)
+
+
+def _assignment_stamp(actor_id, old_name, new_name, action):
+    old_label = old_name or "بدون مسئول"
+    new_label = new_name or "بدون مسئول"
+    return f"{datetime.now().strftime('%Y-%m-%d %H:%M')}|{actor_id}|{action}|{old_label}|{new_label}"
+
+
+def assign_task(task_id: str, assignee: dict | None, actor_id, action="assigned") -> bool:
+    """Set, change, take, or remove a task assignee and append history."""
+
+    tasks = read_tasks()
+    updated = False
+    for task in tasks:
+        if task.get("id") != task_id:
+            continue
+        old_name = task.get("assignee_name") or ""
+        if assignee:
+            task["assignee_id"] = str(assignee.get("user_id") or assignee.get("id") or "")
+            task["assignee_name"] = assignee.get("display_name") or assignee.get("name") or ""
+            task["assignee_username"] = assignee.get("username") or ""
+        else:
+            task["assignee_id"] = ""
+            task["assignee_name"] = ""
+            task["assignee_username"] = ""
+        entry = _assignment_stamp(actor_id, old_name, task.get("assignee_name") or "", action)
+        history = task.get("assignment_history") or ""
+        task["assignment_history"] = (history + "\n" + entry).strip()
+        updated = True
+        break
+    if updated:
+        _write_all(tasks)
+    return updated
+
+
+def get_unassigned_tasks(user_id):
+    """Active visible tasks with no assignee."""
+
+    return [t for t in get_active_tasks(user_id) if not (t.get("assignee_id") or "").strip()]

@@ -29,6 +29,11 @@ from handlers.task import (
     cancel_task,
     pending_task,
     sort_tasks_callback,
+    assignment_callback,
+    unassigned_tasks,
+    take_assignment,
+    take_confirm,
+    assignment_manage_callback,
 )
 
 from handlers.reports import (
@@ -60,6 +65,7 @@ async def post_init(app: Application):
         BotCommand("start", "شروع ربات و منوی اصلی"),
         BotCommand("add", "افزودن تسک جدید"),
         BotCommand("tasks", "منوی تسک‌ها"),
+        BotCommand("unassigned", "وظایف بدون مسئول"),
         BotCommand("team", "تیم و فضای مشترک"),
         BotCommand("search", "جستجوی تسک"),
         BotCommand("share", "اشتراک‌گذاری لیست / دسته"),
@@ -114,6 +120,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("add", add_task))
     app.add_handler(CommandHandler("tasks", list_tasks))
+    app.add_handler(CommandHandler("unassigned", unassigned_tasks))
     app.add_handler(CommandHandler("team", team_command))
     app.add_handler(CommandHandler("search", search_command))
     app.add_handler(CommandHandler("share", share_command))
@@ -125,6 +132,10 @@ def main():
     app.add_handler(CallbackQueryHandler(done_task, pattern="^done_"))
     app.add_handler(CallbackQueryHandler(cancel_task, pattern="^cancel_"))
     app.add_handler(CallbackQueryHandler(pending_task, pattern="^pending_"))
+    app.add_handler(CallbackQueryHandler(take_confirm, pattern="^take_(confirm|cancel)$"))
+    app.add_handler(CallbackQueryHandler(take_assignment, pattern="^take_[A-Za-z0-9]"))
+    app.add_handler(CallbackQueryHandler(assignment_callback, pattern="^assign_"))
+    app.add_handler(CallbackQueryHandler(assignment_manage_callback, pattern="^(owner_|asg_|chg_)"))
 
     app.add_handler(CallbackQueryHandler(detail_page, pattern="^detail_page_"))
     app.add_handler(CallbackQueryHandler(download_csv, pattern="^download_csv"))
@@ -149,7 +160,7 @@ def main():
             button_handler,
             pattern=(
                 "^(?!priority_|deadline_|detail_page_|download_csv|"
-                "start_|done_|cancel_|pending_|report_|tpl_|sort_|"
+                "start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|report_|tpl_|sort_|"
                 "share_cat_|import_|team_|habit_)"
             )
         )
