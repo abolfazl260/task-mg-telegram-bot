@@ -33,7 +33,7 @@ def main_menu():
         ],
         [
             InlineKeyboardButton(
-                "🌱 Habit Tracker",
+                "🌱 مدیریت عادت‌ها",
                 callback_data="habit_menu"
             )
         ],
