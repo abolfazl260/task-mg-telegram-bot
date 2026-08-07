@@ -26,7 +26,6 @@ from handlers.search_share import handle_search_text
 from handlers.import_bulk import handle_import_text
 from handlers.team import handle_team_text
 from handlers.habits import handle_habit_text, habit_skip
-from services.user_service import set_user_timezone, validate_timezone, get_user_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -56,23 +55,6 @@ def _is_bare_task_id(text: str) -> bool:
 def _can_view_task(user_id, task: dict) -> bool:
     return any(t.get("id") == task.get("id") for t in get_active_tasks(user_id)) or user_can_modify_task(user_id, task)
 
-
-async def timezone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args or []
-    if args:
-        tz_name = args[0].strip()
-        if set_user_timezone(update.effective_user.id, tz_name):
-            await update.message.reply_text(f"✅ منطقه زمانی شما روی {tz_name} تنظیم شد.")
-        else:
-            await update.message.reply_text("⚠️ منطقه زمانی نامعتبر است. مثال: Asia/Tehran یا Europe/Berlin")
-        return
-    context.user_data["step"] = "timezone"
-    current = get_user_timezone(update.effective_user.id)
-    await update.message.reply_text(
-        f"🌍 منطقه زمانی فعلی: {current}\n\n"
-        "نام منطقه زمانی را وارد کنید. مثال‌ها:\n"
-        "Asia/Tehran\nEurope/Berlin\nAmerica/New_York"
-    )
 
 
 async def show_task_by_id_if_matches(update, context) -> bool:
@@ -140,16 +122,7 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     step = context.user_data["step"]
     text = update.message.text
     task = context.user_data.get("new_task")
-    if task is None and step not in ("search_query", "import_bulk", "team_create_name", "team_join_code", "timezone"):
-        return
-
-    if step == "timezone":
-        tz_name = text.strip()
-        if validate_timezone(tz_name) and set_user_timezone(update.effective_user.id, tz_name):
-            context.user_data.pop("step", None)
-            await update.message.reply_text(f"✅ منطقه زمانی شما روی {tz_name} تنظیم شد. از این پس یادآوری‌ها با ساعت محلی شما ارسال می‌شوند.")
-        else:
-            await update.message.reply_text("⚠️ منطقه زمانی نامعتبر است. مثال: Asia/Tehran")
+    if task is None and step not in ("search_query", "import_bulk", "team_create_name", "team_join_code"):
         return
 
     if step == "title":
@@ -456,7 +429,7 @@ async def _render_task_list(update, context, sort_key="deadline", edit=False):
             InlineKeyboardButton("➡️ صفحه بعد", callback_data="detail_page_2")
         ])
     keyboard.append([
-        InlineKeyboardButton("📥 دانلود CSV", callback_data="download_csv")
+        InlineKeyboardButton("📥 خروجی Excel", callback_data="download_csv")
     ])
 
     await message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -547,7 +520,7 @@ async def detail_page(update, context):
         nav.append(InlineKeyboardButton("➡️ بعدی", callback_data=f"detail_page_{page + 1}"))
     if nav:
         keyboard.append(nav)
-    keyboard.append([InlineKeyboardButton("📥 دانلود CSV", callback_data="download_csv")])
+    keyboard.append([InlineKeyboardButton("📥 خروجی Excel", callback_data="download_csv")])
 
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 

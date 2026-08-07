@@ -2,6 +2,20 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from handlers.reports import show_reports_menu
 from handlers.templates import show_templates_menu
+from services.user_service import get_user_timezone, set_user_timezone
+
+
+TIMEZONE_CHOICES = [
+    ("🇮🇷 تهران", "Asia/Tehran"),
+    ("🇦🇪 دبی", "Asia/Dubai"),
+    ("🇹🇷 استانبول", "Europe/Istanbul"),
+    ("🇩🇪 برلین", "Europe/Berlin"),
+    ("🇬🇧 لندن", "Europe/London"),
+    ("🇺🇸 نیویورک", "America/New_York"),
+    ("🇺🇸 لس‌آنجلس", "America/Los_Angeles"),
+    ("🇨🇦 تورنتو", "America/Toronto"),
+    ("🇨🇦 ونکوور", "America/Vancouver"),
+]
 
 
 def main_menu():
@@ -54,6 +68,12 @@ def main_menu():
                 "⚙️ تنظیمات",
                 callback_data="settings"
             )
+        ],
+        [
+            InlineKeyboardButton(
+                "📞 ارتباط با ما",
+                callback_data="contact_us"
+            )
         ]
     ]
 
@@ -67,9 +87,40 @@ def tasks_options_keyboard():
         [InlineKeyboardButton("📅 مرتب‌سازی بر اساس ددلاین", callback_data="sort_deadline")],
         [InlineKeyboardButton("🎯 مرتب‌سازی بر اساس اولویت", callback_data="sort_priority")],
         [InlineKeyboardButton("🕐 مرتب‌سازی بر اساس تاریخ ایجاد", callback_data="sort_created")],
-        [InlineKeyboardButton("📥 دانلود CSV", callback_data="download_csv")],
+        [InlineKeyboardButton("🏷 بر اساس تگ", callback_data="report_tags")],
+        [InlineKeyboardButton("📂 بر اساس دسته‌بندی", callback_data="report_category")],
+        [InlineKeyboardButton("👤 بر اساس مسئول", callback_data="report_assignee")],
+        [InlineKeyboardButton("📆 بر اساس هفته جاری", callback_data="report_week")],
+        [InlineKeyboardButton("📥 خروجی Excel", callback_data="download_csv")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="tasks_back")],
     ])
+
+
+def settings_keyboard(user_id):
+    current = get_user_timezone(user_id)
+    rows = []
+    for label, tz_name in TIMEZONE_CHOICES:
+        selected = " ✅" if tz_name == current else ""
+        rows.append([InlineKeyboardButton(f"{label} ({tz_name}){selected}", callback_data=f"timezone_set_{tz_name}")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="tasks_back")])
+    return InlineKeyboardMarkup(rows)
+
+
+def contact_text():
+    return (
+        "📞 ارتباط با ما\n\n"
+        "این ربات با هدف مدیریت بهتر وظایف توسعه داده شده و نگهداری و اضافه‌کردن قابلیت‌های جدید، هزینه و زمان توسعه دارد. "
+        "اگر مایل به کمک مالی یا حمایت از توسعه هستید، لطفاً پیام بدهید.\n\n"
+        "💡 اگر ایده، پیشنهاد یا نیاز خاصی دارید، برای ما ارسال کنید تا در نسخه‌های بعدی بررسی شود.\n\n"
+        "🤖 اگر می‌خواهید این ربات برای بیزنس شما شخصی‌سازی شود و ربات اختصاصی خودتان را داشته باشید، پیام دهید:\n"
+        "https://t.me/abolfazl_rezaiee\n\n"
+        "📣 سایر ربات‌ها و کانال‌های ما:\n"
+        "• ارسال بار هوایی سریع:\n"
+        "https://t.me/koolbar_international\n"
+        "• بهترین راه یافتن خانه در کانادا:\n"
+        "@Machino24bot\n"
+        "https://t.me/canadahouse24"
+    )
 
 
 async def button_handler(update, context):
@@ -129,6 +180,23 @@ async def button_handler(update, context):
 
     elif data == "settings":
 
+        current = get_user_timezone(update.effective_user.id)
         await query.message.reply_text(
-            "⚙️ تنظیمات\n\nبه زودی در دسترس خواهد بود."
+            f"⚙️ تنظیمات\n\n🌍 زمان محلی فعلی: {current}\n\nمنطقه زمانی خود را انتخاب کنید:",
+            reply_markup=settings_keyboard(update.effective_user.id),
         )
+
+    elif data.startswith("timezone_set_"):
+
+        tz_name = data.replace("timezone_set_", "", 1)
+        if set_user_timezone(update.effective_user.id, tz_name):
+            await query.message.reply_text(
+                f"✅ زمان محلی شما روی {tz_name} تنظیم شد. از این پس یادآوری‌ها با ساعت محلی شما ارسال می‌شوند.",
+                reply_markup=settings_keyboard(update.effective_user.id),
+            )
+        else:
+            await query.message.reply_text("⚠️ منطقه زمانی نامعتبر است.")
+
+    elif data == "contact_us":
+
+        await query.message.reply_text(contact_text())

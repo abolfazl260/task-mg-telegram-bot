@@ -76,13 +76,13 @@ def _jalali_str(deadline: str) -> str:
 
 def reports_menu_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 کل تسک‌ها", callback_data="report_all")],
+        [InlineKeyboardButton("📋 فهرست کل وظایف", callback_data="report_all")],
         [InlineKeyboardButton("🎯 بر اساس اولویت", callback_data="report_priority")],
         [InlineKeyboardButton("📊 وضعیت تسک‌ها", callback_data="report_status")],
-        [InlineKeyboardButton("🔥 کارهای گیرکرده (+۳ روز)", callback_data="report_stuck")],
+        [InlineKeyboardButton("🔥 کارهای معطل‌مانده (+۳ روز)", callback_data="report_stuck")],
         [InlineKeyboardButton("📂 بر اساس دسته‌بندی", callback_data="report_category")],
         [InlineKeyboardButton("👤 بر اساس مسئول", callback_data="report_assignee")],
-        [InlineKeyboardButton("🧩 کانبان مسئولین", callback_data="report_kanban")],
+        [InlineKeyboardButton("🧩 برد کانبان", callback_data="report_kanban")],
         [InlineKeyboardButton("🏷 بر اساس تگ", callback_data="report_tags")],
         [InlineKeyboardButton("📅 تقویم ماه جاری", callback_data="report_calendar")],
         [InlineKeyboardButton("📆 تقویم ۷ روزه", callback_data="report_week")],
@@ -119,7 +119,7 @@ async def report_all_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("هنوز هیچ تسکی ثبت نکرده‌اید.")
         return
     tasks = sorted(tasks, key=lambda t: t.get("deadline") or "9999-99-99")
-    table = "# 📋 گزارش کل تسک‌ها\n\n| # | عنوان | مسئول | اولویت | وضعیت | مهلت | دسته‌بندی |\n|---|---|---|---|---|---|---|\n"
+    table = "# 📋 فهرست کل وظایف\n\n| # | عنوان | مسئول | اولویت | وضعیت | مهلت | دسته‌بندی |\n|---|---|---|---|---|---|---|\n"
     for i, task in enumerate(tasks, start=1):
         table += f"| {i} | {task.get('title', '-')} | {_assignee_label(task)} | {_priority_emoji(task.get('priority'))} | {_status_label(task.get('status'))} | {task.get('deadline') or '—'} | {task.get('category') or '—'} |\n"
     table += f"\n\n📌 مجموع: **{len(tasks)}** تسک"
@@ -201,9 +201,9 @@ async def report_stuck(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stuck.append((task, days))
     stuck.sort(key=lambda x: x[1], reverse=True)
     if not stuck:
-        await query.message.reply_text("🎉 هیچ تسک گیرکرده‌ای (در حال انجام بیش از ۳ روز) ندارید.")
+        await query.message.reply_text("🎉 هیچ کار معطل‌مانده‌ای (در حال انجام بیش از ۳ روز) ندارید.")
         return
-    text = "# 🔥 کارهای گیرکرده\n\nتسک‌هایی که بیش از **۳ روز** در وضعیت «در حال انجام» مانده‌اند:\n\n| # | عنوان | روزهای گیرکرده | اولویت | مهلت |\n|---|---|---|---|---|\n"
+    text = "# 🔥 کارهای معطل‌مانده\n\nتسک‌هایی که بیش از **۳ روز** در وضعیت «در حال انجام» مانده‌اند:\n\n| # | عنوان | روزهای معطل‌مانده | اولویت | مهلت |\n|---|---|---|---|---|\n"
     for i, (task, days) in enumerate(stuck, start=1):
         text += f"| {i} | {task.get('title', '-')} | {days} روز | {_priority_emoji(task.get('priority'))} | {task.get('deadline') or '—'} |\n"
     text += f"\n\n📌 تعداد: **{len(stuck)}** تسک"
