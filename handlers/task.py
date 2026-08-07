@@ -67,7 +67,7 @@ def _category_keyboard(user_id) -> InlineKeyboardMarkup:
 
 async def _ask_category(message, context, user_id):
     await message.reply_text(
-        "📂 دسته‌بندی را وارد کنید یا دکمه «رد کردن» را بزنید:",
+        "📂 دسته‌بندی را انتخاب کنید یا نام دسته‌بندی جدید را همین‌جا ارسال کنید تا ساخته شود.\nاگر دسته‌بندی نمی‌خواهید، دکمه «رد کردن» را بزنید:",
         reply_markup=_category_keyboard(user_id),
     )
 
@@ -209,8 +209,9 @@ async def priority_selected(update, context):
     query = update.callback_query
     await query.answer()
     priority = query.data.replace("priority_", "")
-    if priority == "skip":
-        priority = "medium"
+    if priority not in PRIORITY_LABEL:
+        await query.message.reply_text("⚠️ لطفاً یکی از سه اولویت بالا، متوسط یا پایین را انتخاب کنید.")
+        return
     if "new_task" not in context.user_data:
         context.user_data["new_task"] = {}
     context.user_data["new_task"]["priority"] = priority

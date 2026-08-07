@@ -1,6 +1,7 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from handlers.reports import show_reports_menu
+from handlers.donate import donate_keyboard
 from handlers.templates import show_templates_menu
 from services.user_service import get_user_timezone, set_user_timezone
 
@@ -67,6 +68,12 @@ def main_menu():
             InlineKeyboardButton(
                 "⚙️ تنظیمات",
                 callback_data="settings"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "💙 دونیت",
+                callback_data="donate_menu"
             )
         ],
         [
@@ -215,6 +222,13 @@ async def button_handler(update, context):
             )
         else:
             await query.message.reply_text("⚠️ منطقه زمانی نامعتبر است.")
+
+    elif data == "donate_menu":
+
+        await query.message.reply_text(
+            "💙 حمایت از توسعه ربات\n\nبرای دونیت با Telegram Stars یکی از گزینه‌های زیر را انتخاب کنید:",
+            reply_markup=donate_keyboard(),
+        )
 
     elif data == "contact_us":
 
