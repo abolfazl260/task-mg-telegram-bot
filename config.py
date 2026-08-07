@@ -25,3 +25,10 @@ GROQ_API_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1/respons
 
 ADMIN_IDS = [item.strip() for item in os.getenv("ADMIN_IDS", "106056586,69078288").split(",") if item.strip()]
 ADMIN_REPORT_TIME = os.getenv("ADMIN_REPORT_TIME", "20:00")
+
+# Telegram Business/Secretary mode. Enable Secretary Mode in @BotFather first.
+SECRETARY_AUTO_REPLY_ENABLED = os.getenv("SECRETARY_AUTO_REPLY_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+SECRETARY_AUTO_REPLY_TEXT = os.getenv(
+    "SECRETARY_AUTO_REPLY_TEXT",
+    "پیام شما دریافت شد؛ به‌زودی پاسخ می‌دهیم.",
+)

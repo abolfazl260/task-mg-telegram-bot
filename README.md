@@ -19,6 +19,7 @@
 - 💙 **دونیت با Telegram Stars** در مبالغ ۱۰، ۴۰ و ۱۰۰ استارز
 - 🌱 دستور `/habit` برای مدیریت عادت‌ها
 - 🤖 دستور `/ai` برای پرسیدن سؤال فارسی درباره تسک‌ها با Groq
+- 🧑‍💼 **Secretary Mode / Business Connection** برای دریافت پیام‌های چت‌های مدیریت‌شده و پاسخ‌گویی مجاز از طرف مالک حساب
 
 ---
 
@@ -84,6 +85,25 @@ BOT_REQUEST_WORKFLOW_USERNAME=RequestApproval_Bot
 - منوی اصلی متفاوت برای journey هر ربات
 
 اگر `BOT_PROFILES` تنظیم نشود، برنامه مثل قبل فقط با `BOT_TOKEN` و `BOT_USERNAME` یک ربات پیش‌فرض اجرا می‌کند.
+
+
+### Secretary Mode تلگرام
+
+برای اتصال ربات به حساب کاربر و پردازش پیام‌های چت‌های مدیریت‌شده، ابتدا در [@BotFather](https://t.me/BotFather) قابلیت **Secretary Mode** را برای ربات فعال کنید. بعد از اتصال کاربر، ربات آپدیت‌های `business_connection`، `business_message`، `edited_business_message` و `deleted_business_messages` را دریافت و ثبت می‌کند.
+
+رفتار پیاده‌سازی‌شده:
+
+- آخرین وضعیت هر Business Connection شامل `can_reply` و `is_enabled` در `data/business_connections.json` ذخیره می‌شود.
+- پیام‌های Business، ویرایش‌ها و حذف‌ها برای پردازش بعدی در همان فایل ثبت می‌شوند.
+- اگر کاربر در یک چت مدیریت‌شده پیام `/secretary_status` بفرستد و اتصال اجازه پاسخ داشته باشد، ربات با `business_connection_id` از طرف حساب Business پاسخ می‌دهد.
+- پاسخ خودکار عمومی به‌صورت پیش‌فرض خاموش است تا ربات بدون تصمیم مالک حساب به مشتریان پاسخ ندهد. برای فعال‌سازی آن در `.env` بنویسید:
+
+```env
+SECRETARY_AUTO_REPLY_ENABLED=true
+SECRETARY_AUTO_REPLY_TEXT=پیام شما دریافت شد؛ به‌زودی پاسخ می‌دهیم.
+```
+
+لینک عمیق `/start bizChat<user_chat_id>` که از نوار «Manage Bot» تلگرام می‌آید، بدون تداخل با لینک‌های دعوت تیم پذیرفته می‌شود و منوی اصلی ربات را نمایش می‌دهد.
 
 ### دستیار هوشمند Groq
 

@@ -64,6 +64,12 @@ from handlers.habits import handle_habit_callback, show_habit_menu
 from handlers.donate import donate_callback, donate_command, precheckout_callback, successful_payment_callback
 from handlers.guest import handle_guest_task
 from handlers.ai import ai_command
+from handlers.business import (
+    handle_business_connection,
+    handle_business_message,
+    handle_deleted_business_messages,
+    handle_edited_business_message,
+)
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -181,6 +187,11 @@ def build_application(profile):
     if _feature(app, "guest_mode"):
         app.add_handler(TypeHandler(Update, handle_guest_task), group=-2)
     app.add_handler(MessageHandler(filters.ALL, track_usage), group=-1)
+
+    app.add_handler(TypeHandler(Update, handle_business_connection), group=-10)
+    app.add_handler(TypeHandler(Update, handle_business_message), group=-10)
+    app.add_handler(TypeHandler(Update, handle_edited_business_message), group=-10)
+    app.add_handler(TypeHandler(Update, handle_deleted_business_messages), group=-10)
 
     app.add_handler(CommandHandler("start", start))
     if _feature(app, "tasks"):
