@@ -28,6 +28,7 @@ from handlers.search_share import handle_search_text
 from handlers.import_bulk import handle_import_text
 from handlers.team import handle_team_text
 from handlers.habits import handle_habit_text, habit_skip
+from handlers.custom_bot import handle_custom_bot_text
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,10 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # self-service custom bot provisioning
+    if await handle_custom_bot_text(update, context):
+        return
+
     # habit tracker text steps
     if await handle_habit_text(update, context):
         return
