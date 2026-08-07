@@ -21,12 +21,6 @@ def priority_keyboard():
                 "🟢 پایین",
                 callback_data="priority_low"
             )
-        ],
-        [
-            InlineKeyboardButton(
-                "⏭ رد کردن (متوسط)",
-                callback_data="priority_skip"
-            )
         ]
     ])
 

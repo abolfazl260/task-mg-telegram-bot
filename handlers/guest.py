@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import date, datetime
 
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from services.task_service import create_task
+from services.task_service import create_task, get_all_user_tasks
 from utils.date_parse import parse_deadline_input
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,58 @@ def _extract_deadline(text: str) -> str:
     return ""
 
 
+def _is_report_request(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(word in lowered for word in ("report", "گزارش", "status", "وضعیت"))
+
+
+def _build_guest_report(user_id: int) -> str:
+    tasks = get_all_user_tasks(user_id)
+    if not tasks:
+        return "📊 گزارش مهم\n\nهنوز هیچ تسکی برای شما ثبت نشده است."
+
+    active = [t for t in tasks if t.get("status") in ("pending", "in_progress")]
+    overdue = []
+    today = []
+    for task in active:
+        deadline = task.get("deadline") or ""
+        try:
+            due = parse_deadline_input(deadline) or deadline
+            if not due:
+                continue
+            due_date = datetime.strptime(due, "%Y-%m-%d").date()
+            now = date.today()
+            if due_date < now:
+                overdue.append(task)
+            elif due_date == now:
+                today.append(task)
+        except Exception:
+            continue
+
+    high = [t for t in active if t.get("priority") == "high"]
+    lines = [
+        "📊 گزارش مهم تسک‌ها",
+        "",
+        f"📌 کل تسک‌ها: {len(tasks)}",
+        f"⏳ فعال: {len(active)}",
+        f"🔴 اولویت بالا: {len(high)}",
+        f"⏰ موعد امروز: {len(today)}",
+        f"🔻 عقب‌افتاده: {len(overdue)}",
+    ]
+    important = (overdue + today + high)[:8]
+    if important:
+        lines.append("\n🔥 موارد مهم:")
+        seen = set()
+        idx = 1
+        for task in important:
+            if task.get("id") in seen:
+                continue
+            seen.add(task.get("id"))
+            lines.append(f"{idx}. {task.get('title', '—')} — {task.get('deadline') or 'بدون ددلاین'}")
+            idx += 1
+    return "\n".join(lines)
+
+
 def _article_result(title: str, text: str) -> dict:
     return {
         "type": "article",
@@ -79,12 +132,12 @@ def _article_result(title: str, text: str) -> dict:
     }
 
 
-async def _answer_guest_query(context: ContextTypes.DEFAULT_TYPE, guest_query_id: str, text: str) -> None:
+async def _answer_guest_query(context: ContextTypes.DEFAULT_TYPE, guest_query_id: str, text: str, title: str = "ثبت تسک") -> None:
     await context.bot._post(
         "answerGuestQuery",
         data={
             "guest_query_id": guest_query_id,
-            "result": _article_result("ثبت تسک", text),
+            "result": _article_result(title, text),
         },
     )
 
@@ -94,6 +147,8 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     Usage in any supported chat after Guest Mode is enabled in BotFather:
     ``@YourBot add Buy server credits 2026-08-20 فوری``.
+    Important reports can also be shared in groups with:
+    ``@YourBot گزارش مهم``.
     """
 
     guest = _guest_message(update)
@@ -115,6 +170,10 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
 
     bot_username = (getattr(context.bot, "username", None) or "").strip()
+    if _is_report_request(raw_text):
+        await _answer_guest_query(context, guest_query_id, _build_guest_report(user_id), title="گزارش مهم")
+        return
+
     title = _extract_title(raw_text, bot_username)
     if not title:
         await _answer_guest_query(

@@ -7,6 +7,7 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
+    PreCheckoutQueryHandler,
     TypeHandler,
     filters
 )
@@ -57,7 +58,8 @@ from services.team_manager import init_teams
 from services.habit_service import init_habits
 from services.user_service import init_users, record_user
 from services.admin_service import notify_new_user, daily_admin_report, error_handler
-from handlers.habits import handle_habit_callback
+from handlers.habits import handle_habit_callback, show_habit_menu
+from handlers.donate import donate_callback, donate_command, precheckout_callback, successful_payment_callback
 from handlers.guest import handle_guest_task
 
 
@@ -101,6 +103,8 @@ async def post_init(app: Application):
         BotCommand("search", "جستجوی تسک"),
         BotCommand("templates", "تمپلیت‌های آماده"),
         BotCommand("reports", "گزارشات و آمار"),
+        BotCommand("habit", "مدیریت عادت‌ها"),
+        BotCommand("donate", "حمایت با Telegram Stars"),
         BotCommand("help", "راهنمای کامل استفاده"),
     ]
     await app.bot.set_my_commands(commands)
@@ -167,6 +171,8 @@ def main():
     app.add_handler(CommandHandler("templates", show_templates_menu))
     from handlers.help import help_command
     app.add_handler(CommandHandler("reports", show_reports_menu))
+    app.add_handler(CommandHandler("habit", show_habit_menu))
+    app.add_handler(CommandHandler("donate", donate_command))
     app.add_handler(CommandHandler("help", help_command))
 
     app.add_handler(CallbackQueryHandler(start_task, pattern="^start_"))
@@ -196,6 +202,9 @@ def main():
     app.add_handler(CallbackQueryHandler(import_callback, pattern="^import_"))
     app.add_handler(CallbackQueryHandler(team_callback, pattern="^team_"))
     app.add_handler(CallbackQueryHandler(handle_habit_callback, pattern="^habit_"))
+    app.add_handler(CallbackQueryHandler(donate_callback, pattern="^donate_(10|40|100)$"))
+    app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
 
     app.add_handler(
         CallbackQueryHandler(
@@ -203,7 +212,7 @@ def main():
             pattern=(
                 "^(?!priority_|deadline_|category_pick_|category_skip|tags_skip|description_skip|"
                 "detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|"
-                "asg_|chg_|report_|tpl_|sort_|share_cat_|import_|team_|habit_)"
+                "asg_|chg_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_)"
             )
         )
     )
