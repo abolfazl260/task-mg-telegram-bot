@@ -114,7 +114,7 @@ async def button_handler(update, context):
     feature_by_callback = {
         "add_task": "tasks", "tasks": "tasks", "teams": "teams",
         "templates": "templates", "habit_menu": "habits", "stats": "reports",
-        "import_bulk": "bulk_import",
+        "import_bulk": "bulk_import", "custom_bot": "custom_bots",
     }
     required_feature = feature_by_callback.get(data)
     if profile is not None and required_feature and not profile.feature_enabled(required_feature):
@@ -139,6 +139,10 @@ async def button_handler(update, context):
         await query.message.reply_text(
             "📝 عنوان تسک را وارد کنید:"
         )
+
+    elif data == "custom_bot":
+        from handlers.custom_bot import show_custom_bot_menu
+        await show_custom_bot_menu(update, context)
 
     elif data == "help":
         from handlers.help import help_command

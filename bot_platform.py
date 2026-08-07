@@ -12,12 +12,14 @@ from typing import Any
 
 from dotenv import load_dotenv
 from telegram import BotCommand, Update
+from services.custom_bot_service import read_custom_bots
 from telegram.ext import Application
 
 BASE_DIR = Path(__file__).resolve().parent
 BOTS_DIR = BASE_DIR / "bots"
 
 DEFAULT_FEATURES = {
+    "custom_bots": True,
     "tasks": True,
     "teams": True,
     "templates": True,
@@ -38,6 +40,7 @@ DEFAULT_MENU = [
     {"label": "🧩 تمپلیت‌ها", "callback_data": "templates", "feature": "templates"},
     {"label": "🌱 مدیریت عادت‌ها", "callback_data": "habit_menu", "feature": "habits"},
     {"label": "📊 گزارشات", "callback_data": "stats", "feature": "reports"},
+    {"label": "🤖 ساخت ربات اختصاصی", "callback_data": "custom_bot", "feature": "custom_bots"},
     {"label": "📖 راهنما", "callback_data": "help"},
     {"label": "⚙️ تنظیمات", "callback_data": "settings"},
     {"label": "📞 ارتباط با ما", "callback_data": "contact_us"},
@@ -122,8 +125,31 @@ def _load_json_profile(path: Path) -> BotProfile:
     )
 
 
+def _custom_bot_profiles() -> list[BotProfile]:
+    profiles = []
+    for row in read_custom_bots(include_tokens=True):
+        if row.get("status") != "active" or not row.get("bot_token"):
+            continue
+        features = {name: False for name in DEFAULT_FEATURES}
+        features.update({"tasks": True})
+        for feature in [item.strip() for item in row.get("features", "").split(",") if item.strip()]:
+            if feature in DEFAULT_FEATURES:
+                features[feature] = True
+        features["custom_bots"] = False
+        profiles.append(BotProfile(
+            key=row.get("bot_key") or f"custom_{row.get('owner_user_id', 'user')}",
+            name=f"ربات اختصاصی {row.get('owner_name') or row.get('owner_user_id')}",
+            username=(row.get("bot_username") or row.get("bot_key") or "custom_bot").lstrip("@"),
+            token=row.get("bot_token", ""),
+            description="ربات اختصاصی ساخته‌شده توسط کاربر؛ فعلاً رایگان در نسخه بتا.",
+            features=features,
+            settings={"pricing_plan": row.get("pricing_plan", "free_beta"), "owner_user_id": row.get("owner_user_id", "")},
+        ))
+    return profiles
+
+
 def load_bot_profiles() -> list[BotProfile]:
-    """Load one or many bot profiles from .env and bots/*.json files."""
+    """Load static profiles and active self-service custom bot profiles."""
     load_dotenv(BASE_DIR / ".env")
     profile_names = [item.strip() for item in os.getenv("BOT_PROFILES", "").split(",") if item.strip()]
     if profile_names:
@@ -140,6 +166,7 @@ def load_bot_profiles() -> list[BotProfile]:
             description=os.getenv("BOT_DESCRIPTION", ""),
         )
         profiles = [profile]
+    profiles.extend(_custom_bot_profiles())
     return [profile for profile in profiles if profile.active]
 
 
