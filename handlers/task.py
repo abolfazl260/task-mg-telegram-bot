@@ -300,10 +300,23 @@ def build_detail_table(tasks, start_index=1):
     return text
 
 
+def _assignee_label(task):
+    name = (task.get("assignee_name") or "").strip()
+    username = (task.get("assignee_username") or "").strip()
+    assignee_id = (task.get("assignee_id") or "").strip()
+    if name:
+        return name
+    if username:
+        return f"@{username.lstrip('@')}"
+    if assignee_id:
+        return f"ID:{assignee_id}"
+    return "بدون مسئول"
+
+
 def build_full_report(tasks):
     table = "# 📊 گزارش پیگیری اقدامات\n\n"
-    table += "| # | موضوع | دسته | تگ | اولویت | میلادی | شمسی | زمان | وضعیت | توضیح |\n"
-    table += "|---|---|---|---|---|---|---|---|---|---|\n"
+    table += "| # | موضوع | مسئول | دسته | تگ | اولویت | میلادی | شمسی | زمان | وضعیت | توضیح |\n"
+    table += "|---|---|---|---|---|---|---|---|---|---|---|\n"
 
     for index, task in enumerate(tasks, start=1):
         priority = {"high": "🔴", "medium": "🟠", "low": "🟢"}.get(
@@ -334,7 +347,7 @@ def build_full_report(tasks):
         }.get(task.get("status"), "-")
         desc = (task.get("description") or "-").replace("\n", " ")[:40]
         table += (
-            f"| {index} | {task.get('title','-')} | {task.get('category') or '-'} "
+            f"| {index} | {task.get('title','-')} | {_assignee_label(task)} | {task.get('category') or '-'} "
             f"| {task.get('tags') or '-'} | {priority} | {deadline} "
             f"| {jalali_date} | {remaining} | {status} | {desc} |\n"
         )

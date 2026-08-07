@@ -28,6 +28,32 @@ def _pct(n, total):
     return f"{round(n / total * 100)}%"
 
 
+def _assignee_label(task):
+    name = (task.get("assignee_name") or "").strip()
+    username = (task.get("assignee_username") or "").strip()
+    assignee_id = (task.get("assignee_id") or "").strip()
+    if name:
+        return name
+    if username:
+        return f"@{username.lstrip('@')}"
+    if assignee_id:
+        return f"ID:{assignee_id}"
+    return "بدون مسئول"
+
+
+def _performance_label(done, total):
+    if total == 0:
+        return "—"
+    rate = done / total
+    if rate >= 0.8:
+        return "عالی 🟢"
+    if rate >= 0.5:
+        return "خوب 🟡"
+    if rate >= 0.25:
+        return "نیازمند پیگیری 🟠"
+    return "بحرانی 🔴"
+
+
 def _parse_created(created_at: str):
     try:
         return datetime.strptime(created_at.strip()[:16], "%Y-%m-%d %H:%M")
@@ -55,6 +81,8 @@ def reports_menu_keyboard():
         [InlineKeyboardButton("📊 وضعیت تسک‌ها", callback_data="report_status")],
         [InlineKeyboardButton("🔥 کارهای گیرکرده (+۳ روز)", callback_data="report_stuck")],
         [InlineKeyboardButton("📂 بر اساس دسته‌بندی", callback_data="report_category")],
+        [InlineKeyboardButton("👤 بر اساس مسئول", callback_data="report_assignee")],
+        [InlineKeyboardButton("🧩 کانبان مسئولین", callback_data="report_kanban")],
         [InlineKeyboardButton("🏷 بر اساس تگ", callback_data="report_tags")],
         [InlineKeyboardButton("📅 تقویم ماه جاری", callback_data="report_calendar")],
         [InlineKeyboardButton("📆 تقویم ۷ روزه", callback_data="report_week")],
@@ -91,9 +119,9 @@ async def report_all_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("هنوز هیچ تسکی ثبت نکرده‌اید.")
         return
     tasks = sorted(tasks, key=lambda t: t.get("deadline") or "9999-99-99")
-    table = "# 📋 گزارش کل تسک‌ها\n\n| # | عنوان | اولویت | وضعیت | مهلت | دسته‌بندی |\n|---|---|---|---|---|---|\n"
+    table = "# 📋 گزارش کل تسک‌ها\n\n| # | عنوان | مسئول | اولویت | وضعیت | مهلت | دسته‌بندی |\n|---|---|---|---|---|---|---|\n"
     for i, task in enumerate(tasks, start=1):
-        table += f"| {i} | {task.get('title', '-')} | {_priority_emoji(task.get('priority'))} | {_status_label(task.get('status'))} | {task.get('deadline') or '—'} | {task.get('category') or '—'} |\n"
+        table += f"| {i} | {task.get('title', '-')} | {_assignee_label(task)} | {_priority_emoji(task.get('priority'))} | {_status_label(task.get('status'))} | {task.get('deadline') or '—'} | {task.get('category') or '—'} |\n"
     table += f"\n\n📌 مجموع: **{len(tasks)}** تسک"
     await _send_rich(context, update.effective_chat.id, table)
 
@@ -200,6 +228,87 @@ async def report_by_category(update: Update, context: ContextTypes.DEFAULT_TYPE)
         for i, task in enumerate(items, start=1):
             text += f"| {i} | {task.get('title', '-')} | {_priority_emoji(task.get('priority'))} | {_status_label(task.get('status'))} | {task.get('deadline') or '—'} |\n"
         text += "\n"
+    await _send_rich(context, update.effective_chat.id, text)
+
+
+async def report_by_assignee(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tasks = get_all_user_tasks(update.effective_user.id)
+    if not tasks:
+        await query.message.reply_text("هنوز هیچ تسکی ثبت نکرده‌اید.")
+        return
+
+    groups = defaultdict(list)
+    for task in tasks:
+        groups[_assignee_label(task)].append(task)
+
+    total = len(tasks)
+    text = "# 👤 گزارش اقدامات بر اساس مسئول\n\n"
+    text += "## 📊 خلاصه عملکرد مسئولین\n\n| مسئول | مجموع | شروع‌نشده | در حال انجام | انجام‌شده | لغو | نرخ انجام | عملکرد |\n|---|---:|---:|---:|---:|---:|---:|---|\n"
+    for assignee in sorted(groups.keys(), key=lambda a: (-len(groups[a]), a)):
+        items = groups[assignee]
+        counts = defaultdict(int)
+        for task in items:
+            counts[task.get("status", "pending")] += 1
+        done = counts["done"]
+        text += (
+            f"| {assignee} | {len(items)} | {counts['pending']} | {counts['in_progress']} "
+            f"| {done} | {counts['cancelled']} | {_pct(done, len(items))} "
+            f"| {_performance_label(done, len(items))} |\n"
+        )
+
+    text += f"\n📌 **مجموع کل اقدامات:** {total} تسک\n\n"
+    text += "## 📋 جزئیات کامل به تفکیک مسئول\n\n"
+    for assignee in sorted(groups.keys(), key=lambda a: (-len(groups[a]), a)):
+        items = sorted(groups[assignee], key=lambda t: (t.get("deadline") or "9999-99-99", t.get("title") or ""))
+        done = sum(1 for task in items if task.get("status") == "done")
+        text += f"### 👤 {assignee} — {len(items)} تسک — عملکرد: {_performance_label(done, len(items))} ({_pct(done, len(items))})\n\n"
+        text += "| # | موضوع | دسته | تگ | اولویت | مهلت میلادی | مهلت شمسی | وضعیت | توضیح |\n|---|---|---|---|---|---|---|---|---|\n"
+        for i, task in enumerate(items, start=1):
+            desc = (task.get("description") or "—").replace("\n", " ")[:50]
+            text += (
+                f"| {i} | {task.get('title', '—')} | {task.get('category') or '—'} | {task.get('tags') or '—'} "
+                f"| {_priority_emoji(task.get('priority'))} | {task.get('deadline') or '—'} | {_jalali_str(task.get('deadline') or '')} "
+                f"| {_status_label(task.get('status'))} | {desc} |\n"
+            )
+        text += "\n"
+    await _send_rich(context, update.effective_chat.id, text)
+
+
+async def report_kanban_by_assignee(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tasks = get_all_user_tasks(update.effective_user.id)
+    if not tasks:
+        await query.message.reply_text("هنوز هیچ تسکی ثبت نکرده‌اید.")
+        return
+
+    groups = defaultdict(list)
+    for task in tasks:
+        groups[_assignee_label(task)].append(task)
+
+    statuses = [("pending", "⏳ شروع‌نشده"), ("in_progress", "🚀 در حال انجام"), ("done", "✅ انجام‌شده"), ("cancelled", "❌ لغو/رد")]
+    text = "# 🧩 Kanban Board بر اساس مسئولیت افراد\n\n"
+    for assignee in sorted(groups.keys(), key=lambda a: (-len(groups[a]), a)):
+        items = groups[assignee]
+        done = sum(1 for task in items if task.get("status") == "done")
+        text += f"## 👤 {assignee} — مجموع {len(items)} — عملکرد: {_performance_label(done, len(items))} ({_pct(done, len(items))})\n\n"
+        text += "| شروع‌نشده | در حال انجام | انجام‌شده | لغو/رد |\n|---|---|---|---|\n"
+        columns = []
+        for status_key, _ in statuses:
+            status_items = [task for task in items if task.get("status") == status_key]
+            status_items = sorted(status_items, key=lambda t: (t.get("deadline") or "9999-99-99", t.get("title") or ""))
+            cell = f"**{len(status_items)}** مورد"
+            if status_items:
+                lines = []
+                for task in status_items[:6]:
+                    lines.append(f"{_priority_emoji(task.get('priority'))} {task.get('title', '—')} ({task.get('deadline') or '—'})")
+                if len(status_items) > 6:
+                    lines.append(f"… و {len(status_items) - 6} مورد دیگر")
+                cell += "<br>" + "<br>".join(lines)
+            columns.append(cell)
+        text += "| " + " | ".join(columns) + " |\n\n"
     await _send_rich(context, update.effective_chat.id, text)
 
 
@@ -528,6 +637,8 @@ async def reports_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "report_status": report_by_status,
         "report_stuck": report_stuck,
         "report_category": report_by_category,
+        "report_assignee": report_by_assignee,
+        "report_kanban": report_kanban_by_assignee,
         "report_tags": report_by_tags,
         "report_calendar": report_calendar,
         "report_week": report_week,
