@@ -33,6 +33,12 @@ def main_menu():
         ],
         [
             InlineKeyboardButton(
+                "🌱 Habit Tracker",
+                callback_data="habit_menu"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 "📊 گزارشات",
                 callback_data="stats"
             )
@@ -104,6 +110,10 @@ async def button_handler(update, context):
             user_data = context.user_data
             bot = context.bot
         await team_command(update, context)
+
+    elif data == "habit_menu":
+        from handlers.habits import show_habit_menu
+        await show_habit_menu(update, context)
 
     elif data == "templates":
 
