@@ -3,77 +3,76 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from services.jira_service import disconnect, get_connection, save_connection, validate_connection
 
-JIRA_URL, JIRA_EMAIL, JIRA_TOKEN, JIRA_PROJECT = range(4)
-
+JIRA_TYPE, JIRA_URL, JIRA_IDENTITY, JIRA_CREDENTIAL, JIRA_PROJECT = range(5)
 
 async def jira_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat and update.effective_chat.type != "private":
-        await update.effective_message.reply_text("⚠️ اتصال Jira را فقط در چت خصوصی با ربات انجام دهید.")
-        return ConversationHandler.END
+        await update.effective_message.reply_text("⚠️ اتصال Jira را فقط در چت خصوصی با ربات انجام دهید."); return ConversationHandler.END
     context.user_data["jira_connect"] = {}
-    await update.effective_message.reply_text("🔗 اتصال به Jira\n\nمرحله ۱ از ۴\nآدرس Jira سازمان را ارسال کنید.\n\nمثال:\nhttps://company.atlassian.net\n\nبرای لغو /cancel را بفرستید.")
-    return JIRA_URL
+    await update.effective_message.reply_text("🔗 اتصال به Jira\n\nمرحله ۱ از ۵\nنوع Jira را ارسال کنید:\ncloud یا server\n\nبرای Jira Server/Data Center مقدار server را بفرستید.\nبرای لغو /cancel را بفرستید.")
+    return JIRA_TYPE
 
+async def jira_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    value = (update.effective_message.text or "").strip().lower()
+    if value not in ("cloud", "server"):
+        await update.effective_message.reply_text("❌ فقط cloud یا server را ارسال کنید:"); return JIRA_TYPE
+    context.user_data["jira_connect"]["deployment"] = value
+    await update.effective_message.reply_text("مرحله ۲ از ۵\nآدرس Jira سازمان را ارسال کنید.\n\nCloud: https://company.atlassian.net\nServer/Data Center: https://jira.company.com")
+    return JIRA_URL
 
 async def jira_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     value = (update.effective_message.text or "").strip().rstrip("/")
     if not value.startswith("https://"):
-        await update.effective_message.reply_text("❌ آدرس باید با https:// شروع شود. دوباره ارسال کنید:")
-        return JIRA_URL
+        await update.effective_message.reply_text("❌ آدرس باید با https:// شروع شود. دوباره ارسال کنید:"); return JIRA_URL
     context.user_data["jira_connect"]["url"] = value
-    await update.effective_message.reply_text("مرحله ۲ از ۴\nایمیل حساب Jira خود را ارسال کنید:")
-    return JIRA_EMAIL
+    if context.user_data["jira_connect"]["deployment"] == "server":
+        await update.effective_message.reply_text("مرحله ۳ از ۵\nنام کاربری Jira را ارسال کنید.")
+    else:
+        await update.effective_message.reply_text("مرحله ۳ از ۵\nایمیل حساب Atlassian خود را ارسال کنید:")
+    return JIRA_IDENTITY
 
+async def jira_identity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    value = (update.effective_message.text or "").strip(); deployment = context.user_data["jira_connect"]["deployment"]
+    if not value or (deployment == "cloud" and "@" not in value):
+        await update.effective_message.reply_text("❌ مقدار واردشده معتبر نیست. دوباره ارسال کنید:"); return JIRA_IDENTITY
+    context.user_data["jira_connect"]["identity"] = value
+    if deployment == "server":
+        await update.effective_message.reply_text("مرحله ۴ از ۵\nCredential Jira Server را ارسال کنید. اگر نصب شما PAT دارد، PAT را وارد کنید؛ در غیر این صورت credential مورد استفاده برای Basic Authentication را وارد کنید.\n\n⚠️ فقط در چت خصوصی ارسال کنید؛ پیام حذف می‌شود.")
+    else:
+        await update.effective_message.reply_text("مرحله ۴ از ۵\nAPI Token Atlassian را ارسال کنید.\n\n⚠️ فقط در چت خصوصی ارسال کنید؛ پیام حذف می‌شود.")
+    return JIRA_CREDENTIAL
 
-async def jira_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    value = (update.effective_message.text or "").strip()
-    if "@" not in value:
-        await update.effective_message.reply_text("❌ ایمیل معتبر نیست. دوباره ارسال کنید:")
-        return JIRA_EMAIL
-    context.user_data["jira_connect"]["email"] = value
-    await update.effective_message.reply_text("مرحله ۳ از ۴\nAPI Token Jira را ارسال کنید.\n\n⚠️ توکن را فقط در چت خصوصی با ربات ارسال کنید. پس از دریافت، پیام توکن حذف می‌شود.")
-    return JIRA_TOKEN
-
-
-async def jira_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def jira_credential(update: Update, context: ContextTypes.DEFAULT_TYPE):
     value = (update.effective_message.text or "").strip()
     if not value:
-        await update.effective_message.reply_text("❌ API Token خالی است. دوباره ارسال کنید:")
-        return JIRA_TOKEN
-    context.user_data["jira_connect"]["token"] = value
+        await update.effective_message.reply_text("❌ Credential خالی است. دوباره ارسال کنید:"); return JIRA_CREDENTIAL
+    context.user_data["jira_connect"]["credential"] = value
     try: await update.effective_message.delete()
     except Exception: pass
-    await update.effective_message.reply_text("مرحله ۴ از ۴\nکلید پروژه Jira را ارسال کنید. مثال: PROJ")
+    await update.effective_message.reply_text("مرحله ۵ از ۵\nکلید پروژه Jira را ارسال کنید. مثال: PROJ")
     return JIRA_PROJECT
-
 
 async def jira_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
     project = (update.effective_message.text or "").strip().upper(); data = context.user_data.get("jira_connect", {})
     try:
-        myself = validate_connection(data["url"], data["email"], data["token"], project)
-        save_connection(update.effective_user.id, data["url"], data["email"], data["token"], project, account_id=str(myself.get("accountId") or ""))
+        auth_method = "pat" if data.get("deployment") == "server" else "basic"
+        myself = validate_connection(data["url"], data["identity"], data["credential"], project, data["deployment"], auth_method)
+        save_connection(update.effective_user.id, data["url"], data["identity"], data["credential"], project, deployment=data["deployment"], account_id=str(myself.get("accountId") or ""))
         context.user_data.pop("jira_connect", None)
-        await update.effective_message.reply_text(f"✅ اتصال Jira با موفقیت انجام شد.\n\nProject: {project}\n🔄 همگام‌سازی خودکار فعال شد.\nهر ۶۰ ثانیه تغییرات Jira و Telegram بررسی می‌شوند.")
+        label = "Jira Server / Data Center" if data["deployment"] == "server" else "Jira Cloud"
+        await update.effective_message.reply_text(f"✅ اتصال {label} با موفقیت انجام شد.\n\nProject: {project}\n🔄 همگام‌سازی خودکار فعال شد.\nهر ۶۰ ثانیه تغییرات Jira و Telegram بررسی می‌شوند.")
     except Exception as exc:
-        context.user_data.pop("jira_connect", None)
-        await update.effective_message.reply_text(f"❌ اتصال برقرار نشد.\n\nجزئیات: {str(exc)[:500]}\n\nدوباره /jira را اجرا کنید.")
+        context.user_data.pop("jira_connect", None"); await update.effective_message.reply_text(f"❌ اتصال برقرار نشد.\n\nجزئیات: {str(exc)[:500]}\n\nدوباره /jira را اجرا کنید.")
     return ConversationHandler.END
-
 
 async def jira_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.pop("jira_connect", None)
-    await update.effective_message.reply_text("اتصال Jira لغو شد.")
-    return ConversationHandler.END
-
+    context.user_data.pop("jira_connect", None); await update.effective_message.reply_text("اتصال Jira لغو شد."); return ConversationHandler.END
 
 async def jira_disconnect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if disconnect(update.effective_user.id): await update.effective_message.reply_text("🔌 اتصال Jira قطع شد.")
-    else: await update.effective_message.reply_text("اتصال فعالی برای شما پیدا نشد.")
-
+    await update.effective_message.reply_text("🔌 اتصال Jira قطع شد." if disconnect(update.effective_user.id) else "اتصال فعالی برای شما پیدا نشد.")
 
 async def jira_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     connection = get_connection(update.effective_user.id)
-    if not connection:
-        await update.effective_message.reply_text("🔌 Jira به این ربات متصل نیست. برای اتصال /jira را اجرا کنید.")
-        return
-    await update.effective_message.reply_text("🟢 Jira متصل است\n\n" f"Project: {connection.get('project_key')}\n" f"Server: {connection.get('base_url')}\n" f"آخرین Sync: {connection.get('last_sync_at') or 'هنوز اجرا نشده'}")
+    if not connection: await update.effective_message.reply_text("🔌 Jira به این ربات متصل نیست. برای اتصال /jira را اجرا کنید."); return
+    label = "Jira Server / Data Center" if connection.get("deployment") == "server" else "Jira Cloud"
+    await update.effective_message.reply_text("🟢 Jira متصل است\n\n" f"نوع: {label}\nProject: {connection.get('project_key')}\nServer: {connection.get('base_url')}\nآخرین Sync: {connection.get('last_sync_at') or 'هنوز اجرا نشده'}")
