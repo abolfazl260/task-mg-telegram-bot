@@ -46,7 +46,7 @@ pip install -r requirements.txt
 BOT_TOKEN=123456:ABC-DEF...
 # آدرس وب اپ به صورت پارامتری؛ در محیط‌های مختلف می‌توانید آن را تغییر دهید
 WEB_APP_URL=https://machino24.ir/telegram-mini-app-tasksmg/
-```
+
 
 ### اجرا
 
