@@ -14,6 +14,7 @@ from config import BOT_TOKEN, ADMIN_REPORT_TIME
 
 from handlers.start import start
 from handlers.menu import button_handler
+from handlers.webapp import webapp_command
 
 from handlers.task import (
     add_task,
@@ -99,6 +100,7 @@ async def post_init(app: Application):
         BotCommand("search", "جستجوی تسک"),
         BotCommand("templates", "تمپلیت‌های آماده"),
         BotCommand("reports", "گزارشات و آمار"),
+        BotCommand("webapp", "باز کردن وب اپ"),
         BotCommand("help", "راهنمای کامل استفاده"),
     ]
     await app.bot.set_my_commands(commands)
@@ -164,6 +166,7 @@ def main():
     app.add_handler(CommandHandler("templates", show_templates_menu))
     from handlers.help import help_command
     app.add_handler(CommandHandler("reports", show_reports_menu))
+    app.add_handler(CommandHandler("webapp", webapp_command))
     app.add_handler(CommandHandler("help", help_command))
 
     app.add_handler(CallbackQueryHandler(start_task, pattern="^start_"))
