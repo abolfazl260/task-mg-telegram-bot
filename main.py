@@ -34,7 +34,6 @@ from handlers.task import (
     take_assignment,
     take_confirm,
     assignment_manage_callback,
-    timezone_command,
 )
 
 from handlers.reports import (
@@ -102,7 +101,6 @@ async def post_init(app: Application):
         BotCommand("templates", "تمپلیت‌های آماده"),
         BotCommand("reports", "گزارشات و آمار"),
         BotCommand("skip", "رد کردن فیلد اختیاری"),
-        BotCommand("timezone", "تنظیم منطقه زمانی یادآوری‌ها"),
     ]
     await app.bot.set_my_commands(commands)
 
@@ -168,7 +166,6 @@ def main():
     app.add_handler(CommandHandler("templates", show_templates_menu))
     app.add_handler(CommandHandler("reports", show_reports_menu))
     app.add_handler(CommandHandler("skip", skip_field))
-    app.add_handler(CommandHandler("timezone", timezone_command))
 
     app.add_handler(CallbackQueryHandler(start_task, pattern="^start_"))
     app.add_handler(CallbackQueryHandler(done_task, pattern="^done_"))

@@ -60,7 +60,7 @@ async def report_compare_months(update: Update, context: ContextTypes.DEFAULT_TY
 
     stats = []
     for my, mm in months:
-        created = done = 0
+        created = done = in_progress = 0
         for t in tasks:
             c = _parse_dt(t.get("created_at", ""))
             completed = _parse_dt(t.get("completed_at", ""))
@@ -68,12 +68,15 @@ async def report_compare_months(update: Update, context: ContextTypes.DEFAULT_TY
                 created += 1
             if t.get("status") == "done" and in_month(completed or c, my, mm):
                 done += 1
-        stats.append({"y": my, "m": mm, "created": created, "done": done})
+            if t.get("status") == "in_progress" and in_month(c, my, mm):
+                in_progress += 1
+        stats.append({"y": my, "m": mm, "created": created, "done": done, "in_progress": in_progress})
 
     text = "# 📊 مقایسه سه‌ماهه\n\n"
     text += "| شاخص | " + " | ".join(_month_label(s["y"], s["m"]) for s in stats) + " |\n"
     text += "|---|" + "---|" * len(stats) + "\n"
     text += "| ایجادشده | " + " | ".join(str(s["created"]) for s in stats) + " |\n"
+    text += "| در حال انجام | " + " | ".join(str(s["in_progress"]) for s in stats) + " |\n"
     text += "| انجام‌شده | " + " | ".join(str(s["done"]) for s in stats) + " |\n"
 
     # simple delta vs previous month for the newest
@@ -90,19 +93,25 @@ async def report_compare_months(update: Update, context: ContextTypes.DEFAULT_TY
         text += (
             f"\n📌 نسبت به ماه قبل:\n"
             f"• ایجاد: {delta(last['created'], prev['created'])}\n"
+            f"• در حال انجام: {delta(last['in_progress'], prev['in_progress'])}\n"
             f"• انجام: {delta(last['done'], prev['done'])}\n"
         )
 
-    # mini emoji bars for done
-    max_done = max((s["done"] for s in stats), default=1) or 1
+    # mini emoji bars for done and in-progress activity
+    max_activity = max(
+        [s["done"] for s in stats] + [s["in_progress"] for s in stats],
+        default=1,
+    ) or 1
 
-    def ebar(n, max_n):
+    def ebar(n, max_n, color):
         filled = round(n / max_n * 8) if max_n else 0
-        return "🟩" * filled + "⬜" * (8 - filled)
+        return color * filled + "⬜" * (8 - filled)
 
-    text += "\n### 📉 نمودار انجام‌شده (ایموجی)\n\n```\n"
+    text += "\n### 📉 فعالیت های انجام شده در ماه\n\n```\n"
     for s in stats:
-        text += f"{_month_label(s['y'], s['m'])} | {ebar(s['done'], max_done)} {s['done']}\n"
+        label = _month_label(s["y"], s["m"])
+        text += f"{label} | انجام‌شده     | {ebar(s['done'], max_activity, '🟩')} {s['done']}\n"
+        text += f"{label} | در حال انجام | {ebar(s['in_progress'], max_activity, '🟦')} {s['in_progress']}\n"
     text += "```\n"
 
     await _send_rich(context, update.effective_chat.id, text)
