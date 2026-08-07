@@ -106,7 +106,7 @@ async def show_task_by_id_if_matches(update, context) -> bool:
     if not task or not _can_view_task(update.effective_user.id, task):
         await update.message.reply_text("تسکی با این کد برای شما پیدا نشد.")
         return True
-    kb = task_action_keyboard(task.get("id", ""), task.get("status", "pending")) if user_can_modify_task(update.effective_user.id, task) else None
+    kb = task_action_keyboard(task.get("id", ""), task.get("status", "pending"), context.bot_data.get("bot_config")) if user_can_modify_task(update.effective_user.id, task) else None
     await update.message.reply_text(format_task_card(task), reply_markup=kb, parse_mode="Markdown")
     return True
 
@@ -522,6 +522,7 @@ async def _render_task_list(update, context, sort_key="deadline", edit=False):
         kb = task_action_keyboard(
             task.get("id", ""),
             task.get("status", "pending"),
+            context.bot_data.get("bot_config"),
         ) if can_mod else None
         await message.reply_text(
             format_task_card(task),

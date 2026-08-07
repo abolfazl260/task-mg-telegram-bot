@@ -53,11 +53,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "⚠️ کد دعوت نامعتبر است یا تیم پیدا نشد."
                 )
 
+    profile = context.bot_data.get("bot_config")
+    bot_name = profile.name if profile else "Task Manager Bot"
+    bot_description = f"\n{profile.description}\n" if profile and profile.description else ""
+
     text = f"""
 # 👋 سلام {user.first_name}
 
 
-## 📋 Task Manager Bot
+## 📋 {bot_name}
+{bot_description}
 
 
 دستیار هوشمند مدیریت کارها، جلسات و اقدامات شما آماده است.
@@ -127,5 +132,5 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "منوی اصلی:",
-        reply_markup=main_menu()
+        reply_markup=main_menu(context)
     )

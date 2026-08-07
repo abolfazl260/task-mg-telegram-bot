@@ -12,7 +12,9 @@ from telegram.ext import (
     filters
 )
 
-from config import BOT_TOKEN, ADMIN_REPORT_TIME
+from config import ADMIN_REPORT_TIME, BOT_PROFILES
+from bot_platform import run_applications
+from bot_context import set_current_bot_key
 
 from handlers.start import start
 from handlers.menu import button_handler
@@ -68,6 +70,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 
+async def bind_bot_context(update, context):
+    profile = context.bot_data.get("bot_config")
+    set_current_bot_key(profile.key if profile else "default")
+
+
 async def track_usage(update, context):
     user = update.effective_user
     if not user:
@@ -95,6 +102,7 @@ def _parse_report_time():
 
 
 async def post_init(app: Application):
+    profile = app.bot_data.get("bot_config")
     commands = [
         BotCommand("start", "شروع ربات و منوی اصلی"),
         BotCommand("add", "افزودن تسک جدید"),
@@ -109,6 +117,13 @@ async def post_init(app: Application):
         BotCommand("ai", "دستیار هوشمند تحلیل تسک‌ها"),
         BotCommand("help", "راهنمای کامل استفاده"),
     ]
+    feature_by_command = {
+        "add": "tasks", "tasks": "tasks", "unassigned": "unassigned",
+        "team": "teams", "search": "search", "templates": "templates",
+        "reports": "reports", "habit": "habits", "donate": "donate", "ai": "ai",
+    }
+    if profile is not None:
+        commands = [cmd for cmd in commands if profile.feature_enabled(feature_by_command.get(cmd.command, ""))]
     await app.bot.set_my_commands(commands)
 
     if app.job_queue:
@@ -148,34 +163,46 @@ async def post_init(app: Application):
     logging.info("Bot commands registered.")
 
 
-def main():
-    init_csv()
-    init_teams()
-    init_habits()
-    init_users()
+def _feature(app, name):
+    profile = app.bot_data.get("bot_config")
+    return profile is None or profile.feature_enabled(name)
 
+
+def build_application(profile):
     app = (
         Application.builder()
-        .token(BOT_TOKEN)
+        .token(profile.token)
         .post_init(post_init)
         .build()
     )
+    app.bot_data["bot_config"] = profile
 
-    app.add_handler(TypeHandler(Update, handle_guest_task), group=-2)
+    app.add_handler(TypeHandler(Update, bind_bot_context), group=-100)
+    if _feature(app, "guest_mode"):
+        app.add_handler(TypeHandler(Update, handle_guest_task), group=-2)
     app.add_handler(MessageHandler(filters.ALL, track_usage), group=-1)
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("add", add_task))
-    app.add_handler(CommandHandler("tasks", list_tasks))
-    app.add_handler(CommandHandler("unassigned", unassigned_tasks))
-    app.add_handler(CommandHandler("team", team_command))
-    app.add_handler(CommandHandler("search", search_command))
-    app.add_handler(CommandHandler("templates", show_templates_menu))
+    if _feature(app, "tasks"):
+        app.add_handler(CommandHandler("add", add_task))
+        app.add_handler(CommandHandler("tasks", list_tasks))
+    if _feature(app, "unassigned"):
+        app.add_handler(CommandHandler("unassigned", unassigned_tasks))
+    if _feature(app, "teams"):
+        app.add_handler(CommandHandler("team", team_command))
+    if _feature(app, "search"):
+        app.add_handler(CommandHandler("search", search_command))
+    if _feature(app, "templates"):
+        app.add_handler(CommandHandler("templates", show_templates_menu))
     from handlers.help import help_command
-    app.add_handler(CommandHandler("reports", show_reports_menu))
-    app.add_handler(CommandHandler("habit", show_habit_menu))
-    app.add_handler(CommandHandler("donate", donate_command))
-    app.add_handler(CommandHandler("ai", ai_command))
+    if _feature(app, "reports"):
+        app.add_handler(CommandHandler("reports", show_reports_menu))
+    if _feature(app, "habits"):
+        app.add_handler(CommandHandler("habit", show_habit_menu))
+    if _feature(app, "donate"):
+        app.add_handler(CommandHandler("donate", donate_command))
+    if _feature(app, "ai"):
+        app.add_handler(CommandHandler("ai", ai_command))
     app.add_handler(CommandHandler("help", help_command))
 
     app.add_handler(CallbackQueryHandler(start_task, pattern="^start_"))
@@ -226,8 +253,22 @@ def main():
 
     app.add_error_handler(error_handler)
 
-    logger.info("Task Bot Started...")
-    app.run_polling(allowed_updates=[*Update.ALL_TYPES, "guest_message"])
+    return app
+
+
+def main():
+    init_csv()
+    init_teams()
+    init_habits()
+    init_users()
+
+    apps = [build_application(profile) for profile in BOT_PROFILES]
+    logger.info("Starting %s bot application(s): %s", len(apps), ", ".join(p.key for p in BOT_PROFILES))
+    if len(apps) == 1:
+        apps[0].run_polling(allowed_updates=[*Update.ALL_TYPES, "guest_message"])
+    else:
+        import asyncio
+        asyncio.run(run_applications(apps))
 
 
 if __name__ == "__main__":
