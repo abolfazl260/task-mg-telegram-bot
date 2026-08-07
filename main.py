@@ -1,12 +1,13 @@
 import logging
 from datetime import time as dt_time
 
-from telegram import BotCommand
+from telegram import BotCommand, Update
 from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
+    TypeHandler,
     filters
 )
 
@@ -57,6 +58,7 @@ from services.habit_service import init_habits
 from services.user_service import init_users, record_user
 from services.admin_service import notify_new_user, daily_admin_report, error_handler
 from handlers.habits import handle_habit_callback
+from handlers.guest import handle_guest_task
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -153,6 +155,7 @@ def main():
         .build()
     )
 
+    app.add_handler(TypeHandler(Update, handle_guest_task), group=-2)
     app.add_handler(MessageHandler(filters.ALL, track_usage), group=-1)
 
     app.add_handler(CommandHandler("start", start))
@@ -212,7 +215,7 @@ def main():
     app.add_error_handler(error_handler)
 
     logger.info("Task Bot Started...")
-    app.run_polling()
+    app.run_polling(allowed_updates=[*Update.ALL_TYPES, "guest_message"])
 
 
 if __name__ == "__main__":
