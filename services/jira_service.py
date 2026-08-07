@@ -1,4 +1,4 @@
-"""Jira Cloud connection and bidirectional task synchronization."""
+"""Jira Cloud and Jira Server/Data Center bidirectional task synchronization."""
 
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 CONNECTIONS_FILE = BASE_DIR / "data" / "jira_connections.json"
 LINKS_FILE = BASE_DIR / "data" / "jira_task_links.json"
 _LOCK = threading.Lock()
-
 STATUS_TO_JIRA = {"pending": ("pending", "to do", "open", "new"), "in_progress": ("in progress", "in-progress", "started"), "done": ("done", "closed", "resolved"), "cancelled": ("cancelled", "canceled", "closed")}
 
 
@@ -48,11 +47,12 @@ def get_connection(user_id: int | str, bot_key: str | None = None) -> dict | Non
     return next((x for x in _load_connections() if x.get("bot_key") == bot_key and str(x.get("user_id")) == uid), None)
 
 
-def save_connection(user_id: int | str, base_url: str, email: str, api_token: str, project_key: str, issue_type: str = "Task", account_id: str = "") -> dict:
-    base_url = base_url.strip().rstrip("/")
-    if not re.match(r"^https://[^/]+$", base_url): raise ValueError("Jira URL must be an HTTPS origin such as https://company.atlassian.net")
-    if not email.strip() or not api_token.strip() or not project_key.strip(): raise ValueError("Jira URL, email, API token and project key are required.")
-    connection = {"bot_key": get_current_bot_key(), "user_id": str(user_id), "base_url": base_url, "email": email.strip(), "api_token": api_token.strip(), "project_key": project_key.strip().upper(), "issue_type": issue_type.strip() or "Task", "account_id": account_id, "connected_at": datetime.now().isoformat(timespec="seconds"), "last_sync_at": ""}
+def save_connection(user_id: int | str, base_url: str, identity: str, credential: str, project_key: str, deployment: str = "cloud", issue_type: str = "Task", account_id: str = "") -> dict:
+    base_url = base_url.strip().rstrip("/"); deployment = deployment.lower().strip()
+    if deployment not in ("cloud", "server"): raise ValueError("Jira deployment must be cloud or server")
+    if not re.match(r"^https://[^/]+(?:/[^/]*)?$", base_url): raise ValueError("Jira URL must use HTTPS, for example https://company.atlassian.net")
+    if not identity.strip() or not credential.strip() or not project_key.strip(): raise ValueError("Jira URL, username/email, credential and project key are required.")
+    connection = {"bot_key": get_current_bot_key(), "user_id": str(user_id), "base_url": base_url, "identity": identity.strip(), "credential": credential.strip(), "project_key": project_key.strip().upper(), "deployment": deployment, "issue_type": issue_type.strip() or "Task", "account_id": account_id, "connected_at": datetime.now().isoformat(timespec="seconds"), "last_sync_at": ""}
     items = [x for x in _load_connections() if not (x.get("bot_key") == connection["bot_key"] and str(x.get("user_id")) == connection["user_id"])]
     items.append(connection)
     with _LOCK: _save_connections(items)
@@ -66,11 +66,19 @@ def disconnect(user_id: int | str) -> bool:
     return True
 
 
+def _api_prefix(connection: dict) -> str:
+    return "/rest/api/3" if connection.get("deployment", "cloud") == "cloud" else "/rest/api/2"
+
+
 def _request_json(connection: dict, method: str, path: str, payload: dict | None = None, query: dict | None = None) -> dict | list:
     url = connection["base_url"] + path
     if query: url += "?" + parse.urlencode(query)
-    credentials = f"{connection['email']}:{connection['api_token']}".encode(); token = base64.b64encode(credentials).decode(); body = None if payload is None else json.dumps(payload).encode("utf-8")
-    req = request.Request(url, data=body, method=method.upper(), headers={"Authorization": f"Basic {token}", "Accept": "application/json", "Content-Type": "application/json"})
+    if connection.get("deployment", "cloud") == "server" and connection.get("auth_method") == "pat":
+        auth = f"Bearer {connection['credential']}"
+    else:
+        raw_credentials = f"{connection['identity']}:{connection['credential']}".encode(); auth = f"Basic {base64.b64encode(raw_credentials).decode()}"
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    req = request.Request(url, data=body, method=method.upper(), headers={"Authorization": auth, "Accept": "application/json", "Content-Type": "application/json"})
     try:
         with request.urlopen(req, timeout=20) as response:
             raw = response.read().decode("utf-8"); return json.loads(raw) if raw else {}
@@ -78,10 +86,11 @@ def _request_json(connection: dict, method: str, path: str, payload: dict | None
         detail = exc.read().decode("utf-8", errors="replace")[:500]; raise RuntimeError(f"Jira API {exc.code}: {detail}") from exc
 
 
-def validate_connection(base_url: str, email: str, api_token: str, project_key: str) -> dict:
-    test = {"base_url": base_url.rstrip("/"), "email": email, "api_token": api_token, "project_key": project_key}
-    myself = _request_json(test, "GET", "/rest/api/3/myself")
-    _request_json(test, "GET", f"/rest/api/3/project/{parse.quote(project_key, safe='')}")
+def validate_connection(base_url: str, identity: str, credential: str, project_key: str, deployment: str = "cloud", auth_method: str = "basic") -> dict:
+    test = {"base_url": base_url.rstrip("/"), "identity": identity, "credential": credential, "project_key": project_key, "deployment": deployment, "auth_method": auth_method}
+    prefix = "/rest/api/3" if deployment == "cloud" else "/rest/api/2"
+    myself = _request_json(test, "GET", prefix + "/myself")
+    _request_json(test, "GET", f"{prefix}/project/{parse.quote(project_key, safe='')}")
     return myself if isinstance(myself, dict) else {}
 
 
@@ -90,7 +99,11 @@ def _jira_due_date(deadline: str) -> str | None:
 
 
 def _task_to_fields(task: dict, connection: dict) -> dict:
-    fields = {"project": {"key": connection["project_key"]}, "summary": task.get("title") or "Telegram Task", "issuetype": {"name": connection.get("issue_type") or "Task"}, "description": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": task.get("description") or ""}]}]}}
+    description = task.get("description") or ""
+    if connection.get("deployment", "cloud") == "server":
+        fields = {"project": {"key": connection["project_key"]}, "summary": task.get("title") or "Telegram Task", "issuetype": {"name": connection.get("issue_type") or "Task"}, "description": description}
+    else:
+        fields = {"project": {"key": connection["project_key"]}, "summary": task.get("title") or "Telegram Task", "issuetype": {"name": connection.get("issue_type") or "Task"}, "description": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": description}]}]}}
     due = _jira_due_date(task.get("deadline", ""))
     if due: fields["duedate"] = due
     return fields
@@ -124,11 +137,14 @@ def _persist_link(task: dict, jira_key: str, sync_hash: str) -> None:
 def create_issue_for_task(task: dict, user_id: int | str) -> str | None:
     connection = get_connection(user_id)
     if not connection or task.get("jira_key"): return None
-    result = _request_json(connection, "POST", "/rest/api/3/issue", {"fields": _task_to_fields(task, connection)})
+    prefix = _api_prefix(connection); result = _request_json(connection, "POST", prefix + "/issue", {"fields": _task_to_fields(task, connection)})
     key = result.get("key") if isinstance(result, dict) else None
     if key:
-        if connection.get("account_id"):
-            try: _request_json(connection, "PUT", f"/rest/api/3/issue/{parse.quote(key, safe='')}/assignee", {"accountId": connection["account_id"]})
+        if connection.get("deployment") == "cloud" and connection.get("account_id"):
+            try: _request_json(connection, "PUT", f"{prefix}/issue/{parse.quote(key, safe='')}/assignee", {"accountId": connection["account_id"]})
+            except Exception: pass
+        elif connection.get("deployment") == "server" and connection.get("identity"):
+            try: _request_json(connection, "PUT", f"{prefix}/issue/{parse.quote(key, safe='')}/assignee", {"name": connection["identity"]})
             except Exception: pass
         _persist_link(task, key, _local_hash(task))
     return key
@@ -138,7 +154,7 @@ def _jira_status_name(status: str) -> str: return STATUS_TO_JIRA.get(status, ("p
 
 
 def _find_transition(connection: dict, issue_key: str, local_status: str) -> str | None:
-    data = _request_json(connection, "GET", f"/rest/api/3/issue/{parse.quote(issue_key, safe='')}/transitions"); wanted = {x.lower() for x in STATUS_TO_JIRA.get(local_status, ())}
+    prefix = _api_prefix(connection); data = _request_json(connection, "GET", f"{prefix}/issue/{parse.quote(issue_key, safe='')}/transitions"); wanted = {x.lower() for x in STATUS_TO_JIRA.get(local_status, ())}
     for transition in data.get("transitions", []) if isinstance(data, dict) else []:
         name = (transition.get("name") or "").lower(); to_name = ((transition.get("to") or {}).get("name") or "").lower()
         if name in wanted or to_name in wanted or _jira_status_name(local_status) in name: return transition.get("id")
@@ -148,10 +164,10 @@ def _find_transition(connection: dict, issue_key: str, local_status: str) -> str
 def update_issue_from_task(task: dict, user_id: int | str) -> bool:
     connection = get_connection(user_id); key = task.get("jira_key")
     if not connection or not key: return False
-    fields = _task_to_fields(task, connection); fields.pop("project", None); fields.pop("issuetype", None)
-    _request_json(connection, "PUT", f"/rest/api/3/issue/{parse.quote(key, safe='')}", {"fields": fields})
+    prefix = _api_prefix(connection); fields = _task_to_fields(task, connection); fields.pop("project", None); fields.pop("issuetype", None)
+    _request_json(connection, "PUT", f"{prefix}/issue/{parse.quote(key, safe='')}", {"fields": fields})
     transition_id = _find_transition(connection, key, task.get("status", "pending"))
-    if transition_id: _request_json(connection, "POST", f"/rest/api/3/issue/{parse.quote(key, safe='')}/transitions", {"transition": {"id": transition_id}})
+    if transition_id: _request_json(connection, "POST", f"{prefix}/issue/{parse.quote(key, safe='')}/transitions", {"transition": {"id": transition_id}})
     _persist_link(task, key, _local_hash(task)); return True
 
 
@@ -164,13 +180,15 @@ def _map_jira_status(name: str) -> str:
 
 
 def _description_text(issue: dict) -> str:
+    description = issue.get("fields", {}).get("description")
+    if isinstance(description, str): return description
     def walk(node):
         if isinstance(node, dict):
             if node.get("type") == "text": return node.get("text", "")
             return "".join(walk(x) for x in node.get("content", []))
         if isinstance(node, list): return "".join(walk(x) for x in node)
         return ""
-    return walk(issue.get("fields", {}).get("description"))
+    return walk(description)
 
 
 def _apply_issue_to_task(task: dict, issue: dict) -> bool:
@@ -186,10 +204,12 @@ def _apply_issue_to_task(task: dict, issue: dict) -> bool:
 
 
 def _jira_issues_for_user(connection: dict) -> list[dict]:
-    links = [x.get("jira_key") for x in _load_links() if x.get("bot_key") == get_current_bot_key() and x.get("jira_key")]
+    prefix = _api_prefix(connection); links = [x.get("jira_key") for x in _load_links() if x.get("bot_key") == get_current_bot_key() and x.get("jira_key")]
     linked_clause = " OR key in (" + ",".join(links) + ")" if links else ""
     jql = f"project = {connection['project_key']} AND (assignee = currentUser(){linked_clause}) ORDER BY updated DESC"
-    data = _request_json(connection, "GET", "/rest/api/3/search/jql", query={"jql": jql, "maxResults": 100, "fields": "summary,description,status,duedate,priority,updated"})
+    if connection.get("deployment") == "server" and connection.get("identity"):
+        jql = f"project = {connection['project_key']} AND (assignee = '{connection['identity']}'{linked_clause}) ORDER BY updated DESC"
+    data = _request_json(connection, "GET", prefix + "/search", query={"jql": jql, "maxResults": 100, "fields": "summary,description,status,duedate,priority,updated"})
     return data.get("issues", []) if isinstance(data, dict) else []
 
 
@@ -225,6 +245,6 @@ def sync_all_connections(bot_key: str | None = None) -> tuple[int, int]:
         all_items = _load_connections()
         for item in all_items:
             for updated in connections:
-                if item.get("bot_key") == updated.get("bot_key") and str(item.get("user_id")) == str(updated.get("user_id")): item["last_sync_at"] = updated.get("last_sync_at", "")
+                if item.get("bot_key") == updated.get("bot_key") and str(item.get("user_id")) == str(updated.get("user_id")): item.update({"last_sync_at": updated.get("last_sync_at", "")})
         _save_connections(all_items)
     return total, len(connections)
