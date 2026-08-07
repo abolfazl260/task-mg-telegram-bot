@@ -51,6 +51,41 @@ BOT_TOKEN=123456:ABC-DEF...
 python main.py
 ```
 
+### اجرای خودکار بعد از ری‌استارت سرور
+
+برای اینکه ربات بعد از ری‌استارت شدن سرور، کرش برنامه یا قطع موقت شبکه دوباره به صورت خودکار اجرا شود، می‌توانید سرویس `systemd` آماده پروژه را نصب کنید. این روش برای سرورهای لینوکسی رایج مانند Ubuntu و Debian پیشنهاد می‌شود.
+
+1. پروژه را روی سرور کپی کنید و در ریشه پروژه دستور زیر را اجرا کنید:
+
+```bash
+sudo ./scripts/install-systemd-service.sh
+```
+
+2. اگر فایل `.env` در مسیر نصب ساخته شد، مقدار `BOT_TOKEN` را در آن تنظیم کنید:
+
+```bash
+sudo nano /opt/task-mg-telegram-bot/.env
+```
+
+3. سرویس را اجرا کنید:
+
+```bash
+sudo systemctl start task-mg-telegram-bot
+```
+
+4. وضعیت و لاگ‌ها را بررسی کنید:
+
+```bash
+sudo systemctl status task-mg-telegram-bot
+sudo journalctl -u task-mg-telegram-bot -f
+```
+
+سرویس نصب‌شده با `Restart=always` تنظیم شده است؛ بنابراین اگر برنامه متوقف شود یا سرور ری‌استارت شود، `systemd` ربات را دوباره اجرا می‌کند. برای تغییر مسیر نصب، کاربر سرویس یا نسخه پایتون می‌توانید متغیرهای زیر را قبل از اجرای اسکریپت مقداردهی کنید:
+
+```bash
+sudo INSTALL_DIR=/opt/task-mg-telegram-bot SERVICE_USER=taskbot PYTHON_BIN=python3 ./scripts/install-systemd-service.sh
+```
+
 ---
 
 ## 📌 دستورات ربات
