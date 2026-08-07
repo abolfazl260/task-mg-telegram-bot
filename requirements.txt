@@ -3,3 +3,5 @@ python-dotenv
 pandas
 openpyxl
 jdatetime
+fastapi
+uvicorn[standard]
