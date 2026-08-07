@@ -61,6 +61,7 @@ from services.admin_service import notify_new_user, daily_admin_report, error_ha
 from handlers.habits import handle_habit_callback, show_habit_menu
 from handlers.donate import donate_callback, donate_command, precheckout_callback, successful_payment_callback
 from handlers.guest import handle_guest_task
+from handlers.ai import ai_command
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -105,6 +106,7 @@ async def post_init(app: Application):
         BotCommand("reports", "گزارشات و آمار"),
         BotCommand("habit", "مدیریت عادت‌ها"),
         BotCommand("donate", "حمایت با Telegram Stars"),
+        BotCommand("ai", "دستیار هوشمند تحلیل تسک‌ها"),
         BotCommand("help", "راهنمای کامل استفاده"),
     ]
     await app.bot.set_my_commands(commands)
@@ -173,6 +175,7 @@ def main():
     app.add_handler(CommandHandler("reports", show_reports_menu))
     app.add_handler(CommandHandler("habit", show_habit_menu))
     app.add_handler(CommandHandler("donate", donate_command))
+    app.add_handler(CommandHandler("ai", ai_command))
     app.add_handler(CommandHandler("help", help_command))
 
     app.add_handler(CallbackQueryHandler(start_task, pattern="^start_"))
