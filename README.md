@@ -12,6 +12,7 @@
 - 📋 **مشاهده لیست تسک‌های فعال** با صفحه‌بندی
 - ⏳ **محاسبه زمان باقی‌مانده** تا ددلاین
 - 📊 **داشبورد وضعیت اولویت‌ها**
+- 🌐 **باز کردن وب اپ / Telegram Mini App** از منوی اصلی یا دستور `/webapp`
 - 📥 **دانلود خروجی اکسل** از تسک‌های فعال
 - 🗓️ پشتیبانی از **تاریخ شمسی (جلالی)** در گزارش‌ها
 - 💾 ذخیره‌سازی ساده و سبک با فایل **CSV**
@@ -43,6 +44,10 @@ pip install -r requirements.txt
 
 ```env
 BOT_TOKEN=123456:ABC-DEF...
+# آدرس وب اپ به صورت پارامتری؛ در محیط‌های مختلف می‌توانید آن را تغییر دهید
+WEB_APP_URL=https://machino24.ir/telegram-mini-app-tasksmg/
+# اگر Core/API روی آدرس جداست، این مقدار را هم تنظیم کنید
+WEB_APP_API_BASE_URL=https://api.example.com
 ```
 
 ### اجرا
@@ -50,6 +55,25 @@ BOT_TOKEN=123456:ABC-DEF...
 ```bash
 python main.py
 ```
+
+### تنظیم وب اپ / Telegram Mini App
+
+آدرس وب اپ در کد ثابت نشده و از متغیر محیطی `WEB_APP_URL` خوانده می‌شود. مقدار پیش‌فرض فعلی این است:
+
+```env
+WEB_APP_URL=https://machino24.ir/telegram-mini-app-tasksmg/
+WEB_APP_API_BASE_URL=https://api.example.com
+```
+
+اگر Core/API روی دامنه یا سرور دیگری است، `WEB_APP_API_BASE_URL` را تنظیم کنید تا به صورت پارامتری با نام `api_base_url` به وب اپ پاس داده شود. راهنمای کامل اتصال Frontend و Backend در [`docs/telegram-mini-app-integration.md`](docs/telegram-mini-app-integration.md) آمده است.
+
+بعد از تنظیم این مقدار، کاربران می‌توانند از دو مسیر وب اپ را باز کنند:
+
+- دکمه `🌐 وب اپ` در منوی اصلی ربات
+- دستور `/webapp` در تلگرام
+
+اگر دامنه یا مسیر وب اپ تغییر کرد، فقط مقدار `WEB_APP_URL` را در فایل `.env` یا متغیرهای محیطی سرور تغییر دهید و ربات را ری‌استارت کنید.
+
 
 ### اجرای خودکار بعد از ری‌استارت سرور
 
@@ -96,6 +120,7 @@ sudo INSTALL_DIR=/opt/task-mg-telegram-bot SERVICE_USER=taskbot PYTHON_BIN=pytho
 | `/add`      | افزودن تسک جدید                |
 | `/tasks`    | مشاهده لیست تسک‌های فعال       |
 | `/skip`     | رد کردن فیلد اختیاری (دسته‌بندی یا تگ) |
+| `/webapp`   | باز کردن وب اپ / Telegram Mini App |
 
 ---
 

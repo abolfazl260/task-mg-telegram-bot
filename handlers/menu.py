@@ -1,4 +1,6 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+
+from services.web_app import get_web_app_url
 
 from handlers.reports import show_reports_menu
 from handlers.templates import show_templates_menu
@@ -49,6 +51,12 @@ def main_menu():
             InlineKeyboardButton(
                 "🌱 مدیریت عادت‌ها",
                 callback_data="habit_menu"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🌐 وب اپ",
+                web_app=WebAppInfo(url=get_web_app_url())
             )
         ],
         [

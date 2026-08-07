@@ -15,6 +15,15 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 # Used in deep-link invites (t.me/USERNAME?start=...)
 BOT_USERNAME = os.getenv("BOT_USERNAME", "TaskManagerpersian_Bot").lstrip("@")
 
+# Telegram Mini App URL. Override WEB_APP_URL in .env for each environment.
+WEB_APP_URL = os.getenv(
+    "WEB_APP_URL",
+    "https://machino24.ir/telegram-mini-app-tasksmg/",
+).strip()
+
+# Optional backend/core API URL for the Mini App frontend when it is hosted elsewhere.
+WEB_APP_API_BASE_URL = os.getenv("WEB_APP_API_BASE_URL", "").strip().rstrip("/")
+
 
 if not BOT_TOKEN:
     raise Exception(
