@@ -59,8 +59,8 @@ def main_menu():
         ],
         [
             InlineKeyboardButton(
-                "📥 ایمپورت گروهی",
-                callback_data="import_bulk"
+                "📖 راهنما",
+                callback_data="help"
             )
         ],
         [
@@ -108,18 +108,23 @@ def settings_keyboard(user_id):
 
 def contact_text():
     return (
-        "📞 ارتباط با ما\n\n"
-        "این ربات با هدف مدیریت بهتر وظایف توسعه داده شده و نگهداری و اضافه‌کردن قابلیت‌های جدید، هزینه و زمان توسعه دارد. "
-        "اگر مایل به کمک مالی یا حمایت از توسعه هستید، لطفاً پیام بدهید.\n\n"
-        "💡 اگر ایده، پیشنهاد یا نیاز خاصی دارید، برای ما ارسال کنید تا در نسخه‌های بعدی بررسی شود.\n\n"
-        "🤖 اگر می‌خواهید این ربات برای بیزنس شما شخصی‌سازی شود و ربات اختصاصی خودتان را داشته باشید، پیام دهید:\n"
-        "https://t.me/abolfazl_rezaiee\n\n"
-        "📣 سایر ربات‌ها و کانال‌های ما:\n"
-        "• ارسال بار هوایی سریع:\n"
-        "https://t.me/koolbar_international\n"
-        "• بهترین راه یافتن خانه در کانادا:\n"
-        "@Machino24bot\n"
-        "https://t.me/canadahouse24"
+        "📞 **ارتباط با ما**\n"
+        "این ربات با هدف **مدیریت ساده‌تر و بهتر وظایف** توسعه داده شده است. نگهداری، بهبود و اضافه‌کردن قابلیت‌های جدید، نیازمند صرف زمان و هزینه است.\n"
+        "💙 اگر از ربات استفاده می‌کنید و مایل به **حمایت مالی از توسعه و ادامه فعالیت آن** هستید، خوشحال می‌شویم با ما در ارتباط باشید.\n"
+        "💡 **ایده یا پیشنهاد دارید؟**\n"
+        "اگر قابلیت، ایده یا نیاز خاصی در نظر دارید، برای ما ارسال کنید تا در توسعه نسخه‌های آینده بررسی شود.\n"
+        "🤖 **ربات اختصاصی برای کسب‌وکار شما**\n"
+        "اگر می‌خواهید این ربات متناسب با نیازهای کسب‌وکار شما **شخصی‌سازی و اختصاصی‌سازی** شود، برای همکاری با ما در ارتباط باشید:\n"
+        "👉 @abolfazl\\_rezaiee\n"
+        "📣 **سایر ربات‌ها و خدمات ما**\n"
+        "✈️ **خدمات جامع مسافران هوایی**\n"
+        "🎫 تضمین **بهترین نرخ پرواز، بدون واسطه**\n"
+        "👉 @Flightiranbot\n"
+        "📦 **ارسال سریع بار هوایی**\n"
+        "👉 @koolbar\\_international\n"
+        "🏠 **بهترین راه برای پیدا کردن خانه در کانادا**\n"
+        "👉 @Machino24bot\n"
+        "👉 @canadahouse24"
     )
 
 
@@ -133,12 +138,26 @@ async def button_handler(update, context):
 
     if data == "add_task":
 
+        await query.message.reply_text(
+            "➕ افزودن تسک\n\nروش ثبت را انتخاب کنید:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📝 ثبت تکی", callback_data="add_task_single")],
+                [InlineKeyboardButton("📥 آپلود گروهی", callback_data="import_bulk")],
+            ]),
+        )
+
+    elif data == "add_task_single":
+
         context.user_data["new_task"] = {}
         context.user_data["step"] = "title"
 
         await query.message.reply_text(
             "📝 عنوان تسک را وارد کنید:"
         )
+
+    elif data == "help":
+        from handlers.help import help_command
+        await help_command(update, context)
 
     elif data == "tasks":
         await query.message.reply_text(
@@ -199,4 +218,4 @@ async def button_handler(update, context):
 
     elif data == "contact_us":
 
-        await query.message.reply_text(contact_text())
+        await query.message.reply_text(contact_text(), parse_mode="Markdown")

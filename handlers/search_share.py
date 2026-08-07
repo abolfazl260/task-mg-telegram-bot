@@ -251,6 +251,5 @@ async def share_category_callback(update: Update, context: ContextTypes.DEFAULT_
 
     await query.message.reply_text(
         text
-        + f"\n\n💡 این پیام را فوروارد کنید.\n"
-        f"یا برای ارسال مستقیم:\n/share category {matched} <user_id>"
+        + "\n\n💡 این پیام را می‌توانید فوروارد کنید."
     )

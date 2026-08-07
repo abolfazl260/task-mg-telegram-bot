@@ -47,6 +47,47 @@ STATUS_LABEL = {
 PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
+def _skip_keyboard(callback_data: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton("⏭ رد کردن", callback_data=callback_data)]])
+
+
+def _category_keyboard(user_id) -> InlineKeyboardMarkup:
+    categories = []
+    seen = set()
+    for task in get_active_tasks(user_id):
+        category = (task.get("category") or "").strip()
+        key = category.lower()
+        if category and key not in seen:
+            seen.add(key)
+            categories.append(category)
+    rows = [[InlineKeyboardButton(f"📂 {cat}", callback_data=f"category_pick_{cat[:40]}")] for cat in categories[:10]]
+    rows.append([InlineKeyboardButton("⏭ رد کردن", callback_data="category_skip")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def _ask_category(message, context, user_id):
+    await message.reply_text(
+        "📂 دسته‌بندی را وارد کنید یا دکمه «رد کردن» را بزنید:",
+        reply_markup=_category_keyboard(user_id),
+    )
+
+
+async def _ask_tags(message, context):
+    context.user_data["step"] = "tags"
+    await message.reply_text(
+        "🏷 تگ را وارد کنید یا دکمه «رد کردن» را بزنید:",
+        reply_markup=_skip_keyboard("tags_skip"),
+    )
+
+
+async def _ask_description(message, context):
+    context.user_data["step"] = "description"
+    await message.reply_text(
+        "📄 توضیح / یادداشت را وارد کنید یا دکمه «رد کردن» را بزنید:\n(اختیاری)",
+        reply_markup=_skip_keyboard("description_skip"),
+    )
+
+
 def _is_bare_task_id(text: str) -> bool:
     value = (text or "").strip()
     return len(value) == 8 and value.isalnum()
@@ -146,23 +187,17 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         task["deadline"] = parsed
         context.user_data["step"] = "category"
-        await update.message.reply_text(
-            "📂 دسته‌بندی را وارد کنید یا /skip بزنید:"
-        )
+        await _ask_category(update.message, context, update.effective_user.id)
         return
 
     if step == "category":
         task["category"] = text
-        context.user_data["step"] = "tags"
-        await update.message.reply_text("🏷 تگ را وارد کنید یا /skip بزنید:")
+        await _ask_tags(update.message, context)
         return
 
     if step == "tags":
         task["tags"] = text
-        context.user_data["step"] = "description"
-        await update.message.reply_text(
-            "📄 توضیح / یادداشت را وارد کنید یا /skip بزنید:\n(اختیاری)"
-        )
+        await _ask_description(update.message, context)
         return
 
     if step == "description":
@@ -174,6 +209,8 @@ async def priority_selected(update, context):
     query = update.callback_query
     await query.answer()
     priority = query.data.replace("priority_", "")
+    if priority == "skip":
+        priority = "medium"
     if "new_task" not in context.user_data:
         context.user_data["new_task"] = {}
     context.user_data["new_task"]["priority"] = priority
@@ -201,14 +238,14 @@ async def deadline_selected(update, context):
     if value == "none":
         context.user_data["new_task"]["deadline"] = ""
         context.user_data["step"] = "category"
-        await query.message.reply_text("📂 دسته‌بندی را وارد کنید یا /skip بزنید:")
+        await _ask_category(query.message, context, update.effective_user.id)
         return
 
     days = int(value)
     deadline = datetime.now() + timedelta(days=days)
     context.user_data["new_task"]["deadline"] = deadline.strftime("%Y-%m-%d")
     context.user_data["step"] = "category"
-    await query.message.reply_text("📂 دسته‌بندی را وارد کنید یا /skip بزنید:")
+    await _ask_category(query.message, context, update.effective_user.id)
 
 
 async def skip_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -222,21 +259,54 @@ async def skip_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if step == "category":
         task["category"] = ""
-        context.user_data["step"] = "tags"
-        await update.message.reply_text("🏷 تگ را وارد کنید یا /skip بزنید:")
+        await _ask_tags(update.message, context)
         return
 
     if step == "tags":
         task["tags"] = ""
-        context.user_data["step"] = "description"
-        await update.message.reply_text(
-            "📄 توضیح / یادداشت را وارد کنید یا /skip بزنید:\n(اختیاری)"
-        )
+        await _ask_description(update.message, context)
         return
 
     if step == "description":
         task["description"] = ""
         await _ask_assignment(update, context)
+
+
+async def optional_field_callback(update, context):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    task = context.user_data.get("new_task")
+    if not task:
+        await query.message.reply_text("فرایند ایجاد تسک فعالی پیدا نشد.")
+        return
+
+    if data == "category_skip":
+        task["category"] = ""
+        await _ask_tags(query.message, context)
+        return
+
+    if data.startswith("category_pick_"):
+        selected = data.replace("category_pick_", "", 1)
+        categories = [
+            (t.get("category") or "").strip()
+            for t in get_active_tasks(update.effective_user.id)
+            if (t.get("category") or "").strip()
+        ]
+        matched = next((c for c in categories if c[:40] == selected), selected)
+        task["category"] = matched
+        await _ask_tags(query.message, context)
+        return
+
+    if data == "tags_skip":
+        task["tags"] = ""
+        await _ask_description(query.message, context)
+        return
+
+    if data == "description_skip":
+        task["description"] = ""
+        await _ask_assignment(update, context)
+        return
 
 
 def sort_tasks(tasks, key: str = "deadline"):

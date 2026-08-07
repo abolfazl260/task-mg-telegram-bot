@@ -21,7 +21,7 @@ from handlers.task import (
     list_tasks,
     priority_selected,
     deadline_selected,
-    skip_field,
+    optional_field_callback,
     detail_page,
     download_csv,
     start_task,
@@ -46,7 +46,7 @@ from handlers.templates import (
     templates_callback
 )
 
-from handlers.search_share import search_command, share_command, share_category_callback
+from handlers.search_share import search_command, share_category_callback
 from handlers.extra_reports import report_compare_months, report_performance, report_progress_bar
 from handlers.import_bulk import import_callback
 from handlers.team import team_command, team_callback
@@ -97,10 +97,9 @@ async def post_init(app: Application):
         BotCommand("unassigned", "وظایف بدون مسئول"),
         BotCommand("team", "تیم و فضای مشترک"),
         BotCommand("search", "جستجوی تسک"),
-        BotCommand("share", "اشتراک‌گذاری لیست / دسته"),
         BotCommand("templates", "تمپلیت‌های آماده"),
         BotCommand("reports", "گزارشات و آمار"),
-        BotCommand("skip", "رد کردن فیلد اختیاری"),
+        BotCommand("help", "راهنمای کامل استفاده"),
     ]
     await app.bot.set_my_commands(commands)
 
@@ -162,10 +161,10 @@ def main():
     app.add_handler(CommandHandler("unassigned", unassigned_tasks))
     app.add_handler(CommandHandler("team", team_command))
     app.add_handler(CommandHandler("search", search_command))
-    app.add_handler(CommandHandler("share", share_command))
     app.add_handler(CommandHandler("templates", show_templates_menu))
+    from handlers.help import help_command
     app.add_handler(CommandHandler("reports", show_reports_menu))
-    app.add_handler(CommandHandler("skip", skip_field))
+    app.add_handler(CommandHandler("help", help_command))
 
     app.add_handler(CallbackQueryHandler(start_task, pattern="^start_"))
     app.add_handler(CallbackQueryHandler(done_task, pattern="^done_"))
@@ -188,6 +187,7 @@ def main():
     app.add_handler(CallbackQueryHandler(templates_callback, pattern="^tpl_"))
     app.add_handler(CallbackQueryHandler(priority_selected, pattern="^priority_"))
     app.add_handler(CallbackQueryHandler(deadline_selected, pattern="^deadline_"))
+    app.add_handler(CallbackQueryHandler(optional_field_callback, pattern="^(category_pick_|category_skip|tags_skip|description_skip)"))
 
     app.add_handler(CallbackQueryHandler(share_category_callback, pattern="^share_cat_"))
     app.add_handler(CallbackQueryHandler(import_callback, pattern="^import_"))
@@ -198,9 +198,9 @@ def main():
         CallbackQueryHandler(
             button_handler,
             pattern=(
-                "^(?!priority_|deadline_|detail_page_|download_csv|"
-                "start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|report_|tpl_|sort_|"
-                "share_cat_|import_|team_|habit_)"
+                "^(?!priority_|deadline_|category_pick_|category_skip|tags_skip|description_skip|"
+                "detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|"
+                "asg_|chg_|report_|tpl_|sort_|share_cat_|import_|team_|habit_)"
             )
         )
     )

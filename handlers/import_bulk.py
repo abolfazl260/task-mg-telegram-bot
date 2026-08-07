@@ -17,9 +17,11 @@ IMPORT_HELP = """📥 ایمپورت گروهی
 فرمت هر خط:
 عنوان | اولویت | مهلت | دسته | تگ | توضیح
 
-مثال:
+مثال قابل کپی:
+```
 TASKS
 خرید نان | medium |  | خرید |  | ۲ عدد
+```
 
 اولویت: high یا medium یا low
 مهلت: مثل 2026-08-20 یا خالی
@@ -117,7 +119,7 @@ async def start_import_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         msg = update.message
 
-    await msg.reply_text(IMPORT_HELP, reply_markup=_samples_keyboard())
+    await msg.reply_text(IMPORT_HELP, reply_markup=_samples_keyboard(), parse_mode="Markdown")
 
 
 async def import_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -149,7 +151,7 @@ async def import_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"۲) اسم‌ها یا موارد را عوض کن اگر لازم است\n"
             f"۳) همین متن را دوباره اینجا بفرست"
         )
-        await query.message.reply_text(sample["body"])
+        await query.message.reply_text(f"```\n{sample['body']}\n```", parse_mode="Markdown")
         return
 
     if data == "import_cancel":
