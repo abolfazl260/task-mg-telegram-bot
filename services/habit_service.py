@@ -13,16 +13,104 @@ HABIT_HEADERS = [
 LOG_HEADERS = ["habit_id", "user_id", "done_date", "done_at"]
 
 TEMPLATES = [
-    {"key": "exercise", "title": "🏃 ورزش روزانه", "category": "سلامت", "target": "۳۰ دقیقه ورزش", "description": ""},
-    {"key": "water", "title": "💧 نوشیدن آب", "category": "سلامت", "target": "۸ لیوان آب در روز", "description": ""},
-    {"key": "sleep", "title": "😴 خواب منظم", "category": "سلامت", "target": "۷ ساعت خواب", "description": ""},
-    {"key": "book", "title": "📚 مطالعه کتاب", "category": "یادگیری", "target": "۳۰ دقیقه مطالعه روزانه", "description": ""},
-    {"key": "language", "title": "🗣 یادگیری زبان", "category": "یادگیری", "target": "۲۰ دقیقه تمرین", "description": ""},
-    {"key": "plan", "title": "📝 برنامه‌ریزی روزانه", "category": "بهره‌وری", "target": "نوشتن برنامه روز", "description": ""},
-    {"key": "email", "title": "📧 بررسی ایمیل", "category": "بهره‌وری", "target": "یک بار در روز", "description": ""},
-    {"key": "meditation", "title": "🧘 مدیتیشن", "category": "سلامت ذهن", "target": "۱۰ دقیقه در روز", "description": ""},
-    {"key": "journal", "title": "📔 ثبت ژورنال روزانه", "category": "سلامت ذهن", "target": "نوشتن تجربیات روزانه", "description": ""},
+    {
+        "key": "exercise",
+        "title": "🏃 ورزش روزانه",
+        "category": "سلامت",
+        "target": "۳۰ دقیقه ورزش",
+        "description": "کمک می‌کند انرژی، آمادگی جسمانی و نظم روزانه‌تان بهتر شود.",
+        "repeat_type": "daily",
+        "reminder_time": "07:00",
+    },
+    {
+        "key": "water",
+        "title": "💧 نوشیدن آب",
+        "category": "سلامت",
+        "target": "۸ لیوان آب در روز",
+        "description": "برای حفظ تمرکز، کاهش خستگی و مراقبت از بدن مفید است.",
+        "repeat_type": "daily",
+        "reminder_time": "09:00",
+    },
+    {
+        "key": "sleep",
+        "title": "😴 خواب منظم",
+        "category": "سلامت",
+        "target": "۷ ساعت خواب",
+        "description": "ثبات ساعت خواب باعث بازیابی بهتر، خلق بهتر و تمرکز بیشتر می‌شود.",
+        "repeat_type": "daily",
+        "reminder_time": "21:00",
+    },
+    {
+        "key": "book",
+        "title": "📚 مطالعه کتاب",
+        "category": "یادگیری",
+        "target": "۳۰ دقیقه مطالعه روزانه",
+        "description": "یادگیری پیوسته و کوتاه‌مدت، دانش شما را بدون فشار زیاد افزایش می‌دهد.",
+        "repeat_type": "daily",
+        "reminder_time": "20:00",
+    },
+    {
+        "key": "language",
+        "title": "🗣 یادگیری زبان",
+        "category": "یادگیری",
+        "target": "۲۰ دقیقه تمرین",
+        "description": "تمرین کوتاه و مداوم برای ماندگاری واژگان و پیشرفت زبان مؤثر است.",
+        "repeat_type": "daily",
+        "reminder_time": "18:00",
+    },
+    {
+        "key": "plan",
+        "title": "📝 برنامه‌ریزی روزانه",
+        "category": "بهره‌وری",
+        "target": "نوشتن برنامه روز",
+        "description": "با مشخص کردن اولویت‌ها، شروع روز شفاف‌تر و تصمیم‌گیری آسان‌تر می‌شود.",
+        "repeat_type": "daily",
+        "reminder_time": "07:00",
+    },
+    {
+        "key": "email",
+        "title": "📧 بررسی ایمیل",
+        "category": "بهره‌وری",
+        "target": "یک بار در روز",
+        "description": "یک بازه مشخص برای ایمیل از پراکندگی توجه در طول روز جلوگیری می‌کند.",
+        "repeat_type": "daily",
+        "reminder_time": "11:00",
+    },
+    {
+        "key": "meditation",
+        "title": "🧘 مدیتیشن",
+        "category": "سلامت ذهن",
+        "target": "۱۰ دقیقه در روز",
+        "description": "چند دقیقه آرام‌سازی روزانه می‌تواند استرس را کمتر و تمرکز را بیشتر کند.",
+        "repeat_type": "daily",
+        "reminder_time": "21:00",
+    },
+    {
+        "key": "journal",
+        "title": "📔 ثبت ژورنال روزانه",
+        "category": "سلامت ذهن",
+        "target": "نوشتن تجربیات روزانه",
+        "description": "نوشتن روزانه به مرور احساسات، ثبت پیشرفت و شناخت الگوها کمک می‌کند.",
+        "repeat_type": "daily",
+        "reminder_time": "21:00",
+    },
 ]
+
+
+def is_habit_due_on(habit, day=None):
+    day = day or date.today()
+    repeat_type = habit.get("repeat_type") or "daily"
+    try:
+        start = datetime.strptime(habit.get("start_date") or date.today().isoformat(), "%Y-%m-%d").date()
+    except ValueError:
+        start = day
+    if day < start:
+        return False
+    if repeat_type == "weekly":
+        return day.weekday() == start.weekday()
+    if repeat_type == "monthly":
+        return day.day == start.day
+    return True
 
 
 def _ensure(path, headers):

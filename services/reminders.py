@@ -137,6 +137,7 @@ from services.habit_service import (
     get_all_habit_user_ids,
     get_logs,
     get_user_habits,
+    is_habit_due_on,
     stats_for_habit,
 )
 
@@ -159,6 +160,8 @@ async def habit_reminders(context):
             if log.get("done_date") == today
         }
         for habit in get_user_habits(user_id, active_only=True):
+            if not is_habit_due_on(habit):
+                continue
             if habit.get("reminder_time") != now_time:
                 continue
             if habit.get("id") in done_today:
@@ -170,7 +173,7 @@ async def habit_reminders(context):
             try:
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"⏰ یادآوری Habit\n\nزمان انجام:\n\n{habit.get('title', '—')}\n\nآیا انجام شد؟",
+                    text=f"⏰ یادآوری عادت\n\nزمان انجام:\n\n{habit.get('title', '—')}\n\nآیا انجام شد؟",
                     reply_markup=keyboard,
                 )
             except Exception as e:
@@ -205,11 +208,11 @@ async def weekly_habit_reports(context):
         weak = min(habits, key=lambda h: counts.get(h["id"], 0))
         record = max(habits, key=lambda h: stats_for_habit(h)["best"])
         text = (
-            "📊 گزارش هفتگی Habit\n\n"
+            "📊 گزارش هفتگی عادت‌ها\n\n"
             "عملکرد هفته گذشته:\n\n"
             f"✅ انجام شده:\n{done} بار\n\n"
             f"❌ انجام نشده:\n{missed} بار\n\n"
-            "بهترین Habit هفته:\n\n"
+            "بهترین عادت هفته:\n\n"
             f"{best.get('title')}\n{counts.get(best['id'], 0)} روز از 7 روز\n\n"
             "نیاز به بهبود:\n\n"
             f"{weak.get('title')}\n{counts.get(weak['id'], 0)} روز از 7 روز\n\n"
