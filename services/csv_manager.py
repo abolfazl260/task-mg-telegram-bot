@@ -17,6 +17,10 @@ HEADERS = [
     "created_at",
     "completed_at",
     "team_id",
+    "assignee_id",
+    "assignee_name",
+    "assignee_username",
+    "assignment_history",
 ]
 
 
