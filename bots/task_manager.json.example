@@ -1,0 +1,52 @@
+{
+  "key": "task_manager",
+  "name": "Task Manager Persian Bot",
+  "username_env": "BOT_TASK_MANAGER_USERNAME",
+  "token_env": "BOT_TASK_MANAGER_TOKEN",
+  "active": true,
+  "description": "ربات مدیریت تسک با امکانات کامل",
+  "features": {
+    "tasks": true,
+    "teams": true,
+    "templates": true,
+    "habits": true,
+    "reports": true,
+    "donate": true,
+    "ai": true,
+    "guest_mode": true,
+    "search": true,
+    "bulk_import": true,
+    "unassigned": true
+  },
+  "settings": {
+    "locale": "fa",
+    "timezone": "Asia/Tehran"
+  },
+  "access": {
+    "default_role": "user",
+    "admin_ids_env": "ADMIN_IDS"
+  },
+  "workflow": {
+    "statuses": {
+      "pending": "⏳ در انتظار",
+      "in_progress": "🚀 در حال انجام",
+      "done": "✅ تکمیل شده",
+      "cancelled": "❌ لغو شده"
+    },
+    "actions": {
+      "start": "🚀 شروع انجام",
+      "done": "✅ تکمیل",
+      "cancel": "❌ لغو",
+      "pending": "⏸ بازگشت به انتظار",
+      "owner": "👤 مسئول",
+      "take": "🙋 برعهده گرفتن"
+    }
+  },
+  "menu": [
+    {"label": "➕ افزودن تسک", "callback_data": "add_task", "feature": "tasks"},
+    {"label": "📋 تسک‌ها", "callback_data": "tasks", "feature": "tasks"},
+    {"label": "👥 تیم‌ها", "callback_data": "teams", "feature": "teams"},
+    {"label": "📊 گزارشات", "callback_data": "stats", "feature": "reports"},
+    {"label": "⚙️ تنظیمات", "callback_data": "settings"}
+  ]
+}

@@ -19,71 +19,33 @@ TIMEZONE_CHOICES = [
 ]
 
 
-def main_menu():
+def _bot_profile(context=None):
+    if context is not None:
+        return context.bot_data.get("bot_config")
+    return None
 
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "➕ افزودن تسک",
-                callback_data="add_task"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "📋 تسک‌ها",
-                callback_data="tasks"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "👥 تیم‌ها",
-                callback_data="teams"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🧩 تمپلیت‌ها",
-                callback_data="templates"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🌱 مدیریت عادت‌ها",
-                callback_data="habit_menu"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "📊 گزارشات",
-                callback_data="stats"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "📖 راهنما",
-                callback_data="help"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "⚙️ تنظیمات",
-                callback_data="settings"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "📞 ارتباط با ما",
-                callback_data="contact_us"
-            )
-        ]
-    ]
 
+def _feature_enabled(profile, feature):
+    return not feature or profile is None or profile.feature_enabled(feature)
+
+
+def main_menu(context=None):
+    profile = _bot_profile(context)
+    menu_items = profile.menu if profile is not None else []
+    if not menu_items:
+        from bot_platform import DEFAULT_MENU
+        menu_items = DEFAULT_MENU
+    keyboard = []
+    for item in menu_items:
+        if _feature_enabled(profile, item.get("feature")):
+            keyboard.append([InlineKeyboardButton(item["label"], callback_data=item["callback_data"])])
     return InlineKeyboardMarkup(keyboard)
 
 
-def tasks_options_keyboard():
+def tasks_options_keyboard(context=None):
     """Sub-menu when user taps Tasks — choose what to do first."""
-    return InlineKeyboardMarkup([
+    profile = _bot_profile(context)
+    rows = [
         [InlineKeyboardButton("📋 لیست تسک‌های فعال", callback_data="tasks_list")],
         [InlineKeyboardButton("📅 مرتب‌سازی بر اساس ددلاین", callback_data="sort_deadline")],
         [InlineKeyboardButton("🎯 مرتب‌سازی بر اساس اولویت", callback_data="sort_priority")],
@@ -93,8 +55,11 @@ def tasks_options_keyboard():
         [InlineKeyboardButton("👤 بر اساس مسئول", callback_data="report_assignee")],
         [InlineKeyboardButton("📆 بر اساس هفته جاری", callback_data="report_week")],
         [InlineKeyboardButton("📥 خروجی Excel", callback_data="download_csv")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="tasks_back")],
-    ])
+    ]
+    if profile is not None and not profile.feature_enabled("unassigned"):
+        rows = [row for row in rows if "مسئول" not in row[0].text]
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="tasks_back")])
+    return InlineKeyboardMarkup(rows)
 
 
 def settings_keyboard(user_id):
@@ -145,15 +110,25 @@ async def button_handler(update, context):
     await query.answer()
 
     data = query.data
+    profile = _bot_profile(context)
+    feature_by_callback = {
+        "add_task": "tasks", "tasks": "tasks", "teams": "teams",
+        "templates": "templates", "habit_menu": "habits", "stats": "reports",
+        "import_bulk": "bulk_import",
+    }
+    required_feature = feature_by_callback.get(data)
+    if profile is not None and required_feature and not profile.feature_enabled(required_feature):
+        await query.message.reply_text("⚠️ این قابلیت برای این ربات فعال نیست.")
+        return
 
     if data == "add_task":
 
         await query.message.reply_text(
             "➕ افزودن تسک\n\nروش ثبت را انتخاب کنید:",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📝 ثبت تکی", callback_data="add_task_single")],
-                [InlineKeyboardButton("📥 آپلود گروهی", callback_data="import_bulk")],
-            ]),
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("📝 ثبت تکی", callback_data="add_task_single")]]
+                + ([[InlineKeyboardButton("📥 آپلود گروهی", callback_data="import_bulk")]] if _feature_enabled(profile, "bulk_import") else [])
+            ),
         )
 
     elif data == "add_task_single":
@@ -172,7 +147,7 @@ async def button_handler(update, context):
     elif data == "tasks":
         await query.message.reply_text(
             "📋 بخش تسک‌ها\n\nچه کاری می‌خواهید انجام دهید؟",
-            reply_markup=tasks_options_keyboard(),
+            reply_markup=tasks_options_keyboard(context),
         )
 
     elif data == "tasks_list":
@@ -180,7 +155,7 @@ async def button_handler(update, context):
         await list_tasks(update, context)
 
     elif data == "tasks_back":
-        await query.message.reply_text("منوی اصلی:", reply_markup=main_menu())
+        await query.message.reply_text("منوی اصلی:", reply_markup=main_menu(context))
 
     elif data == "teams":
         from handlers.team import team_command

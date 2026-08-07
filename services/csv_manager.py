@@ -2,9 +2,12 @@ import csv
 import os
 from datetime import datetime
 
+from bot_context import get_current_bot_key
+
 FILE_PATH = "data/tasks.csv"
 
 HEADERS = [
+    "bot_key",
     "id",
     "user_id",
     "title",
@@ -55,10 +58,10 @@ def init_csv():
 def save_task(data):
     with open(FILE_PATH, "a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
-        writer.writerow(data)
+        writer.writerow([get_current_bot_key(), *data])
 
 
-def read_tasks():
+def _read_all_tasks():
     if not os.path.exists(FILE_PATH):
         return []
 
@@ -71,11 +74,32 @@ def read_tasks():
     return rows
 
 
+def read_tasks():
+    current_bot = get_current_bot_key()
+    filtered = []
+    for row in _read_all_tasks():
+        # Legacy rows without bot_key belong to the default single-bot profile.
+        if (row.get("bot_key") or "default") == current_bot:
+            filtered.append(row)
+    return filtered
+
+
 def _write_all(tasks):
+    current_bot = get_current_bot_key()
+    other_tasks = [
+        row for row in _read_all_tasks()
+        if (row.get("bot_key") or "default") != current_bot
+    ]
+    current_tasks = []
+    for task in tasks:
+        row = {h: task.get(h, "") for h in HEADERS}
+        row["bot_key"] = current_bot
+        current_tasks.append(row)
+
     with open(FILE_PATH, "w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=HEADERS, extrasaction="ignore")
         writer.writeheader()
-        for task in tasks:
+        for task in [*other_tasks, *current_tasks]:
             writer.writerow({h: task.get(h, "") for h in HEADERS})
 
 

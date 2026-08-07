@@ -58,6 +58,33 @@ GROQ_MODEL=openai/gpt-oss-20b
 python main.py
 ```
 
+
+### پلتفرم مدیریت چند ربات
+
+این پروژه می‌تواند به جای یک ربات ثابت، چند ربات تلگرام را با یک هسته مشترک اجرا کند. برای هر ربات یک فایل پروفایل جدا در پوشه `bots/` بسازید و توکن و یوزرنیم همان ربات را فقط در `.env` نگه دارید؛ هیچ توکنی نباید داخل کد یا فایل JSON قرار بگیرد.
+
+نمونه `.env` برای اجرای چند ربات:
+
+```env
+BOT_PROFILES=task_manager,request_workflow
+BOT_TASK_MANAGER_TOKEN=123456:AAA...
+BOT_TASK_MANAGER_USERNAME=TaskManagerPersian_Bot
+BOT_REQUEST_WORKFLOW_TOKEN=987654:BBB...
+BOT_REQUEST_WORKFLOW_USERNAME=RequestApproval_Bot
+```
+
+برای هر نام داخل `BOT_PROFILES` باید یک فایل هم‌نام در مسیر `bots/<name>.json` وجود داشته باشد. دو نمونه آماده در فایل‌های `bots/task_manager.json.example` و `bots/request_workflow.json.example` قرار دارد؛ آن‌ها را کپی کنید، پسوند `.example` را بردارید و قابلیت‌ها، منو و workflow اختصاصی ربات را تنظیم کنید.
+
+هر پروفایل ربات می‌تواند این موارد را مستقل تعریف کند:
+
+- نام، توضیحات، وضعیت فعال/غیرفعال و متغیرهای محیطی توکن/یوزرنیم
+- قابلیت‌های فعال مانند تسک، تیم، گزارش، عادت، AI، دونیت، Guest Mode و import گروهی
+- تنظیمات اختصاصی و سطح دسترسی‌ها
+- برچسب‌های workflow و دکمه‌های اکشن اختصاصی
+- منوی اصلی متفاوت برای journey هر ربات
+
+اگر `BOT_PROFILES` تنظیم نشود، برنامه مثل قبل فقط با `BOT_TOKEN` و `BOT_USERNAME` یک ربات پیش‌فرض اجرا می‌کند.
+
 ### دستیار هوشمند Groq
 
 اگر `GROQ_API_KEY` در `.env` تنظیم شده باشد، می‌توانید از دستور `/ai` برای تحلیل تسک‌های خود استفاده کنید:

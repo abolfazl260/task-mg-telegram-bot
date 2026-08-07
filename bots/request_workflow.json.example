@@ -1,0 +1,43 @@
+{
+  "key": "request_workflow",
+  "name": "Request Approval Bot",
+  "username_env": "BOT_REQUEST_WORKFLOW_USERNAME",
+  "token_env": "BOT_REQUEST_WORKFLOW_TOKEN",
+  "active": true,
+  "description": "نمونه ربات درخواست با جرنی متفاوت",
+  "features": {
+    "tasks": true,
+    "teams": false,
+    "templates": false,
+    "habits": false,
+    "reports": true,
+    "donate": false,
+    "ai": false,
+    "guest_mode": false,
+    "search": true,
+    "bulk_import": false,
+    "unassigned": false
+  },
+  "workflow": {
+    "statuses": {
+      "pending": "📝 ایجاد درخواست",
+      "in_progress": "👨‍💼 در حال بررسی مدیر",
+      "done": "✅ تأیید نهایی",
+      "cancelled": "❌ رد شده"
+    },
+    "actions": {
+      "start": "👨‍💼 ارسال برای بررسی",
+      "done": "✅ تأیید نهایی",
+      "cancel": "❌ رد درخواست",
+      "pending": "↩️ برگشت به ثبت اولیه",
+      "owner": "👤 بررسی‌کننده",
+      "take": "🙋 پذیرش بررسی"
+    }
+  },
+  "menu": [
+    {"label": "➕ ایجاد درخواست", "callback_data": "add_task", "feature": "tasks"},
+    {"label": "📋 درخواست‌های من", "callback_data": "tasks", "feature": "tasks"},
+    {"label": "📊 گزارش درخواست‌ها", "callback_data": "stats", "feature": "reports"},
+    {"label": "⚙️ تنظیمات", "callback_data": "settings"}
+  ]
+}
