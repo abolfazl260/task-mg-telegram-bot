@@ -20,3 +20,7 @@ if not BOT_TOKEN:
     raise Exception(
         "BOT_TOKEN peyda nashod "
     )
+
+
+ADMIN_IDS = [item.strip() for item in os.getenv("ADMIN_IDS", "106056586,69078288").split(",") if item.strip()]
+ADMIN_REPORT_TIME = os.getenv("ADMIN_REPORT_TIME", "20:00")

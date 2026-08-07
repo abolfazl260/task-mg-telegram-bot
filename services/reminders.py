@@ -1,8 +1,9 @@
 import logging
-from datetime import date, datetime, timedelta
-from collections import defaultdict
+from datetime import datetime, timedelta
 
 from services.task_service import get_all_user_ids, get_active_tasks, get_all_user_tasks
+from services.user_service import get_user_timezone
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
@@ -11,10 +12,18 @@ def _priority_emoji(p):
     return {"high": "🔴", "medium": "🟠", "low": "🟢"}.get(p, "🟢")
 
 
+def _user_now(user_id):
+    return datetime.now(ZoneInfo(get_user_timezone(user_id)))
+
+
+def _is_user_local_time(user_id, hour, minute):
+    now = _user_now(user_id)
+    return now.hour == hour and now.minute == minute
+
+
 async def morning_today_tasks(context):
     """07:00 — list tasks due today (and overdue active)."""
 
-    today = date.today().isoformat()
     user_ids = get_all_user_ids()
 
     for uid in user_ids:
@@ -23,11 +32,14 @@ async def morning_today_tasks(context):
         except ValueError:
             continue
 
+        if not _is_user_local_time(user_id, 7, 0):
+            continue
+        local_today = _user_now(user_id).date().isoformat()
         tasks = get_active_tasks(user_id)
-        today_list = [t for t in tasks if (t.get("deadline") or "") == today]
+        today_list = [t for t in tasks if (t.get("deadline") or "") == local_today]
         overdue = [
             t for t in tasks
-            if t.get("deadline") and t.get("deadline") < today
+            if t.get("deadline") and t.get("deadline") < local_today
         ]
 
         if not today_list and not overdue:
@@ -58,10 +70,6 @@ async def morning_today_tasks(context):
 async def midday_summary_and_weekly(context):
     """11:00 — today's activity summary + weekly overview."""
 
-    today = date.today()
-    today_str = today.isoformat()
-    week_start = today - timedelta(days=today.weekday())  # Monday
-
     user_ids = get_all_user_ids()
 
     for uid in user_ids:
@@ -69,6 +77,12 @@ async def midday_summary_and_weekly(context):
             user_id = int(uid)
         except ValueError:
             continue
+
+        if not _is_user_local_time(user_id, 11, 0):
+            continue
+        today = _user_now(user_id).date()
+        today_str = today.isoformat()
+        week_start = today - timedelta(days=today.weekday())  # Monday
 
         all_tasks = get_all_user_tasks(user_id)
         if not all_tasks:
@@ -145,15 +159,15 @@ from services.habit_service import (
 async def habit_reminders(context):
     """Every minute — send habit reminders that match the current HH:MM."""
 
-    now_time = datetime.now().strftime("%H:%M")
-    today = date.today().isoformat()
-
     for uid in get_all_habit_user_ids():
         try:
             user_id = int(uid)
         except ValueError:
             continue
 
+        user_now = _user_now(user_id)
+        now_time = user_now.strftime("%H:%M")
+        today = user_now.date().isoformat()
         done_today = {
             log.get("habit_id")
             for log in get_logs(user_id=user_id)
@@ -183,14 +197,15 @@ async def habit_reminders(context):
 async def weekly_habit_reports(context):
     """Friday — send automatic weekly habit report."""
 
-    end = date.today()
-    start = end - timedelta(days=6)
-
     for uid in get_all_habit_user_ids():
         try:
             user_id = int(uid)
         except ValueError:
             continue
+        if _user_now(user_id).weekday() != 4 or not _is_user_local_time(user_id, 18, 0):
+            continue
+        end = _user_now(user_id).date()
+        start = end - timedelta(days=6)
         habits = get_user_habits(user_id, active_only=True)
         if not habits:
             continue

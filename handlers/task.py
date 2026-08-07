@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import logging
 import jdatetime
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -25,6 +26,9 @@ from handlers.search_share import handle_search_text
 from handlers.import_bulk import handle_import_text
 from handlers.team import handle_team_text
 from handlers.habits import handle_habit_text, habit_skip
+from services.user_service import set_user_timezone, validate_timezone, get_user_timezone
+
+logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 10
 
@@ -42,6 +46,46 @@ STATUS_LABEL = {
 }
 
 PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+
+def _is_bare_task_id(text: str) -> bool:
+    value = (text or "").strip()
+    return len(value) == 8 and value.isalnum()
+
+
+def _can_view_task(user_id, task: dict) -> bool:
+    return any(t.get("id") == task.get("id") for t in get_active_tasks(user_id)) or user_can_modify_task(user_id, task)
+
+
+async def timezone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    if args:
+        tz_name = args[0].strip()
+        if set_user_timezone(update.effective_user.id, tz_name):
+            await update.message.reply_text(f"✅ منطقه زمانی شما روی {tz_name} تنظیم شد.")
+        else:
+            await update.message.reply_text("⚠️ منطقه زمانی نامعتبر است. مثال: Asia/Tehran یا Europe/Berlin")
+        return
+    context.user_data["step"] = "timezone"
+    current = get_user_timezone(update.effective_user.id)
+    await update.message.reply_text(
+        f"🌍 منطقه زمانی فعلی: {current}\n\n"
+        "نام منطقه زمانی را وارد کنید. مثال‌ها:\n"
+        "Asia/Tehran\nEurope/Berlin\nAmerica/New_York"
+    )
+
+
+async def show_task_by_id_if_matches(update, context) -> bool:
+    text = (update.message.text or "").strip()
+    if not _is_bare_task_id(text):
+        return False
+    task = get_task_by_id(text)
+    if not task or not _can_view_task(update.effective_user.id, task):
+        await update.message.reply_text("تسکی با این کد برای شما پیدا نشد.")
+        return True
+    kb = task_action_keyboard(task.get("id", ""), task.get("status", "pending")) if user_can_modify_task(update.effective_user.id, task) else None
+    await update.message.reply_text(format_task_card(task), reply_markup=kb, parse_mode="Markdown")
+    return True
 
 
 def _finalize_task(user_id, task):
@@ -87,13 +131,25 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await handle_search_text(update, context):
         return
 
+    if await show_task_by_id_if_matches(update, context):
+        return
+
     if "step" not in context.user_data:
         return
 
     step = context.user_data["step"]
     text = update.message.text
     task = context.user_data.get("new_task")
-    if task is None and step not in ("search_query", "import_bulk", "team_create_name", "team_join_code"):
+    if task is None and step not in ("search_query", "import_bulk", "team_create_name", "team_join_code", "timezone"):
+        return
+
+    if step == "timezone":
+        tz_name = text.strip()
+        if validate_timezone(tz_name) and set_user_timezone(update.effective_user.id, tz_name):
+            context.user_data.pop("step", None)
+            await update.message.reply_text(f"✅ منطقه زمانی شما روی {tz_name} تنظیم شد. از این پس یادآوری‌ها با ساعت محلی شما ارسال می‌شوند.")
+        else:
+            await update.message.reply_text("⚠️ منطقه زمانی نامعتبر است. مثال: Asia/Tehran")
         return
 
     if step == "title":
@@ -520,6 +576,7 @@ async def _handle_status_change(update, context, new_status: str):
     label = STATUS_LABELS.get(new_status, new_status)
 
     await query.edit_message_text(format_task_card(task), parse_mode="Markdown")
+    logger.info("task_status_changed task_id=%s user_id=%s new_status=%s", task_id, update.effective_user.id, new_status)
     await query.message.reply_text(
         f"وضعیت تسک «{task.get('title', '-')}» به {label} تغییر کرد."
     )
@@ -662,6 +719,7 @@ async def assignment_callback(update, context):
         saved = get_task_by_id(task_id)
         assignee = task.get("assignee")
         context.user_data.clear()
+        logger.info("task_created task_id=%s user_id=%s assignee_id=%s team_id=%s", task_id, uid, (assignee or {}).get("user_id") or "", task.get("team_id", ""))
         await query.message.reply_text(f"✅ تسک ثبت شد\n🆔 {task_id}")
         if assignee:
             await _notify_assignment(context, saved or task, assignee, update.effective_user)
@@ -690,15 +748,32 @@ async def handle_assignment_search_text(update, context):
 
 
 async def unassigned_tasks(update, context):
-    tasks = get_unassigned_tasks(update.effective_user.id)
+    tasks = sort_tasks(get_unassigned_tasks(update.effective_user.id), "created")
     if not tasks:
         await update.effective_message.reply_text("وظیفه بدون مسئول ندارید.")
         return
-    for task in tasks:
+    offset = context.user_data.get("unassigned_offset", 0)
+    if offset >= len(tasks):
+        offset = 0
+    page_tasks = tasks[offset:offset + PAGE_SIZE]
+    context.user_data["unassigned_offset"] = offset + len(page_tasks)
+    await update.effective_message.reply_text(
+        f"📋 وظایف بدون مسئول: {len(tasks)} مورد\n"
+        f"نمایش {offset + 1} تا {offset + len(page_tasks)} با توضیحات کامل."
+    )
+    for task in page_tasks:
         await update.effective_message.reply_text(
-            f"📋 وظایف بدون مسئول\n\n#{task.get('id')}\n{task.get('title')}\n\n⭐ اولویت:\n{PRIORITY_LABEL.get(task.get('priority'), '-')}\n\n👤 مسئول:\n❌ تعیین نشده",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🙋 برعهده گرفتن", callback_data=f"take_{task.get('id')}")]])
+            format_task_card(task),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🙋 برعهده گرفتن", callback_data=f"take_{task.get('id')}")]]),
+            parse_mode="Markdown",
         )
+    remaining = len(tasks) - context.user_data.get("unassigned_offset", 0)
+    if remaining > 0:
+        await update.effective_message.reply_text(
+            f"➡️ {remaining} وظیفه دیگر باقی مانده است. برای دیدن سری بعدی دوباره /unassigned را انتخاب کنید."
+        )
+    else:
+        context.user_data["unassigned_offset"] = 0
 
 
 async def take_assignment(update, context):
