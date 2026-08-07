@@ -21,6 +21,7 @@ from utils.date_parse import parse_deadline_input
 from handlers.search_share import handle_search_text
 from handlers.import_bulk import handle_import_text
 from handlers.team import handle_team_text
+from handlers.habits import handle_habit_text, habit_skip
 
 PAGE_SIZE = 10
 
@@ -60,6 +61,10 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # habit tracker text steps
+    if await handle_habit_text(update, context):
+        return
+
     # team create/join text steps
     if await handle_team_text(update, context):
         return
@@ -176,6 +181,9 @@ async def deadline_selected(update, context):
 
 
 async def skip_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await habit_skip(update, context):
+        return
+
     step = context.user_data.get("step")
     task = context.user_data.get("new_task")
     if not task:
