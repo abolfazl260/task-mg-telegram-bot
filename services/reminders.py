@@ -131,3 +131,93 @@ async def midday_summary_and_weekly(context):
 async def check_deadline_reminders(context):
     """Legacy alias — prefer morning_today_tasks."""
     await morning_today_tasks(context)
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from services.habit_service import (
+    get_all_habit_user_ids,
+    get_logs,
+    get_user_habits,
+    stats_for_habit,
+)
+
+
+async def habit_reminders(context):
+    """Every minute — send habit reminders that match the current HH:MM."""
+
+    now_time = datetime.now().strftime("%H:%M")
+    today = date.today().isoformat()
+
+    for uid in get_all_habit_user_ids():
+        try:
+            user_id = int(uid)
+        except ValueError:
+            continue
+
+        done_today = {
+            log.get("habit_id")
+            for log in get_logs(user_id=user_id)
+            if log.get("done_date") == today
+        }
+        for habit in get_user_habits(user_id, active_only=True):
+            if habit.get("reminder_time") != now_time:
+                continue
+            if habit.get("id") in done_today:
+                continue
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ انجام دادم", callback_data=f"habit_done_{habit['id']}")],
+                [InlineKeyboardButton("⏳ بعداً", callback_data="habit_menu")],
+            ])
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"⏰ یادآوری Habit\n\nزمان انجام:\n\n{habit.get('title', '—')}\n\nآیا انجام شد؟",
+                    reply_markup=keyboard,
+                )
+            except Exception as e:
+                logger.warning("Habit reminder failed for %s: %s", user_id, e)
+
+
+async def weekly_habit_reports(context):
+    """Friday — send automatic weekly habit report."""
+
+    end = date.today()
+    start = end - timedelta(days=6)
+
+    for uid in get_all_habit_user_ids():
+        try:
+            user_id = int(uid)
+        except ValueError:
+            continue
+        habits = get_user_habits(user_id, active_only=True)
+        if not habits:
+            continue
+        logs = [
+            log for log in get_logs(user_id=user_id)
+            if start.isoformat() <= log.get("done_date", "") <= end.isoformat()
+        ]
+        counts = {habit["id"]: 0 for habit in habits}
+        for log in logs:
+            if log.get("habit_id") in counts:
+                counts[log["habit_id"]] += 1
+        done = sum(counts.values())
+        missed = max(0, len(habits) * 7 - done)
+        best = max(habits, key=lambda h: counts.get(h["id"], 0))
+        weak = min(habits, key=lambda h: counts.get(h["id"], 0))
+        record = max(habits, key=lambda h: stats_for_habit(h)["best"])
+        text = (
+            "📊 گزارش هفتگی Habit\n\n"
+            "عملکرد هفته گذشته:\n\n"
+            f"✅ انجام شده:\n{done} بار\n\n"
+            f"❌ انجام نشده:\n{missed} بار\n\n"
+            "بهترین Habit هفته:\n\n"
+            f"{best.get('title')}\n{counts.get(best['id'], 0)} روز از 7 روز\n\n"
+            "نیاز به بهبود:\n\n"
+            f"{weak.get('title')}\n{counts.get(weak['id'], 0)} روز از 7 روز\n\n"
+            "🔥 بهترین رکورد:\n\n"
+            f"{record.get('title')}:\n{stats_for_habit(record)['best']} روز\n\n"
+            "ادامه بده 💪"
+        )
+        try:
+            await context.bot.send_message(chat_id=user_id, text=text)
+        except Exception as e:
+            logger.warning("Weekly habit report failed for %s: %s", user_id, e)
