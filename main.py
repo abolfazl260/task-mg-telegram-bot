@@ -10,7 +10,7 @@ from telegram.ext import (
     filters
 )
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, ADMIN_REPORT_TIME
 
 from handlers.start import start
 from handlers.menu import button_handler
@@ -34,6 +34,7 @@ from handlers.task import (
     take_assignment,
     take_confirm,
     assignment_manage_callback,
+    timezone_command,
 )
 
 from handlers.reports import (
@@ -54,10 +55,39 @@ from services.reminders import morning_today_tasks, midday_summary_and_weekly, h
 from services.csv_manager import init_csv
 from services.team_manager import init_teams
 from services.habit_service import init_habits
+from services.user_service import init_users, record_user
+from services.admin_service import notify_new_user, daily_admin_report, error_handler
 from handlers.habits import handle_habit_callback
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
+
+
+async def track_usage(update, context):
+    user = update.effective_user
+    if not user:
+        return
+    is_new = record_user(user, increment_usage=True)
+    logger.info(
+        "user_activity user_id=%s username=%s full_name=%s chat_id=%s update_id=%s",
+        user.id,
+        user.username or "",
+        user.full_name or "",
+        update.effective_chat.id if update.effective_chat else "",
+        update.update_id,
+    )
+    if is_new:
+        await notify_new_user(context, user)
+
+
+def _parse_report_time():
+    try:
+        hour, minute = ADMIN_REPORT_TIME.split(":", 1)
+        return dt_time(hour=int(hour), minute=int(minute))
+    except Exception:
+        logger.warning("Invalid ADMIN_REPORT_TIME=%s; falling back to 20:00", ADMIN_REPORT_TIME)
+        return dt_time(hour=20, minute=0)
 
 
 async def post_init(app: Application):
@@ -72,18 +102,21 @@ async def post_init(app: Application):
         BotCommand("templates", "تمپلیت‌های آماده"),
         BotCommand("reports", "گزارشات و آمار"),
         BotCommand("skip", "رد کردن فیلد اختیاری"),
+        BotCommand("timezone", "تنظیم منطقه زمانی یادآوری‌ها"),
     ]
     await app.bot.set_my_commands(commands)
 
     if app.job_queue:
-        app.job_queue.run_daily(
+        app.job_queue.run_repeating(
             morning_today_tasks,
-            time=dt_time(hour=7, minute=0),
+            interval=60,
+            first=10,
             name="morning_today_tasks",
         )
-        app.job_queue.run_daily(
+        app.job_queue.run_repeating(
             midday_summary_and_weekly,
-            time=dt_time(hour=11, minute=0),
+            interval=60,
+            first=20,
             name="midday_summary_weekly",
         )
         app.job_queue.run_repeating(
@@ -92,11 +125,16 @@ async def post_init(app: Application):
             first=10,
             name="habit_reminders",
         )
-        app.job_queue.run_daily(
+        app.job_queue.run_repeating(
             weekly_habit_reports,
-            time=dt_time(hour=18, minute=0),
-            days=(4,),
+            interval=60,
+            first=40,
             name="weekly_habit_reports",
+        )
+        app.job_queue.run_daily(
+            daily_admin_report,
+            time=_parse_report_time(),
+            name="daily_admin_report",
         )
         logging.info("Jobs scheduled: tasks, habit reminders, weekly habit reports.")
     else:
@@ -109,6 +147,7 @@ def main():
     init_csv()
     init_teams()
     init_habits()
+    init_users()
 
     app = (
         Application.builder()
@@ -116,6 +155,8 @@ def main():
         .post_init(post_init)
         .build()
     )
+
+    app.add_handler(MessageHandler(filters.ALL, track_usage), group=-1)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("add", add_task))
@@ -127,6 +168,7 @@ def main():
     app.add_handler(CommandHandler("templates", show_templates_menu))
     app.add_handler(CommandHandler("reports", show_reports_menu))
     app.add_handler(CommandHandler("skip", skip_field))
+    app.add_handler(CommandHandler("timezone", timezone_command))
 
     app.add_handler(CallbackQueryHandler(start_task, pattern="^start_"))
     app.add_handler(CallbackQueryHandler(done_task, pattern="^done_"))
@@ -170,7 +212,9 @@ def main():
         MessageHandler(filters.TEXT & ~filters.COMMAND, save_task)
     )
 
-    logging.info("Task Bot Started...")
+    app.add_error_handler(error_handler)
+
+    logger.info("Task Bot Started...")
     app.run_polling()
 
 
