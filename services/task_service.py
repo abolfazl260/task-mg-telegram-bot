@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime
 
@@ -47,6 +48,7 @@ def create_task(
         (assignee or {}).get("display_name") or "",
         (assignee or {}).get("username") or "",
         _assignment_stamp(user_id, "", (assignee or {}).get("display_name") or "", "assigned") if assignee else "",
+        "",  # comments
     ])
 
     return task_id
@@ -283,3 +285,41 @@ def get_unassigned_tasks(user_id):
     """Active visible tasks with no assignee."""
 
     return [t for t in get_active_tasks(user_id) if not (t.get("assignee_id") or "").strip()]
+
+
+def _safe_load_comments(raw):
+    try:
+        data = json.loads(raw or "[]")
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def get_task_comments(task_id: str) -> list[dict]:
+    """Return comments stored for a task, oldest first."""
+
+    task = get_task_by_id(task_id)
+    if not task:
+        return []
+    return _safe_load_comments(task.get("comments"))
+
+
+def add_task_comment(task_id: str, author: dict, content: dict) -> bool:
+    """Append a rich Telegram comment payload to a task."""
+
+    tasks = read_tasks()
+    for task in tasks:
+        if task.get("id") != task_id:
+            continue
+        comments = _safe_load_comments(task.get("comments"))
+        comments.append({
+            "author_id": str(author.get("id") or author.get("user_id") or ""),
+            "author_name": author.get("full_name") or author.get("display_name") or "کاربر",
+            "author_username": author.get("username") or "",
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            **content,
+        })
+        task["comments"] = json.dumps(comments, ensure_ascii=False)
+        _write_all(tasks)
+        return True
+    return False

@@ -113,6 +113,12 @@ def task_action_keyboard(task_id: str, current_status: str = "pending", bot_prof
         ])
 
     buttons.append([
+        InlineKeyboardButton(labels.get("details", "🔎 جزئیات"), callback_data=f"task_details_{task_id}")
+    ])
+    buttons.append([
+        InlineKeyboardButton(labels.get("comment", "💬 کامنت"), callback_data=f"comment_add_{task_id}")
+    ])
+    buttons.append([
         InlineKeyboardButton(labels.get("owner", "👤 مسئول"), callback_data=f"owner_{task_id}")
     ])
     buttons.append([

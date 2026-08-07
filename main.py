@@ -38,6 +38,8 @@ from handlers.task import (
     take_assignment,
     take_confirm,
     assignment_manage_callback,
+    task_details_callback,
+    comment_callback,
 )
 
 from handlers.reports import (
@@ -224,6 +226,8 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(take_assignment, pattern="^take_[A-Za-z0-9]"))
     app.add_handler(CallbackQueryHandler(assignment_callback, pattern="^assign_"))
     app.add_handler(CallbackQueryHandler(assignment_manage_callback, pattern="^(owner_|asg_|chg_)"))
+    app.add_handler(CallbackQueryHandler(task_details_callback, pattern="^(task_details_|task_history_)"))
+    app.add_handler(CallbackQueryHandler(comment_callback, pattern="^comment_add_"))
 
     app.add_handler(CallbackQueryHandler(detail_page, pattern="^detail_page_"))
     app.add_handler(CallbackQueryHandler(download_csv, pattern="^download_csv"))
@@ -253,13 +257,13 @@ def build_application(profile):
             pattern=(
                 "^(?!priority_|deadline_|category_pick_|category_skip|tags_skip|description_skip|"
                 "detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|"
-                "asg_|chg_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_)"
+                "asg_|chg_|task_details_|task_history_|comment_add_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_)"
             )
         )
     )
 
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, save_task)
+        MessageHandler(filters.ALL & ~filters.COMMAND, save_task)
     )
 
     app.add_error_handler(error_handler)

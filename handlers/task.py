@@ -13,6 +13,8 @@ from services.task_service import (
     user_can_modify_task,
     assign_task,
     get_unassigned_tasks,
+    add_task_comment,
+    get_task_comments,
 )
 from services.csv_export import build_csv_bytes
 from services.team_service import get_user_teams, get_team_members, member_display
@@ -97,6 +99,95 @@ def _can_view_task(user_id, task: dict) -> bool:
     return any(t.get("id") == task.get("id") for t in get_active_tasks(user_id)) or user_can_modify_task(user_id, task)
 
 
+def _comment_type_label(comment: dict) -> str:
+    return {
+        "text": "💬 متن",
+        "photo": "🖼 عکس",
+        "voice": "🎙 صدا",
+        "audio": "🎧 صوت",
+        "document": "📎 فایل",
+        "video": "🎬 ویدیو",
+        "sticker": "🏷 استیکر",
+        "animation": "🎞 گیف",
+        "contact": "👤 مخاطب",
+        "location": "📍 موقعیت",
+    }.get(comment.get("type"), "📎 مورد")
+
+
+def _comment_summary(comment: dict) -> str:
+    body = comment.get("text") or comment.get("caption") or comment.get("file_name") or comment.get("emoji") or "بدون متن"
+    return str(body).replace("\n", " ")[:160]
+
+
+def _comments_markdown(task_id: str) -> str:
+    comments = get_task_comments(task_id)
+    if not comments:
+        return "💬 هنوز کامنتی برای این تسک ثبت نشده است."
+    lines = ["💬 کامنت‌ها", ""]
+    for i, comment in enumerate(comments, start=1):
+        author = comment.get("author_name") or "کاربر"
+        username = f" (@{comment.get('author_username')})" if comment.get("author_username") else ""
+        lines.append(f"{i}. {_comment_type_label(comment)} — {author}{username}")
+        lines.append(f"   🕐 {comment.get('created_at') or '—'}")
+        lines.append(f"   {_comment_summary(comment)}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+
+
+async def _send_comment_attachments(message, task_id: str):
+    for comment in get_task_comments(task_id):
+        caption = (
+            f"{_comment_type_label(comment)} — {comment.get('author_name') or 'کاربر'}\n"
+            f"🕐 {comment.get('created_at') or '—'}\n"
+            f"{comment.get('caption') or comment.get('text') or comment.get('file_name') or ''}"
+        )[:1024]
+        file_id = comment.get("file_id")
+        ctype = comment.get("type")
+        try:
+            if ctype == "photo" and file_id:
+                await message.reply_photo(file_id, caption=caption)
+            elif ctype == "voice" and file_id:
+                await message.reply_voice(file_id, caption=caption)
+            elif ctype == "audio" and file_id:
+                await message.reply_audio(file_id, caption=caption)
+            elif ctype == "video" and file_id:
+                await message.reply_video(file_id, caption=caption)
+            elif ctype == "animation" and file_id:
+                await message.reply_animation(file_id, caption=caption)
+            elif ctype == "sticker" and file_id:
+                await message.reply_sticker(file_id)
+            elif ctype == "document" and file_id:
+                await message.reply_document(file_id, caption=caption)
+        except Exception:
+            continue
+
+
+def _extract_comment_content(message) -> dict | None:
+    if message.text:
+        return {"type": "text", "text": message.text}
+    if message.photo:
+        return {"type": "photo", "file_id": message.photo[-1].file_id, "caption": message.caption or ""}
+    if message.voice:
+        return {"type": "voice", "file_id": message.voice.file_id, "caption": message.caption or ""}
+    if message.audio:
+        return {"type": "audio", "file_id": message.audio.file_id, "file_name": message.audio.file_name or "", "caption": message.caption or ""}
+    if message.document:
+        return {"type": "document", "file_id": message.document.file_id, "file_name": message.document.file_name or "", "caption": message.caption or ""}
+    if message.video:
+        return {"type": "video", "file_id": message.video.file_id, "file_name": message.video.file_name or "", "caption": message.caption or ""}
+    if message.sticker:
+        return {"type": "sticker", "file_id": message.sticker.file_id, "emoji": message.sticker.emoji or ""}
+    if message.animation:
+        return {"type": "animation", "file_id": message.animation.file_id, "file_name": message.animation.file_name or "", "caption": message.caption or ""}
+    if message.contact:
+        return {"type": "contact", "text": message.contact.full_name or message.contact.phone_number or "مخاطب"}
+    if message.location:
+        return {"type": "location", "text": f"{message.location.latitude},{message.location.longitude}"}
+    return None
+
+
 
 async def show_task_by_id_if_matches(update, context) -> bool:
     text = (update.message.text or "").strip()
@@ -106,7 +197,7 @@ async def show_task_by_id_if_matches(update, context) -> bool:
     if not task or not _can_view_task(update.effective_user.id, task):
         await update.message.reply_text("تسکی با این کد برای شما پیدا نشد.")
         return True
-    kb = task_action_keyboard(task.get("id", ""), task.get("status", "pending"), context.bot_data.get("bot_config")) if user_can_modify_task(update.effective_user.id, task) else None
+    kb = task_action_keyboard(task.get("id", ""), task.get("status", "pending"), context.bot_data.get("bot_config")) if user_can_modify_task(update.effective_user.id, task) else _task_details_keyboard(task.get("id", ""))
     await update.message.reply_text(format_task_card(task), reply_markup=kb, parse_mode="Markdown")
     return True
 
@@ -148,6 +239,10 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await handle_change_assignment_search_text(update, context):
         return
     if await handle_assignment_search_text(update, context):
+        return
+
+    # task comments can be text, photo, voice, file, or other Telegram payloads
+    if await handle_comment_input(update, context):
         return
 
     # search flow
@@ -432,6 +527,7 @@ def format_task_card(task: dict) -> str:
 
     team_line = f"👥 تیم: `{team_id}`\n" if team_id else ""
     assignee = task.get("assignee_name") or "❌ تعیین نشده"
+    comments_count = len(get_task_comments(task_id)) if task_id else 0
 
     return (
         f"**{title}**\n\n"
@@ -446,7 +542,8 @@ def format_task_card(task: dict) -> str:
         f"📂 دسته: {category}\n"
         f"🏷 تگ: {tags}\n"
         f"📄 توضیح: {description}\n"
-        f"🕐 ثبت: {created}"
+        f"🕐 ثبت: {created}\n"
+        f"💬 کامنت‌ها: {comments_count}"
     )
 
 
@@ -523,7 +620,7 @@ async def _render_task_list(update, context, sort_key="deadline", edit=False):
             task.get("id", ""),
             task.get("status", "pending"),
             context.bot_data.get("bot_config"),
-        ) if can_mod else None
+        ) if can_mod else _task_details_keyboard(task.get("id", ""))
         await message.reply_text(
             format_task_card(task),
             reply_markup=kb,
@@ -595,6 +692,66 @@ async def detail_page(update, context):
     keyboard.append([InlineKeyboardButton("📥 خروجی Excel", callback_data="download_csv")])
 
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+def _task_details_keyboard(task_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💬 افزودن کامنت", callback_data=f"comment_add_{task_id}")],
+        [InlineKeyboardButton("📜 تاریخچه", callback_data=f"task_history_{task_id}")],
+    ])
+
+
+async def task_details_callback(update, context):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    task_id = data.replace("task_details_", "", 1).replace("task_history_", "", 1)
+    task = get_task_by_id(task_id)
+    if not task or not _can_view_task(update.effective_user.id, task):
+        await query.message.reply_text("تسک پیدا نشد یا دسترسی ندارید.")
+        return
+    text = f"{format_task_card(task)}\n\n{_history_text(task)}\n\n{_comments_markdown(task_id)}"
+    try:
+        await context.bot._post("sendRichMessage", data={"chat_id": query.message.chat_id, "rich_message": {"markdown": text}})
+    except Exception:
+        await query.message.reply_text(text, parse_mode="Markdown")
+    await _send_comment_attachments(query.message, task_id)
+    await query.message.reply_text("برای ثبت کامنت جدید دکمه زیر را بزنید:", reply_markup=_task_details_keyboard(task_id))
+
+
+async def comment_callback(update, context):
+    query = update.callback_query
+    await query.answer()
+    task_id = query.data.replace("comment_add_", "", 1)
+    task = get_task_by_id(task_id)
+    if not task or not _can_view_task(update.effective_user.id, task):
+        await query.message.reply_text("تسک پیدا نشد یا دسترسی ندارید.")
+        return
+    context.user_data["comment_task_id"] = task_id
+    context.user_data["step"] = "task_comment"
+    await query.message.reply_text("💬 کامنت خود را ارسال کنید؛ متن، عکس، صدا، فایل یا هر پیام تلگرامی پشتیبانی‌شده قابل ثبت است.")
+
+
+async def handle_comment_input(update, context):
+    if context.user_data.get("step") != "task_comment":
+        return False
+    task_id = context.user_data.get("comment_task_id")
+    task = get_task_by_id(task_id)
+    if not task or not _can_view_task(update.effective_user.id, task):
+        context.user_data.pop("comment_task_id", None)
+        context.user_data.pop("step", None)
+        await update.effective_message.reply_text("تسک پیدا نشد یا دسترسی ندارید.")
+        return True
+    content = _extract_comment_content(update.effective_message)
+    if not content:
+        await update.effective_message.reply_text("این نوع پیام برای کامنت پشتیبانی نشد. لطفاً متن، عکس، صدا یا فایل بفرستید.")
+        return True
+    user = update.effective_user
+    ok = add_task_comment(task_id, {"id": user.id, "full_name": user.full_name, "username": user.username or ""}, content)
+    context.user_data.pop("comment_task_id", None)
+    context.user_data.pop("step", None)
+    await update.effective_message.reply_text("✅ کامنت ثبت شد." if ok else "❌ خطا در ثبت کامنت.")
+    return True
 
 
 STATUS_LABELS = {
