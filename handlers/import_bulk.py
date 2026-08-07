@@ -1,4 +1,8 @@
-"""Bulk import tasks from a structured text block."""
+"""Bulk import tasks from structured text or CSV files."""
+
+import csv
+import io
+from pathlib import Path
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -6,15 +10,21 @@ from telegram.ext import ContextTypes
 from services.task_service import create_task
 from utils.date_parse import parse_deadline_input
 
+CSV_COLUMNS = ["title", "priority", "deadline", "category", "tags", "description"]
+CSV_SAMPLE_PATH = Path(__file__).resolve().parent.parent / "samples" / "task_import_sample.csv"
+MAX_CSV_ROWS = 100
+
 IMPORT_HELP = """📥 ایمپورت گروهی
 
-چند تا کار را یک‌جا ثبت کن.
+دو روش برای ثبت چند کار به‌صورت یک‌جا دارید:
 
-۱) یکی از نمونه‌های زیر را بزن
-۲) متن را اگر لازم است عوض کن
-۳) همان متن را برای ربات بفرست
+1) 📝 ورود متنی
+همان روش فعلی با فرمت TASKS و جداکننده |.
 
-فرمت هر خط:
+2) 📄 آپلود CSV
+ابتدا «دانلود فایل نمونه CSV» را بزنید، فایل را با Excel / Google Sheets / Numbers ویرایش کنید، با فرمت CSV ذخیره کنید و دوباره برای ربات بفرستید.
+
+فرمت متنی هر خط:
 عنوان | اولویت | مهلت | دسته | تگ | توضیح
 
 مثال قابل کپی:
@@ -23,9 +33,10 @@ TASKS
 خرید نان | medium |  | خرید |  | ۲ عدد
 ```
 
-اولویت: high یا medium یا low
-مهلت: مثل 2026-08-20 یا خالی
-حداکثر حدود ۳۰ کار در هر پیام
+ستون‌های CSV:
+title,priority,deadline,category,tags,description
+
+قوانین: title الزامی است؛ priority فقط high / medium / low؛ deadline باید تاریخ معتبر یا خالی باشد.
 """
 
 GPT_PROMPT = """این متن را به ChatGPT بده:
@@ -47,7 +58,6 @@ TASKS
 [اینجا بنویس]
 ---
 """
-
 SAMPLE_TEMPLATES = {
     "checklist": {
         "title": "چک‌لیست",
@@ -106,6 +116,7 @@ def _samples_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🛒 لیست خرید", callback_data="import_tpl_shopping")],
         [InlineKeyboardButton("📚 برنامه درسی", callback_data="import_tpl_study")],
         [InlineKeyboardButton("🍽️ شیفت رستوران", callback_data="import_tpl_shift")],
+        [InlineKeyboardButton("📄 دانلود فایل نمونه CSV", callback_data="import_download_csv_sample")],
         [InlineKeyboardButton("🤖 پرامپت ChatGPT", callback_data="import_show_prompt")],
         [InlineKeyboardButton("❌ انصراف", callback_data="import_cancel")],
     ])
@@ -131,6 +142,19 @@ async def import_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start_import_flow(update, context)
         return
 
+    if data == "import_download_csv_sample":
+        context.user_data["step"] = "import_bulk"
+        with CSV_SAMPLE_PATH.open("rb") as sample_file:
+            await query.message.reply_document(
+                document=sample_file,
+                filename="task_import_sample.csv",
+                caption=(
+                    "📄 فایل نمونه CSV آماده است.\n"
+                    "آن را ویرایش کنید، با فرمت CSV ذخیره کنید و دوباره برای ربات ارسال کنید."
+                ),
+            )
+        return
+
     if data == "import_show_prompt":
         context.user_data["step"] = "import_bulk"
         await query.message.reply_text(
@@ -154,6 +178,36 @@ async def import_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(f"```\n{sample['body']}\n```", parse_mode="Markdown")
         return
 
+
+    if data == "import_csv_confirm":
+        rows = context.user_data.pop("import_csv_valid_rows", [])
+        error_count = context.user_data.pop("import_csv_error_count", 0)
+        context.user_data.pop("step", None)
+        if not rows:
+            await query.message.reply_text("⚠️ داده معتبری برای ثبت پیدا نشد. لطفاً فایل CSV را دوباره ارسال کنید.")
+            return
+        created = []
+        for row in rows:
+            tid = create_task(user_id=update.effective_user.id, **row)
+            created.append((tid, row["title"], row["priority"]))
+        lines = ["✅ ایمپورت با موفقیت انجام شد", "", f"{len(created)} تسک ایجاد شد.", ""]
+        for _, title, priority in created[:3]:
+            lines.append(f"• {title} — {priority.upper()}")
+        if len(created) > 3:
+            lines.append(f"... و {len(created) - 3} مورد دیگر")
+        if error_count:
+            lines.append("")
+            lines.append(f"{error_count} ردیف به دلیل خطا ثبت نشدند.")
+        await query.message.reply_text("\n".join(lines))
+        return
+
+    if data == "import_csv_cancel":
+        context.user_data.pop("import_csv_valid_rows", None)
+        context.user_data.pop("import_csv_error_count", None)
+        context.user_data.pop("step", None)
+        await query.message.reply_text("ایمپورت CSV لغو شد و هیچ تسکی ثبت نشد.")
+        return
+
     if data == "import_cancel":
         context.user_data.pop("step", None)
         await query.message.reply_text("ایمپورت لغو شد.")
@@ -165,6 +219,116 @@ def _looks_like_task_line(line: str) -> bool:
     if "|" in line:
         return True
     return False
+
+
+
+def _csv_error(row_number: int, column: str, reason: str) -> str:
+    return f"خط {row_number} → {column}: {reason}"
+
+
+def _validate_csv_rows(csv_bytes: bytes):
+    try:
+        text = csv_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = csv_bytes.decode("utf-8-sig", errors="replace")
+    reader = csv.DictReader(io.StringIO(text))
+    headers = [h.strip() for h in (reader.fieldnames or [])]
+    missing = [col for col in CSV_COLUMNS if col not in headers]
+    if missing:
+        return [], [_csv_error(1, ", ".join(missing), "ستون اجباری در هدر فایل وجود ندارد")], 0
+
+    valid_rows = []
+    errors = []
+    total_rows = 0
+    for row_number, raw in enumerate(reader, start=2):
+        row = {(key or "").strip(): value for key, value in raw.items() if key is not None}
+        if not any(str(value or "").strip() for value in row.values()):
+            continue
+        total_rows += 1
+        row_errors = []
+        title = (row.get("title") or "").strip()
+        if not title:
+            row_errors.append(_csv_error(row_number, "title", "عنوان تسک الزامی است"))
+
+        priority_raw = (row.get("priority") or "").strip().lower()
+        priority = priority_raw or "medium"
+        if priority not in ("high", "medium", "low"):
+            row_errors.append(_csv_error(row_number, "priority", f"مقدار «{priority_raw}» معتبر نیست"))
+
+        deadline_raw = (row.get("deadline") or "").strip()
+        deadline = ""
+        if deadline_raw:
+            parsed = parse_deadline_input(deadline_raw)
+            if parsed:
+                deadline = parsed
+            else:
+                row_errors.append(_csv_error(row_number, "deadline", "تاریخ نامعتبر است"))
+
+        if row_errors:
+            errors.extend(row_errors)
+            continue
+
+        valid_rows.append({
+            "title": title[:200],
+            "priority": priority,
+            "deadline": deadline,
+            "category": (row.get("category") or "").strip()[:80],
+            "tags": (row.get("tags") or "").strip()[:120],
+            "description": (row.get("description") or "").strip()[:500],
+        })
+    return valid_rows, errors, total_rows
+
+
+def _csv_preview_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ ثبت تسک‌ها", callback_data="import_csv_confirm"),
+        InlineKeyboardButton("❌ لغو", callback_data="import_csv_cancel"),
+    ]])
+
+
+async def handle_import_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if context.user_data.get("step") != "import_bulk" or not update.message or not update.message.document:
+        return False
+
+    document = update.message.document
+    filename = document.file_name or ""
+    if not filename.lower().endswith(".csv"):
+        await update.message.reply_text("⚠️ لطفاً فایل را با فرمت CSV ارسال کنید.")
+        return True
+    if document.file_size and document.file_size > 1024 * 1024:
+        await update.message.reply_text("⚠️ فایل خیلی بزرگ است. حداکثر اندازه قابل قبول ۱ مگابایت است.")
+        return True
+
+    tg_file = await document.get_file()
+    data = await tg_file.download_as_bytearray()
+    valid_rows, errors, total_rows = _validate_csv_rows(bytes(data))
+    if total_rows > MAX_CSV_ROWS:
+        await update.message.reply_text(f"⚠️ فایل بیش از حد بزرگ است. حداکثر {MAX_CSV_ROWS} ردیف داده مجاز است.")
+        return True
+
+    context.user_data["import_csv_valid_rows"] = valid_rows
+    context.user_data["import_csv_error_count"] = len(errors)
+    lines = [
+        "📥 نتیجه بررسی فایل",
+        "",
+        f"تعداد ردیف‌ها: {total_rows}",
+        f"✅ آماده ثبت: {len(valid_rows)}",
+        f"❌ دارای خطا: {len(errors)}",
+    ]
+    if errors:
+        lines.append("")
+        lines.extend(errors[:10])
+        if len(errors) > 10:
+            lines.append(f"... و {len(errors) - 10} خطای دیگر")
+    if valid_rows:
+        lines.append("")
+        lines.append(f"آیا {len(valid_rows)} تسک صحیح ثبت شوند؟")
+        await update.message.reply_text("\n".join(lines), reply_markup=_csv_preview_keyboard())
+    else:
+        lines.append("")
+        lines.append("هیچ ردیف سالمی برای ثبت وجود ندارد. فایل را اصلاح و دوباره ارسال کنید.")
+        await update.message.reply_text("\n".join(lines))
+    return True
 
 
 async def handle_import_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:

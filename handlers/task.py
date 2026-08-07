@@ -25,7 +25,7 @@ from utils.keyboard import (
 )
 from utils.date_parse import parse_deadline_input
 from handlers.search_share import handle_search_text
-from handlers.import_bulk import handle_import_text
+from handlers.import_bulk import handle_import_document, handle_import_text
 from handlers.team import handle_team_text
 from handlers.habits import handle_habit_text, habit_skip
 from handlers.custom_bot import handle_custom_bot_text
@@ -237,6 +237,8 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # bulk import flow
+    if await handle_import_document(update, context):
+        return
     if await handle_import_text(update, context):
         return
 
