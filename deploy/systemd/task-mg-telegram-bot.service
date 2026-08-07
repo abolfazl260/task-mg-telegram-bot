@@ -1,0 +1,17 @@
+[Unit]
+Description=Task Management Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/task-mg-telegram-bot
+EnvironmentFile=/opt/task-mg-telegram-bot/.env
+ExecStart=/opt/task-mg-telegram-bot/.venv/bin/python /opt/task-mg-telegram-bot/main.py
+Restart=always
+RestartSec=10
+User=taskbot
+Group=taskbot
+
+[Install]
+WantedBy=multi-user.target
