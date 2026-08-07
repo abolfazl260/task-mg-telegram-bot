@@ -24,6 +24,7 @@ HEADERS = [
     "assignee_name",
     "assignee_username",
     "assignment_history",
+    "comments",
 ]
 
 
