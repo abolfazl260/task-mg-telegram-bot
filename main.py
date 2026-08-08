@@ -38,11 +38,9 @@ import handlers.task as task_handler
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-
 async def bind_bot_context(update, context):
     profile = context.bot_data.get("bot_config")
     set_current_bot_key(profile.key if profile else "default")
-
 
 async def track_usage(update, context):
     user = update.effective_user
@@ -53,7 +51,6 @@ async def track_usage(update, context):
     if is_new:
         await notify_new_user(context, user)
 
-
 def _parse_report_time():
     try:
         hour, minute = ADMIN_REPORT_TIME.split(":", 1)
@@ -61,7 +58,6 @@ def _parse_report_time():
     except Exception:
         logger.warning("Invalid ADMIN_REPORT_TIME=%s; falling back to 20:00", ADMIN_REPORT_TIME)
         return dt_time(hour=20, minute=0)
-
 
 async def _jira_sync_job(context):
     profile = context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config")
@@ -74,7 +70,6 @@ async def _jira_sync_job(context):
     except Exception:
         logger.exception("Jira sync failed for bot=%s", bot_key)
 
-
 async def _integration_sync_job(context):
     profile = context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config")
     bot_key = profile.key if profile else "default"
@@ -85,7 +80,6 @@ async def _integration_sync_job(context):
             logger.info("External task sync bot=%s users=%s", bot_key, len(results))
     except Exception:
         logger.exception("External task sync failed for bot=%s", bot_key)
-
 
 async def _oauth_callback(request):
     from aiohttp import web
@@ -105,7 +99,6 @@ async def _oauth_callback(request):
         logger.exception("OAuth callback failed")
         return web.Response(text=f"<h2>اتصال ناموفق بود.</h2><p>{str(exc)}</p>", status=500, content_type="text/html", charset="utf-8")
 
-
 async def _start_oauth_server(app):
     base = os.getenv("INTEGRATION_REDIRECT_BASE_URL", "").strip()
     if not base:
@@ -122,7 +115,6 @@ async def _start_oauth_server(app):
     await site.start()
     app.bot_data["integration_oauth_runner"] = runner
     logger.info("External task OAuth callback listening on %s:%s", host, port)
-
 
 async def post_init(app: Application):
     profile = app.bot_data.get("bot_config")
@@ -145,20 +137,14 @@ async def post_init(app: Application):
     else:
         logging.warning("JobQueue not available — reminders, Jira sync and external task sync disabled.")
 
-
 def _feature(app, name):
     profile = app.bot_data.get("bot_config")
     return profile is None or profile.feature_enabled(name)
 
-
 def build_application(profile):
     app = Application.builder().token(profile.token).post_init(post_init).build()
     app.bot_data["bot_config"] = profile
-
-    # Use the existing task creation flow but replace the tag prompt with
-    # suggestions collected from the user's personal tasks and team tasks.
     install_tag_flow(task_handler)
-
     app.add_handler(TypeHandler(Update, bind_bot_context), group=-100)
     if _feature(app, "guest_mode"):
         app.add_handler(TypeHandler(Update, handle_guest_task), group=-2)
@@ -216,3 +202,34 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(handle_tag_callback, pattern="^tags_"))
     app.add_handler(CallbackQueryHandler(optional_field_callback, pattern="^(category_pick_|category_skip|description_skip)"))
     app.add_handler(CallbackQueryHandler(share_category_callback, pattern="^share_cat_"))
+    app.add_handler(CallbackQueryHandler(import_callback, pattern="^import_"))
+    app.add_handler(CallbackQueryHandler(team_callback, pattern="^team_"))
+    app.add_handler(CallbackQueryHandler(handle_habit_callback, pattern="^habit_"))
+    app.add_handler(CallbackQueryHandler(custom_bot_callback, pattern="^custombot_"))
+    app.add_handler(CallbackQueryHandler(donate_callback, pattern="^donate_(10|40|100)$"))
+    app.add_handler(CallbackQueryHandler(integration_callback, pattern="^int_"))
+    app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
+    app.add_handler(CallbackQueryHandler(button_handler, pattern="^(?!priority_|deadline_|category_pick_|category_skip|tags_|description_skip|detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|task_details_|task_history_|comment_add_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_|custombot_|int_)"))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_tag_text), group=0)
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, save_task))
+    app.add_error_handler(error_handler)
+    return app
+
+def main():
+    init_csv()
+    init_teams()
+    init_habits()
+    init_users()
+    init_custom_bots()
+    init_integrations()
+    apps = [build_application(profile) for profile in BOT_PROFILES]
+    logger.info("Starting %s bot application(s): %s", len(apps), ", ".join(p.key for p in BOT_PROFILES))
+    if len(apps) == 1:
+        apps[0].run_polling(allowed_updates=[*Update.ALL_TYPES, "guest_message"])
+    else:
+        import asyncio
+        asyncio.run(run_applications(apps))
+
+if __name__ == "__main__":
+    main()
