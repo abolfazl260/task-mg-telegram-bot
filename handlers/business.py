@@ -1,7 +1,7 @@
 import logging
 
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from config import SECRETARY_AUTO_REPLY_ENABLED, SECRETARY_AUTO_REPLY_TEXT
 from services.business_service import (
@@ -44,6 +44,10 @@ async def handle_business_connection(update: Update, context: ContextTypes.DEFAU
         text=_business_help(saved),
     )
 
+    # Business updates must not fall through to ordinary MessageHandlers.
+    # For business_connection updates, update.message is None.
+    raise ApplicationHandlerStop
+
 
 async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.business_message
@@ -60,7 +64,7 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
 
     connection = get_business_connection(message.business_connection_id)
     if not connection or not connection.get("can_reply") or not connection.get("is_enabled"):
-        return
+        raise ApplicationHandlerStop
 
     text = (message.text or "").strip()
     if text == "/secretary_status":
@@ -76,6 +80,10 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
             business_connection_id=message.business_connection_id,
         )
 
+    # Do not let business_message continue into handlers such as save_task,
+    # which expect update.message to exist.
+    raise ApplicationHandlerStop
+
 
 async def handle_edited_business_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.edited_business_message
@@ -88,6 +96,7 @@ async def handle_edited_business_message(update: Update, context: ContextTypes.D
         entry["chat_id"],
         entry["message_id"],
     )
+    raise ApplicationHandlerStop
 
 
 async def handle_deleted_business_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -101,3 +110,4 @@ async def handle_deleted_business_messages(update: Update, context: ContextTypes
         entry["chat_id"],
         entry["message_ids"],
     )
+    raise ApplicationHandlerStop
