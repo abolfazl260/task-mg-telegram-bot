@@ -32,6 +32,8 @@ from handlers.ai import ai_command
 from handlers.business import handle_business_connection, handle_business_message, handle_deleted_business_messages, handle_edited_business_message
 from handlers.jira import jira_start, jira_type, jira_url, jira_identity, jira_credential, jira_project, jira_cancel, jira_disconnect_command, jira_status_command, JIRA_TYPE, JIRA_URL, JIRA_IDENTITY, JIRA_CREDENTIAL, JIRA_PROJECT
 from services.jira_service import sync_all_connections
+from handlers.tag_suggestions import handle_tag_callback, handle_tag_text, safe_assignment_confirm, install_tag_flow
+import handlers.task as task_handler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -152,6 +154,11 @@ def _feature(app, name):
 def build_application(profile):
     app = Application.builder().token(profile.token).post_init(post_init).build()
     app.bot_data["bot_config"] = profile
+
+    # Use the existing task creation flow but replace the tag prompt with
+    # suggestions collected from the user's personal tasks and team tasks.
+    install_tag_flow(task_handler)
+
     app.add_handler(TypeHandler(Update, bind_bot_context), group=-100)
     if _feature(app, "guest_mode"):
         app.add_handler(TypeHandler(Update, handle_guest_task), group=-2)
@@ -191,6 +198,9 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(pending_task, pattern="^pending_"))
     app.add_handler(CallbackQueryHandler(take_confirm, pattern="^take_(confirm|cancel)$"))
     app.add_handler(CallbackQueryHandler(take_assignment, pattern="^take_[A-Za-z0-9]"))
+
+    # Guard stale confirmation callbacks before task.py can index missing fields.
+    app.add_handler(CallbackQueryHandler(safe_assignment_confirm, pattern="^assign_confirm_create$"))
     app.add_handler(CallbackQueryHandler(assignment_callback, pattern="^assign_"))
     app.add_handler(CallbackQueryHandler(assignment_manage_callback, pattern="^(owner_|asg_|chg_)"))
     app.add_handler(CallbackQueryHandler(task_details_callback, pattern="^(task_details_|task_history_)"))
@@ -205,7 +215,8 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(templates_callback, pattern="^tpl_"))
     app.add_handler(CallbackQueryHandler(priority_selected, pattern="^priority_"))
     app.add_handler(CallbackQueryHandler(deadline_selected, pattern="^deadline_"))
-    app.add_handler(CallbackQueryHandler(optional_field_callback, pattern="^(category_pick_|category_skip|tags_skip|description_skip)"))
+    app.add_handler(CallbackQueryHandler(handle_tag_callback, pattern="^tags_"))
+    app.add_handler(CallbackQueryHandler(optional_field_callback, pattern="^(category_pick_|category_skip|description_skip)"))
     app.add_handler(CallbackQueryHandler(share_category_callback, pattern="^share_cat_"))
     app.add_handler(CallbackQueryHandler(import_callback, pattern="^import_"))
     app.add_handler(CallbackQueryHandler(team_callback, pattern="^team_"))
@@ -215,7 +226,8 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(integration_callback, pattern="^int_"))
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
-    app.add_handler(CallbackQueryHandler(button_handler, pattern="^(?!priority_|deadline_|category_pick_|category_skip|tags_skip|description_skip|detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|task_details_|task_history_|comment_add_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_|custombot_|int_)"))
+    app.add_handler(CallbackQueryHandler(button_handler, pattern="^(?!priority_|deadline_|category_pick_|category_skip|tags_|description_skip|detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|task_details_|task_history_|comment_add_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_|custombot_|int_)"))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_tag_text), group=0)
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, save_task))
     app.add_error_handler(error_handler)
     return app
