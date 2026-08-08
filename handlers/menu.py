@@ -4,6 +4,7 @@ from handlers.reports import show_reports_menu
 from handlers.donate import DONATION_AMOUNTS
 from handlers.templates import show_templates_menu
 from services.user_service import get_user_timezone, set_user_timezone
+from handlers.integrations import show_integrations
 
 
 TIMEZONE_CHOICES = [
@@ -64,7 +65,9 @@ def tasks_options_keyboard(context=None):
 
 def settings_keyboard(user_id):
     current = get_user_timezone(user_id)
-    rows = []
+    rows = [
+        [InlineKeyboardButton("🔗 اتصال به سرویس‌های مدیریت تسک", callback_data="integrations")]
+    ]
     for label, tz_name in TIMEZONE_CHOICES:
         selected = " ✅" if tz_name == current else ""
         rows.append([InlineKeyboardButton(f"{label} ({tz_name}){selected}", callback_data=f"timezone_set_{tz_name}")])
@@ -163,7 +166,6 @@ async def button_handler(update, context):
 
     elif data == "teams":
         from handlers.team import team_command
-        # simulate command without args → menu
         class _Ctx:
             args = []
             user_data = context.user_data
@@ -193,6 +195,9 @@ async def button_handler(update, context):
             f"⚙️ تنظیمات\n\n🌍 زمان محلی فعلی: {current}\n\nمنطقه زمانی خود را انتخاب کنید:",
             reply_markup=settings_keyboard(update.effective_user.id),
         )
+
+    elif data == "integrations":
+        await show_integrations(update, context)
 
     elif data.startswith("timezone_set_"):
 
