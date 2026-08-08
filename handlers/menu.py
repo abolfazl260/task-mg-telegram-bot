@@ -7,10 +7,37 @@ from services.user_service import get_user_timezone, set_user_timezone
 from handlers.integrations import show_integrations
 
 
+# فهرست مناطق زمانی قابل انتخاب؛ نام شهر برای نمایش به کاربر است و مقدار دوم
+# منطقه زمانی واقعی IANA است که برای محاسبه ساعت و یادآوری‌ها استفاده می‌شود.
 TIMEZONE_CHOICES = [
     ("🇮🇷 تهران", "Asia/Tehran"),
+    ("🇮🇷 مشهد", "Asia/Tehran"),
+    ("🇮🇷 اصفهان", "Asia/Tehran"),
+    ("🇮🇷 شیراز", "Asia/Tehran"),
+    ("🇮🇷 تبریز", "Asia/Tehran"),
+    ("🇮🇷 کرج", "Asia/Tehran"),
+    ("🇮🇷 اهواز", "Asia/Tehran"),
+    ("🇮🇷 قم", "Asia/Tehran"),
+    ("🇮🇷 رشت", "Asia/Tehran"),
+    ("🇮🇷 کرمان", "Asia/Tehran"),
+    ("🇮🇷 یزد", "Asia/Tehran"),
+    ("🇮🇷 ارومیه", "Asia/Tehran"),
+    ("🇮🇷 کرمانشاه", "Asia/Tehran"),
+    ("🇦🇫 کابل", "Asia/Kabul"),
+    ("🇦🇫 هرات", "Asia/Kabul"),
+    ("🇹🇯 دوشنبه", "Asia/Dushanbe"),
     ("🇦🇪 دبی", "Asia/Dubai"),
     ("🇹🇷 استانبول", "Europe/Istanbul"),
+    ("🇷🇺 مسکو", "Europe/Moscow"),
+    ("🇷🇺 سن‌پترزبورگ", "Europe/Moscow"),
+    ("🇷🇺 کازان", "Europe/Moscow"),
+    ("🇷🇺 نیژنی نووگورود", "Europe/Moscow"),
+    ("🇷🇺 سامارا", "Europe/Samara"),
+    ("🇷🇺 یکاترینبورگ", "Asia/Yekaterinburg"),
+    ("🇷🇺 نووسیبیرسک", "Asia/Novosibirsk"),
+    ("🇷🇺 کراسنویارسک", "Asia/Krasnoyarsk"),
+    ("🇷🇺 ایرکوتسک", "Asia/Irkutsk"),
+    ("🇷🇺 ولادی‌وستوک", "Asia/Vladivostok"),
     ("🇩🇪 برلین", "Europe/Berlin"),
     ("🇬🇧 لندن", "Europe/London"),
     ("🇺🇸 نیویورک", "America/New_York"),
@@ -40,6 +67,9 @@ def main_menu(context=None):
     for item in menu_items:
         if _feature_enabled(profile, item.get("feature")):
             keyboard.append([InlineKeyboardButton(item["label"], callback_data=item["callback_data"])])
+
+    # اتصال به سرویس‌های مدیریت تسک باید در منوی اصلی و جدا از تنظیمات باشد.
+    keyboard.append([InlineKeyboardButton("🔗 اتصال به سرویس‌های مدیریت تسک", callback_data="integrations")])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -65,12 +95,10 @@ def tasks_options_keyboard(context=None):
 
 def settings_keyboard(user_id):
     current = get_user_timezone(user_id)
-    rows = [
-        [InlineKeyboardButton("🔗 اتصال به سرویس‌های مدیریت تسک", callback_data="integrations")]
-    ]
+    rows = []
     for label, tz_name in TIMEZONE_CHOICES:
         selected = " ✅" if tz_name == current else ""
-        rows.append([InlineKeyboardButton(f"{label} ({tz_name}){selected}", callback_data=f"timezone_set_{tz_name}")])
+        rows.append([InlineKeyboardButton(f"{label}{selected}", callback_data=f"timezone_set_{tz_name}")])
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="tasks_back")])
     return InlineKeyboardMarkup(rows)
 
@@ -107,9 +135,7 @@ def contact_keyboard():
 
 
 async def button_handler(update, context):
-
     query = update.callback_query
-
     await query.answer()
 
     data = query.data
@@ -125,7 +151,6 @@ async def button_handler(update, context):
         return
 
     if data == "add_task":
-
         await query.message.reply_text(
             "➕ افزودن تسک\n\nروش ثبت را انتخاب کنید:",
             reply_markup=InlineKeyboardMarkup(
@@ -133,74 +158,45 @@ async def button_handler(update, context):
                 + ([[InlineKeyboardButton("📥 آپلود گروهی", callback_data="import_bulk")]] if _feature_enabled(profile, "bulk_import") else [])
             ),
         )
-
     elif data == "add_task_single":
-
         context.user_data["new_task"] = {}
         context.user_data["step"] = "title"
-
-        await query.message.reply_text(
-            "📝 عنوان تسک را وارد کنید:"
-        )
-
+        await query.message.reply_text("📝 عنوان تسک را وارد کنید:")
     elif data == "custom_bot":
         from handlers.custom_bot import show_custom_bot_menu
         await show_custom_bot_menu(update, context)
-
     elif data == "help":
         from handlers.help import help_command
         await help_command(update, context)
-
     elif data == "tasks":
-        await query.message.reply_text(
-            "📋 بخش تسک‌ها\n\nچه کاری می‌خواهید انجام دهید؟",
-            reply_markup=tasks_options_keyboard(context),
-        )
-
+        await query.message.reply_text("📋 بخش تسک‌ها\n\nچه کاری می‌خواهید انجام دهید؟", reply_markup=tasks_options_keyboard(context))
     elif data == "tasks_list":
         from handlers.task import list_tasks
         await list_tasks(update, context)
-
     elif data == "tasks_back":
         await query.message.reply_text("منوی اصلی:", reply_markup=main_menu(context))
-
     elif data == "teams":
         from handlers.team import team_command
-        class _Ctx:
-            args = []
-            user_data = context.user_data
-            bot = context.bot
         await team_command(update, context)
-
     elif data == "habit_menu":
         from handlers.habits import show_habit_menu
         await show_habit_menu(update, context)
-
     elif data == "templates":
-
         await show_templates_menu(update, context)
-
     elif data == "stats":
-
         await show_reports_menu(update, context)
-
     elif data == "import_bulk":
         from handlers.import_bulk import start_import_flow
         await start_import_flow(update, context)
-
     elif data == "settings":
-
         current = get_user_timezone(update.effective_user.id)
         await query.message.reply_text(
             f"⚙️ تنظیمات\n\n🌍 زمان محلی فعلی: {current}\n\nمنطقه زمانی خود را انتخاب کنید:",
             reply_markup=settings_keyboard(update.effective_user.id),
         )
-
     elif data == "integrations":
         await show_integrations(update, context)
-
     elif data.startswith("timezone_set_"):
-
         tz_name = data.replace("timezone_set_", "", 1)
         if set_user_timezone(update.effective_user.id, tz_name):
             await query.message.reply_text(
@@ -209,11 +205,5 @@ async def button_handler(update, context):
             )
         else:
             await query.message.reply_text("⚠️ منطقه زمانی نامعتبر است.")
-
     elif data == "contact_us":
-
-        await query.message.reply_text(
-            contact_text(),
-            parse_mode="Markdown",
-            reply_markup=contact_keyboard(),
-        )
+        await query.message.reply_text(contact_text(), parse_mode="Markdown", reply_markup=contact_keyboard())
