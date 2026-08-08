@@ -81,7 +81,6 @@ async def _integration_sync_job(context):
     set_current_bot_key(bot_key)
     try:
         results = sync_all(bot_key)
-        changed = sum(item[1] for _, item_list in results for item in item_list for _ in [0] if item[2] is None for _ in [0]) if results else 0
         if results:
             logger.info("External task sync bot=%s users=%s", bot_key, len(results))
     except Exception:
@@ -127,6 +126,7 @@ async def _start_oauth_server(app):
 
 async def post_init(app: Application):
     profile = app.bot_data.get("bot_config")
+    # ثبت فرمان‌های اصلی ربات در منوی Commands تلگرام؛ /start همیشه در دسترس است.
     commands = [BotCommand("start", "شروع ربات و منوی اصلی"), BotCommand("add", "افزودن تسک جدید"), BotCommand("tasks", "منوی تسک‌ها"), BotCommand("unassigned", "وظایف بدون مسئول"), BotCommand("team", "تیم و فضای مشترک"), BotCommand("search", "جستجوی تسک"), BotCommand("templates", "تمپلیت‌های آماده"), BotCommand("reports", "گزارشات و آمار"), BotCommand("habit", "مدیریت عادت‌ها"), BotCommand("donate", "حمایت با Telegram Stars"), BotCommand("ai", "دستیار هوشمند تحلیل تسک‌ها"), BotCommand("jira", "اتصال به Jira"), BotCommand("jira_status", "وضعیت اتصال Jira"), BotCommand("jira_disconnect", "قطع اتصال Jira"), BotCommand("help", "راهنمای کامل استفاده")]
     feature_by_command = {"add": "tasks", "tasks": "tasks", "unassigned": "unassigned", "team": "teams", "search": "search", "templates": "templates", "reports": "reports", "habit": "habits", "donate": "donate", "ai": "ai"}
     if profile is not None:
@@ -198,8 +198,6 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(pending_task, pattern="^pending_"))
     app.add_handler(CallbackQueryHandler(take_confirm, pattern="^take_(confirm|cancel)$"))
     app.add_handler(CallbackQueryHandler(take_assignment, pattern="^take_[A-Za-z0-9]"))
-
-    # Guard stale confirmation callbacks before task.py can index missing fields.
     app.add_handler(CallbackQueryHandler(safe_assignment_confirm, pattern="^assign_confirm_create$"))
     app.add_handler(CallbackQueryHandler(assignment_callback, pattern="^assign_"))
     app.add_handler(CallbackQueryHandler(assignment_manage_callback, pattern="^(owner_|asg_|chg_)"))
@@ -218,36 +216,3 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(handle_tag_callback, pattern="^tags_"))
     app.add_handler(CallbackQueryHandler(optional_field_callback, pattern="^(category_pick_|category_skip|description_skip)"))
     app.add_handler(CallbackQueryHandler(share_category_callback, pattern="^share_cat_"))
-    app.add_handler(CallbackQueryHandler(import_callback, pattern="^import_"))
-    app.add_handler(CallbackQueryHandler(team_callback, pattern="^team_"))
-    app.add_handler(CallbackQueryHandler(handle_habit_callback, pattern="^habit_"))
-    app.add_handler(CallbackQueryHandler(custom_bot_callback, pattern="^custombot_"))
-    app.add_handler(CallbackQueryHandler(donate_callback, pattern="^donate_(10|40|100)$"))
-    app.add_handler(CallbackQueryHandler(integration_callback, pattern="^int_"))
-    app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
-    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
-    app.add_handler(CallbackQueryHandler(button_handler, pattern="^(?!priority_|deadline_|category_pick_|category_skip|tags_|description_skip|detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|task_details_|task_history_|comment_add_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_|custombot_|int_)"))
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_tag_text), group=0)
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, save_task))
-    app.add_error_handler(error_handler)
-    return app
-
-
-def main():
-    init_csv()
-    init_teams()
-    init_habits()
-    init_users()
-    init_custom_bots()
-    init_integrations()
-    apps = [build_application(profile) for profile in BOT_PROFILES]
-    logger.info("Starting %s bot application(s): %s", len(apps), ", ".join(p.key for p in BOT_PROFILES))
-    if len(apps) == 1:
-        apps[0].run_polling(allowed_updates=[*Update.ALL_TYPES, "guest_message"])
-    else:
-        import asyncio
-        asyncio.run(run_applications(apps))
-
-
-if __name__ == "__main__":
-    main()
