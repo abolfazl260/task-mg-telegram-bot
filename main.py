@@ -10,6 +10,7 @@ from handlers.start import start
 from handlers.menu import button_handler
 from handlers.integrations import integration_callback
 from handlers.task import (add_task, save_task, list_tasks, priority_selected, deadline_selected, optional_field_callback, detail_page, download_csv, start_task, done_task, cancel_task, pending_task, sort_tasks_callback, assignment_callback, unassigned_tasks, take_assignment, take_confirm, assignment_manage_callback, task_details_callback, comment_callback)
+from handlers.task_pagination import paginated_list_tasks, paginated_detail_page, paginated_sort_callback
 from handlers.reports import show_reports_menu, reports_callback
 from handlers.templates import show_templates_menu, templates_callback
 from handlers.search_share import search_command, share_category_callback
@@ -22,7 +23,8 @@ from services.team_manager import init_teams
 from services.habit_service import init_habits
 from services.user_service import init_users, record_user
 from services.custom_bot_service import init_custom_bots
-from services.integration_service import init_integrations, sync_all
+from services.integration_service import init_integrations
+from services.sync_scheduler import run_external_sync, run_jira_sync
 from handlers.custom_bot import custom_bot_callback
 from services.admin_service import notify_new_user, daily_admin_report, error_handler
 from handlers.habits import handle_habit_callback, show_habit_menu
@@ -31,7 +33,6 @@ from handlers.guest import handle_guest_task
 from handlers.ai import ai_command
 from handlers.business import handle_business_connection, handle_business_message, handle_deleted_business_messages, handle_edited_business_message
 from handlers.jira import jira_start, jira_type, jira_url, jira_identity, jira_credential, jira_project, jira_cancel, jira_disconnect_command, jira_status_command, JIRA_TYPE, JIRA_URL, JIRA_IDENTITY, JIRA_CREDENTIAL, JIRA_PROJECT
-from services.jira_service import sync_all_connections
 from handlers.tag_suggestions import handle_tag_callback, handle_tag_text, safe_assignment_confirm, install_tag_flow
 import handlers.task as task_handler
 
@@ -62,20 +63,20 @@ def _parse_report_time():
 async def _jira_sync_job(context):
     profile = context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config")
     bot_key = profile.key if profile else "default"
-    set_current_bot_key(bot_key)
     try:
-        changed, connections = sync_all_connections(bot_key)
-        if changed:
-            logger.info("Jira sync bot=%s changed=%s connections=%s", bot_key, changed, connections)
+        result = await run_jira_sync(bot_key)
+        if result:
+            changed, connections = result
+            if changed:
+                logger.info("Jira sync bot=%s changed=%s connections=%s", bot_key, changed, connections)
     except Exception:
         logger.exception("Jira sync failed for bot=%s", bot_key)
 
 async def _integration_sync_job(context):
     profile = context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config")
     bot_key = profile.key if profile else "default"
-    set_current_bot_key(bot_key)
     try:
-        results = sync_all(bot_key)
+        results = await run_external_sync(bot_key)
         if results:
             logger.info("External task sync bot=%s users=%s", bot_key, len(results))
     except Exception:
@@ -118,7 +119,6 @@ async def _start_oauth_server(app):
 
 async def post_init(app: Application):
     profile = app.bot_data.get("bot_config")
-    # ثبت فرمان‌های اصلی ربات در منوی Commands تلگرام؛ /start همیشه در دسترس است.
     commands = [BotCommand("start", "شروع ربات و منوی اصلی"), BotCommand("add", "افزودن تسک جدید"), BotCommand("tasks", "منوی تسک‌ها"), BotCommand("unassigned", "وظایف بدون مسئول"), BotCommand("team", "تیم و فضای مشترک"), BotCommand("search", "جستجوی تسک"), BotCommand("templates", "تمپلیت‌های آماده"), BotCommand("reports", "گزارشات و آمار"), BotCommand("habit", "مدیریت عادت‌ها"), BotCommand("donate", "حمایت با Telegram Stars"), BotCommand("ai", "دستیار هوشمند تحلیل تسک‌ها"), BotCommand("jira", "اتصال به Jira"), BotCommand("jira_status", "وضعیت اتصال Jira"), BotCommand("jira_disconnect", "قطع اتصال Jira"), BotCommand("help", "راهنمای کامل استفاده")]
     feature_by_command = {"add": "tasks", "tasks": "tasks", "unassigned": "unassigned", "team": "teams", "search": "search", "templates": "templates", "reports": "reports", "habit": "habits", "donate": "donate", "ai": "ai"}
     if profile is not None:
@@ -131,9 +131,10 @@ async def post_init(app: Application):
         app.job_queue.run_repeating(habit_reminders, interval=60, first=10, name="habit_reminders")
         app.job_queue.run_repeating(weekly_habit_reports, interval=60, first=40, name="weekly_habit_reports")
         app.job_queue.run_daily(daily_admin_report, time=_parse_report_time(), name="daily_admin_report")
-        app.job_queue.run_repeating(_jira_sync_job, interval=60, first=30, name="jira_sync", data=profile)
-        app.job_queue.run_repeating(_integration_sync_job, interval=300, first=60, name="external_task_sync", data=profile)
-        logging.info("Jobs scheduled: tasks, habit reminders, weekly habit reports, Jira sync, external task sync.")
+        bot_offset = sum(ord(ch) for ch in (profile.key if profile else "default")) % 60
+        app.job_queue.run_repeating(_jira_sync_job, interval=60, first=30 + bot_offset, name="jira_sync", data=profile)
+        app.job_queue.run_repeating(_integration_sync_job, interval=300, first=60 + bot_offset, name="external_task_sync", data=profile)
+        logging.info("Jobs scheduled: tasks, habit reminders, weekly habit reports, throttled Jira/external sync.")
     else:
         logging.warning("JobQueue not available — reminders, Jira sync and external task sync disabled.")
 
@@ -156,7 +157,7 @@ def build_application(profile):
     app.add_handler(CommandHandler("start", start))
     if _feature(app, "tasks"):
         app.add_handler(CommandHandler("add", add_task))
-        app.add_handler(CommandHandler("tasks", list_tasks))
+        app.add_handler(CommandHandler("tasks", paginated_list_tasks))
     if _feature(app, "unassigned"):
         app.add_handler(CommandHandler("unassigned", unassigned_tasks))
     if _feature(app, "teams"):
@@ -189,9 +190,9 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(assignment_manage_callback, pattern="^(owner_|asg_|chg_)"))
     app.add_handler(CallbackQueryHandler(task_details_callback, pattern="^(task_details_|task_history_)"))
     app.add_handler(CallbackQueryHandler(comment_callback, pattern="^comment_add_"))
-    app.add_handler(CallbackQueryHandler(detail_page, pattern="^detail_page_"))
+    app.add_handler(CallbackQueryHandler(paginated_detail_page, pattern="^detail_page_"))
     app.add_handler(CallbackQueryHandler(download_csv, pattern="^download_csv"))
-    app.add_handler(CallbackQueryHandler(sort_tasks_callback, pattern="^sort_"))
+    app.add_handler(CallbackQueryHandler(paginated_sort_callback, pattern="^sort_"))
     app.add_handler(CallbackQueryHandler(reports_callback, pattern="^report_"))
     app.add_handler(CallbackQueryHandler(report_compare_months, pattern="^report_compare$"))
     app.add_handler(CallbackQueryHandler(report_performance, pattern="^report_perf$"))

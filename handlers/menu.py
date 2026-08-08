@@ -1,41 +1,15 @@
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from handlers.reports import show_reports_menu
 from handlers.donate import DONATION_AMOUNTS
 from handlers.templates import show_templates_menu
-from services.user_service import get_user_timezone, set_user_timezone
 from handlers.integrations import show_integrations
-
-
-# فهرست مناطق زمانی قابل انتخاب؛ نام شهر برای نمایش به کاربر است و مقدار دوم
-# منطقه زمانی واقعی IANA است که برای محاسبه ساعت و یادآوری‌ها استفاده می‌شود.
-TIMEZONE_CHOICES = [
-    ("🇮🇷 ایران · تهران", "Asia/Tehran"),
-    ("🇦🇫 افغانستان · کابل", "Asia/Kabul"),
-    ("🇹🇯 تاجیکستان · دوشنبه", "Asia/Dushanbe"),
-    ("🇦🇪 امارات · دبی", "Asia/Dubai"),
-    ("🇹🇷 ترکیه · استانبول", "Europe/Istanbul"),
-    ("🇷🇺 روسیه · مسکو", "Europe/Moscow"),
-    ("🇷🇺 روسیه · سامارا", "Europe/Samara"),
-    ("🇷🇺 روسیه · یکاترینبورگ", "Asia/Yekaterinburg"),
-    ("🇷🇺 روسیه · نووسیبیرسک", "Asia/Novosibirsk"),
-    ("🇩🇪 آلمان · برلین", "Europe/Berlin"),
-    ("🇫🇷 فرانسه · پاریس", "Europe/Paris"),
-    ("🇬🇧 بریتانیا · لندن", "Europe/London"),
-    ("🇺🇸 آمریکا · نیویورک", "America/New_York"),
-    ("🇺🇸 آمریکا · شیکاگو", "America/Chicago"),
-    ("🇺🇸 آمریکا · دنور", "America/Denver"),
-    ("🇺🇸 آمریکا · لس‌آنجلس", "America/Los_Angeles"),
-    ("🇨🇦 کانادا · تورنتو", "America/Toronto"),
-    ("🇨🇦 کانادا · ونکوور", "America/Vancouver"),
-    ("🇦🇺 استرالیا · سیدنی", "Australia/Sydney"),
-    ("🇯🇵 ژاپن · توکیو", "Asia/Tokyo"),
-    ("🇰🇷 کره جنوبی · سئول", "Asia/Seoul"),
-    ("🇮🇳 هند · دهلی", "Asia/Kolkata"),
-]
+from services.timezone_service import (
+    VALID_TIMEZONES,
+    build_timezone_keyboard,
+    build_timezone_text,
+    set_user_timezone,
+)
 
 
 def _bot_profile(context=None):
@@ -96,31 +70,13 @@ def settings_keyboard(context=None):
 
 
 def timezone_keyboard(user_id):
-    current = get_user_timezone(user_id)
-    rows = []
-    for label, tz_name in TIMEZONE_CHOICES:
-        selected = " ✅" if tz_name == current else ""
-        rows.append([InlineKeyboardButton(f"{label}{selected}", callback_data=f"timezone_set_{tz_name}")])
+    rows = build_timezone_keyboard(user_id, InlineKeyboardButton)
     rows.append([InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="settings")])
     return InlineKeyboardMarkup(rows)
 
 
 def timezone_text(user_id):
-    current = get_user_timezone(user_id)
-    try:
-        now = datetime.now(ZoneInfo(current))
-        current_time = now.strftime("%H:%M:%S")
-        current_date = now.strftime("%Y/%m/%d")
-    except Exception:
-        current_time = "--:--:--"
-        current_date = "----/--/--"
-    return (
-        "🌍 **زمان محلی**\n\n"
-        f"🕐 ساعت فعلی: **{current_time}**\n"
-        f"📅 تاریخ: **{current_date}**\n"
-        f"📍 منطقه زمانی: `{current}`\n\n"
-        "منطقه زمانی موردنظر خود را انتخاب کنید:"
-    )
+    return build_timezone_text(user_id)
 
 
 def language_keyboard():
@@ -240,8 +196,7 @@ async def button_handler(update, context):
         await show_integrations(update, context)
     elif data.startswith("timezone_set_"):
         tz_name = data.replace("timezone_set_", "", 1)
-        valid_timezones = {name for _, name in TIMEZONE_CHOICES}
-        if tz_name not in valid_timezones:
+        if tz_name not in VALID_TIMEZONES:
             await query.message.reply_text("⚠️ منطقه زمانی نامعتبر است.")
             return
         if set_user_timezone(update.effective_user.id, tz_name):
