@@ -8,7 +8,6 @@ from datetime import date, timedelta
 
 def _a1_a2_intensive(lang_fa: str, lang_tag: str, resources: dict):
     """Build a comprehensive 60-day A1→A2 intensive plan for one language."""
-
     app = resources["app"]
     course = resources["course"]
     podcast = resources["podcast"]
@@ -16,88 +15,63 @@ def _a1_a2_intensive(lang_fa: str, lang_tag: str, resources: dict):
     book = resources["book"]
 
     steps = [
-        {"title": f"تعیین سطح فعلی {lang_fa} (آزمون آنلاین A1)", "day_offset": 0, "priority": "high",
-         "description": "یک آزمون تعیین سطح رایگان بزن و نمره را یادداشت کن."},
-        {"title": f"نصب ابزارها: {app} + Anki + دیکشنری", "day_offset": 0,
-         "description": f"اپ {app}، Anki (فلش‌کارت) و یک دیکشنری خوب نصب شود."},
-        {"title": f"آشنایی با الفبا و تلفظ پایه {lang_fa}", "day_offset": 1,
-         "description": "صداهای خاص زبان را با تکرار و گوش دادن تمرین کن."},
-        {"title": "یادگیری ۵۰ واژه ضروری روزمره (سلام، اعداد، رنگ‌ها)", "day_offset": 2,
-         "description": "واژه‌ها را در Anki اضافه کن و هر روز مرور کن."},
-        {"title": "گرامر: ضمایر شخصی + فعل «بودن»", "day_offset": 3,
-         "description": f"از منبع {course} بخش مربوطه را بخوان و ۱۰ جمله بساز."},
-        {"title": "مکالمه: معرفی خود (نام، سن، ملیت، شغل)", "day_offset": 4,
-         "description": "متن معرفی را بنویس، بلند بخوان و ضبط کن."},
+        {"title": f"تعیین سطح فعلی {lang_fa} (آزمون آنلاین A1)", "day_offset": 0, "priority": "high", "description": "یک آزمون تعیین سطح رایگان بزن و نمره را یادداشت کن."},
+        {"title": f"نصب ابزارها: {app} + Anki + دیکشنری", "day_offset": 0, "description": f"اپ {app}، Anki (فلش‌کارت) و یک دیکشنری خوب نصب شود."},
+        {"title": f"آشنایی با الفبا و تلفظ پایه {lang_fa}", "day_offset": 1, "description": "صداهای خاص زبان را با تکرار و گوش دادن تمرین کن."},
+        {"title": "یادگیری ۵۰ واژه ضروری روزمره (سلام، اعداد، رنگ‌ها)", "day_offset": 2, "description": "واژه‌ها را در Anki اضافه کن و هر روز مرور کن."},
+        {"title": "گرامر: ضمایر شخصی + فعل «بودن»", "day_offset": 3, "description": f"از منبع {course} بخش مربوطه را بخوان و ۱۰ جمله بساز."},
+        {"title": "مکالمه: معرفی خود (نام، سن، ملیت، شغل)", "day_offset": 4, "description": "متن معرفی را بنویس، بلند بخوان و ضبط کن."},
         {"title": "۵۰ واژه جدید: خانواده، خانه، غذا", "day_offset": 5},
         {"title": "گرامر: زمان حال ساده افعال پرکاربرد", "day_offset": 6},
-        {"title": "تمرین لیسنینگ ۵–۱۰ دقیقه (سطح A1)", "day_offset": 7,
-         "description": f"از {podcast} یا {yt} محتوای سطح مبتدی گوش بده."},
+        {"title": "تمرین لیسنینگ ۵–۱۰ دقیقه (سطح A1)", "day_offset": 7, "description": f"از {podcast} یا {yt} محتوای سطح مبتدی گوش بده."},
         {"title": "۵۰ واژه: خرید، لباس، قیمت‌ها", "day_offset": 9},
         {"title": "گرامر: سوال ساختن (کجا، کی، چه، چرا)", "day_offset": 10},
-        {"title": "نقش‌آفرینی: خرید از فروشگاه", "day_offset": 11,
-         "description": "دیالوگ کوتاه بنویس و با صدای بلند تمرین کن."},
+        {"title": "نقش‌آفرینی: خرید از فروشگاه", "day_offset": 11, "description": "دیالوگ کوتاه بنویس و با صدای بلند تمرین کن."},
         {"title": "۵۰ واژه: جهت‌ها، شهر، وسایل نقلیه", "day_offset": 12},
         {"title": "گرامر: حروف اضافه مکان و زمان", "day_offset": 13},
         {"title": "نوشتن: توصیف محل زندگی (۸–۱۰ جمله)", "day_offset": 14, "priority": "high"},
         {"title": "۵۰ واژه: شغل، تحصیل، برنامه‌های روزانه", "day_offset": 16},
         {"title": "گرامر: افعال کمکی و منفی کردن جمله", "day_offset": 17},
-        {"title": "لیسنینگ + تکرار سایه (shadowing) ۱۰ دقیقه", "day_offset": 18,
-         "description": f"با {yt} یک ویدیوی کوتاه را جمله به جمله تکرار کن."},
+        {"title": "لیسنینگ + تکرار سایه (shadowing) ۱۰ دقیقه", "day_offset": 18, "description": f"با {yt} یک ویدیوی کوتاه را جمله به جمله تکرار کن."},
         {"title": "۵۰ واژه: آب‌وهوا، فصل‌ها، فعالیت‌های اوقات فراغت", "day_offset": 19},
         {"title": "گرامر: زمان حال استمراری / ساختار در حال انجام", "day_offset": 20},
-        {"title": "آزمون میان‌دوره A1 + مرور نقاط ضعف", "day_offset": 21, "priority": "high",
-         "description": "آزمون کوتاه بزن و واژه‌ها/گرامرهای غلط را لیست کن."},
+        {"title": "آزمون میان‌دوره A1 + مرور نقاط ضعف", "day_offset": 21, "priority": "high", "description": "آزمون کوتاه بزن و واژه‌ها/گرامرهای غلط را لیست کن."},
         {"title": "مرور ۲۰۰ واژه اول با Anki (روزانه)", "day_offset": 23},
-        {"title": "مکالمه: یک روز معمولی خود را تعریف کن", "day_offset": 24,
-         "description": "۲–۳ دقیقه صحبت ضبط‌شده؛ بدون نگاه به متن."},
-        {"title": "خواندن متن کوتاه A1 + خلاصه‌نویسی", "day_offset": 25,
-         "description": f"از کتاب {book} یک متن کوتاه بخوان."},
+        {"title": "مکالمه: یک روز معمولی خود را تعریف کن", "day_offset": 24, "description": "۲–۳ دقیقه صحبت ضبط‌شده؛ بدون نگاه به متن."},
+        {"title": "خواندن متن کوتاه A1 + خلاصه‌نویسی", "day_offset": 25, "description": f"از کتاب {book} یک متن کوتاه بخوان."},
         {"title": "گرامر: صفت‌ها و ترتیب آن‌ها", "day_offset": 26},
         {"title": "تمرین نوشتاری: ایمیل کوتاه دوستانه", "day_offset": 27},
-        {"title": "جمع‌بندی ماه اول + چک‌لیست مهارت‌های A1", "day_offset": 28, "priority": "high",
-         "description": "لیست مهارت‌های A1 را تیک بزن؛ هر جا ضعف داری علامت بگذار."},
+        {"title": "جمع‌بندی ماه اول + چک‌لیست مهارت‌های A1", "day_offset": 28, "priority": "high", "description": "لیست مهارت‌های A1 را تیک بزن؛ هر جا ضعف داری علامت بگذار."},
         {"title": "۶۰ واژه سطح A2: سفر، هتل، رزرو", "day_offset": 30},
-        {"title": "گرامر: زمان گذشته ساده", "day_offset": 31,
-         "description": "افعال بی‌قاعده پرکاربرد را جدا حفظ کن."},
+        {"title": "گرامر: زمان گذشته ساده", "day_offset": 31, "description": "افعال بی‌قاعده پرکاربرد را جدا حفظ کن."},
         {"title": "نقش‌آفرینی: رزرو هتل / خرید بلیت", "day_offset": 32},
         {"title": "۶۰ واژه: احساسات، سلامتی، پزشک", "day_offset": 33},
         {"title": "گرامر: گذشته استمراری / ساختارهای گذشته مکمل", "day_offset": 34},
-        {"title": "لیسنینگ ۱۵ دقیقه‌ای سطح A2", "day_offset": 35,
-         "description": f"از {podcast} قسمت مناسب A2 گوش بده و ۵ واژه جدید یادداشت کن."},
+        {"title": "لیسنینگ ۱۵ دقیقه‌ای سطح A2", "day_offset": 35, "description": f"از {podcast} قسمت مناسب A2 گوش بده و ۵ واژه جدید یادداشت کن."},
         {"title": "۶۰ واژه: کار، مصاحبه، محل کار", "day_offset": 37},
         {"title": "گرامر: آینده (will / going to یا معادل)", "day_offset": 38},
         {"title": "نوشتن: برنامه‌های آینده شغلی/تحصیلی (۱۲–۱۵ جمله)", "day_offset": 39, "priority": "high"},
         {"title": "۶۰ واژه: فناوری، اینترنت، شبکه‌های اجتماعی", "day_offset": 40},
         {"title": "گرامر: جملات شرطی نوع صفر و یک", "day_offset": 41},
-        {"title": "مکالمه آزاد ۵ دقیقه‌ای درباره علایق", "day_offset": 42,
-         "description": "بدون متن از قبل؛ فقط نکات کلیدی روی کاغذ."},
+        {"title": "مکالمه آزاد ۵ دقیقه‌ای درباره علایق", "day_offset": 42, "description": "بدون متن از قبل؛ فقط نکات کلیدی روی کاغذ."},
         {"title": "۶۰ واژه: محیط زیست، شهر، مشکلات شهری", "day_offset": 44},
         {"title": "گرامر: مجهول ساده (passive) در حد A2", "day_offset": 45},
-        {"title": f"خواندن داستان کوتاه ساده ({book})", "day_offset": 46,
-         "description": "یک فصل/بخش کوتاه؛ واژه‌های جدید را در Anki بگذار."},
+        {"title": f"خواندن داستان کوتاه ساده ({book})", "day_offset": 46, "description": "یک فصل/بخش کوتاه؛ واژه‌های جدید را در Anki بگذار."},
         {"title": "تمرین درک مطلب + پاسخ به سوالات متن", "day_offset": 47},
         {"title": "گرامر: نقل‌قول غیرمستقیم ساده", "day_offset": 48},
-        {"title": "آزمون آزمایشی A2 (نمونه سوال)", "day_offset": 49, "priority": "high",
-         "description": "Listening + Reading + Writing کوتاه؛ نقاط ضعف را لیست کن."},
-        {"title": "مرور فشرده همه گرامرهای A1–A2", "day_offset": 51,
-         "description": "یک صفحه خلاصه گرامر برای خودت بنویس."},
+        {"title": "آزمون آزمایشی A2 (نمونه سوال)", "day_offset": 49, "priority": "high", "description": "Listening + Reading + Writing کوتاه؛ نقاط ضعف را لیست کن."},
+        {"title": "مرور فشرده همه گرامرهای A1–A2", "day_offset": 51, "description": "یک صفحه خلاصه گرامر برای خودت بنویس."},
         {"title": "مرور Anki: حداقل ۳۰۰ کارت فعال", "day_offset": 52},
         {"title": "مکالمه ۱۰ دقیقه‌ای شبیه‌سازی مصاحبه/سفر", "day_offset": 53, "priority": "high"},
         {"title": "نوشتن نهایی: متن ۱۵۰ کلمه‌ای درباره تجربه یادگیری", "day_offset": 54},
         {"title": "لیسنینگ نهایی بدون زیرنویس (۱۰–۱۵ دقیقه)", "day_offset": 55},
-        {"title": "آزمون تعیین سطح نهایی (هدف: A2)", "day_offset": 57, "priority": "high",
-         "description": "همان نوع آزمون اول را تکرار کن و پیشرفت را مقایسه کن."},
-        {"title": "برنامه‌ریزی مسیر بعد از A2 (منابع B1)", "day_offset": 59,
-         "description": "۳ منبع برای سطح بعدی انتخاب و در تقویم بگذار."},
+        {"title": "آزمون تعیین سطح نهایی (هدف: A2)", "day_offset": 57, "priority": "high", "description": "همان نوع آزمون اول را تکرار کن و پیشرفت را مقایسه کن."},
+        {"title": "برنامه‌ریزی مسیر بعد از A2 (منابع B1)", "day_offset": 59, "description": "۳ منبع برای سطح بعدی انتخاب و در تقویم بگذار."},
     ]
-
     return {
         "id": f"lang_{lang_tag}_a1a2_60d",
         "title": f"{lang_fa} فشرده A1→A2 (۲ ماهه)",
-        "description": (
-            f"برنامه جامع و فشرده ۶۰ روزه برای رسیدن از A1 به A2 در زبان {lang_fa}. "
-            "شامل واژگان، گرامر، لیسنینگ، مکالمه، خواندن و نوشتن."
-        ),
+        "description": f"برنامه جامع و فشرده ۶۰ روزه برای رسیدن از A1 به A2 در زبان {lang_fa}. شامل واژگان، گرامر، لیسنینگ، مکالمه، خواندن و نوشتن.",
         "category": "آموزش زبان",
         "tags": f"{lang_fa} A1 A2 فشرده",
         "priority": "high",
@@ -105,47 +79,75 @@ def _a1_a2_intensive(lang_fa: str, lang_tag: str, resources: dict):
     }
 
 
+def _german_a2_b1_30d():
+    """30-day normal-intensity German A2→B1 plan; each day is a separate task."""
+    daily = [
+        ("روز ۱ — ارزیابی A2 و شروع B1", "ارزیابی سطح فعلی و مشخص‌کردن نقاط ضعف. واژگان روزمره را مرور کن، Perfekt و Präteritum را جمع‌بندی کن، یک فایل شنیداری B1 کار کن و یک معرفی کوتاه ضبط کن."),
+        ("روز ۲ — کار و شغل", "واژگان شغل، محیط کار و تجربه کاری را یاد بگیر. روی weil، dass، obwohl و wenn تمرکز کن. یک محتوای شنیداری و یک متن B1 مرتبط با کار انجام بده و درباره مسیر شغلی خودت صحبت کن."),
+        ("روز ۳ — مسکن و زندگی", "واژگان خانه، اجاره، هزینه‌ها و همسایه‌ها را تمرین کن. Adjektivdeklination در Nominativ، Akkusativ و Dativ را مرور کن. یک متن و فایل شنیداری B1 درباره مسکن کار کن و محل زندگی خودت را توصیف کن."),
+        ("روز ۴ — سفر", "واژگان سفر، حمل‌ونقل، هتل، رزرو و مشکلات سفر را تمرین کن. Relativsätze و Relativpronomen را یاد بگیر. یک متن و فایل شنیداری B1 درباره سفر کار کن و درباره تجربه سفر صحبت کن."),
+        ("روز ۵ — سلامت", "واژگان سلامت، بیماری، پزشک، درمان، تغذیه و ورزش را تمرین کن. کاربرد Modalverben در زمان‌های مختلف را مرور کن. یک محتوای B1 درباره سلامت گوش بده و درباره سبک زندگی صحبت کن."),
+        ("روز ۶ — اوقات فراغت و رسانه", "واژگان اوقات فراغت، ورزش، موسیقی، فیلم و رسانه را یاد بگیر. Konjunktiv II و ساختارهای würde، hätte و wäre را تمرین کن. یک محتوای B1 شنیداری و یک گفت‌وگوی کوتاه انجام بده."),
+        ("روز ۷ — مرور کامل هفته اول", "مطلب جدید اضافه نکن. واژگان شش روز گذشته را مرور کن، گرامرهای هفته را جمع‌بندی کن، یک فایل B1 بدون ترجمه گوش بده، یک متن B1 بخوان و درباره موضوعات هفته آزاد صحبت کن."),
+        ("روز ۸ — بیان تجربه‌های گذشته", "واژگان تجربه، خاطره و اتفاقات گذشته را تمرین کن. تفاوت Perfekt، Präteritum و Plusquamperfekt را مرور کن. یک متن و فایل شنیداری B1 کار کن و یک اتفاق گذشته را به‌صورت منسجم تعریف کن."),
+        ("روز ۹ — آینده و برنامه‌ها", "واژگان آینده، هدف، تحصیل و برنامه‌های شخصی را تمرین کن. Futur I و استفاده از Präsens برای آینده را مرور کن. یک محتوای B1 بخوان و درباره برنامه‌های آینده صحبت کن."),
+        ("روز ۱۰ — بیان نظر", "واژگان نظر، موافقت، مخالفت، دلیل و نتیجه را تمرین کن. ساختار dass-Sätze و Nebensätze را مرور کن. یک متن B1 بخوان و درباره یک موضوع عمومی نظر خودت را بیان کن."),
+        ("روز ۱۱ — استدلال و بحث", "واژگان مزایا، معایب، دلیل، نتیجه و راه‌حل را یاد بگیر. deshalb، deswegen، trotzdem، außerdem، jedoch، obwohl و während را تمرین کن. یک متن B1 بنویس و استدلال خودت را منظم بیان کن."),
+        ("روز ۱۲ — درخواست شغلی و محیط کار", "واژگان Bewerbung، Lebenslauf، Vorstellungsgespräch، تجربه کاری و مهارت‌ها را مرور کن. Grammarهای مرتبط با معرفی توانایی‌ها را تمرین کن. یک فایل شنیداری B1 و یک مکالمه شغلی انجام بده."),
+        ("روز ۱۳ — زندگی روزمره", "واژگان خرید، قرارها، حمل‌ونقل و خدمات عمومی را مرور کن. Grammarهای قبلی را در جمله‌های کاربردی به کار ببر. یک فایل شنیداری کوتاه و یک متن B1 انجام بده و درباره زندگی روزمره صحبت کن."),
+        ("روز ۱۴ — آزمون میان‌دوره B1", "یک تمرین میان‌دوره شامل Reading، Listening، Grammar، Writing و Speaking انجام بده. نتیجه را ثبت کن و سه ضعف اصلی خودت را برای هفته سوم مشخص کن."),
+        ("روز ۱۵ — تقویت Reading", "واژگان مربوط به متن‌های B1 را مرور کن. دو متن B1 از Goethe کار کن، پاسخ‌ها را بررسی کن، واژگان مهم را استخراج کن و محتوای متن را با زبان خودت خلاصه کن."),
+        ("روز ۱۶ — تقویت Listening", "یک فایل B1 از DW یا منبع آموزشی معتبر را چند بار گوش بده. بار اول برای مفهوم کلی، بار دوم برای جزئیات و بار سوم همراه متن. در پایان محتوای فایل را بازگو کن."),
+        ("روز ۱۷ — تقویت Writing", "ساختار جمله، Konnektoren، Nebensätze و ترتیب واژه‌ها را مرور کن. یک متن B1 بنویس، سپس Grammar، واژگان، املا و انسجام آن را بررسی و اصلاح کن."),
+        ("روز ۱۸ — تقویت Speaking", "واژگان گفتاری B1 را مرور کن. مکالمه درباره چند موضوع روزمره انجام بده، یک موضوع را به‌صورت ساختارمند ارائه کن و اجرای خودت را ضبط و اشتباهات را یادداشت کن."),
+        ("روز ۱۹ — Reading و واژگان", "یک یا دو متن B1 از Goethe بخوان. واژگان جدید را استخراج و مرور کن، سپس بدون نگاه به متن خلاصه‌ای از مطالب خوانده‌شده را به‌صورت شفاهی بیان کن."),
+        ("روز ۲۰ — Listening و Shadowing", "یک فایل B1 را انتخاب کن. ابتدا مفهوم کلی را بفهم، سپس بخش‌های کوتاه را جمله‌به‌جمله تکرار کن و در پایان بدون متن درباره محتوای فایل صحبت کن."),
+        ("روز ۲۱ — مرور سبک", "زمان مطالعه را کاهش بده و فقط مرور کن. واژگان ۲۰ روز گذشته، Grammarهای دشوار، یک فایل Listening کوتاه و چند دقیقه Speaking آزاد انجام بده."),
+        ("روز ۲۲ — تمرین Reading آزمون B1", "یک نمونه رسمی Reading سطح B1 از Goethe را با شرایط آزمون انجام بده. زمان را کنترل کن، پاسخ‌ها را بررسی کن و علت اشتباهات را ثبت کن."),
+        ("روز ۲۳ — تمرین Listening آزمون B1", "یک نمونه رسمی Listening سطح B1 از Goethe را انجام بده. پاسخ‌های غلط را تحلیل کن و بخش‌های دشوار فایل را دوباره گوش بده."),
+        ("روز ۲۴ — تمرین Writing آزمون B1", "یک موضوع Writing سطح B1 را در شرایط آزمون انجام بده. متن را کامل بازبینی کن و روی ساختار، ارتباط جمله‌ها، واژگان و Grammar تمرکز کن."),
+        ("روز ۲۵ — تمرین Speaking آزمون B1", "بخش‌های اصلی Speaking سطح B1 را شبیه‌سازی کن. درباره یک موضوع صحبت کن، نظر بده و پاسخ‌های خودت را ضبط و ارزیابی کن."),
+        ("روز ۲۶ — تثبیت Grammar B1", "Grammar جدید یاد نگیر. Perfekt، Präteritum، Plusquamperfekt، Futur I، Nebensätze، Relativsätze، Konjunktiv II، Modalverben، Adjektivdeklination، Präpositionen و Konnektoren را مرور و تمرین ترکیبی حل کن."),
+        ("روز ۲۷ — Listening و Reading ترکیبی", "یک فایل Listening و یک متن Reading سطح B1 انجام بده. نکات مهم هر دو را استخراج کن و سپس به‌صورت شفاهی ارتباط میان مطالب را توضیح بده."),
+        ("روز ۲۸ — Writing و Speaking ترکیبی", "یک متن B1 بنویس و سپس درباره همان موضوع صحبت کن. تلاش کن از واژگان و ساختارهای جدید استفاده کنی و اشتباهات Grammar و بیان را اصلاح کنی."),
+        ("روز ۲۹ — شبیه‌سازی آزمون B1", "یک شبیه‌سازی کامل شامل Reading، Listening، Writing و Speaking انجام بده. زمان را کنترل کن و نتیجه هر مهارت را جداگانه ثبت کن."),
+        ("روز ۳۰ — ارزیابی پایان ماه و برنامه ادامه مسیر", "آزمون نهایی کوتاه انجام بده و عملکرد خودت را در چهار مهارت بررسی کن. قوی‌ترین و ضعیف‌ترین مهارت و Grammarهای نیازمند تمرین بیشتر را مشخص کن و مسیر ماه دوم B1 را برنامه‌ریزی کن."),
+    ]
+    steps = []
+    for day_offset, (title, description) in enumerate(daily):
+        priority = "high" if day_offset in {0, 6, 13, 21, 28, 29} else "medium"
+        steps.append({"title": title, "day_offset": day_offset, "priority": priority, "description": description})
+
+    return {
+        "id": "lang_de_a2b1_30d",
+        "title": "یادگیری زبان آلمانی از A2 به B1 (۳۰ روزه)",
+        "description": "برنامه ۳۰ روزه با شدت نرمال برای حرکت از A2 به B1؛ روزانه حدود ۹۰ دقیقه با تمرکز متعادل بر واژگان، Grammar، Listening، Reading، Writing و Speaking. هر روز به‌صورت یک تسک مستقل با عنوان و توضیحات کامل ثبت می‌شود.",
+        "category": "آموزش زبان",
+        "tags": "آلمانی A2 B1 زبان Goethe DW telc",
+        "priority": "high",
+        "steps": steps,
+    }
+
+
 TEMPLATES = [
     _a1_a2_intensive(
-        lang_fa="انگلیسی",
-        lang_tag="en",
-        resources={
-            "app": "Duolingo / Elsa Speak",
-            "course": "English Grammar in Use (Elementary)",
-            "podcast": "BBC Learning English — The English We Speak",
-            "youtube": "English with Lucy / Easy English",
-            "book": "Oxford Bookworms Starter/Stage 1",
-        },
+        lang_fa="انگلیسی", lang_tag="en",
+        resources={"app": "Duolingo / Elsa Speak", "course": "English Grammar in Use (Elementary)", "podcast": "BBC Learning English — The English We Speak", "youtube": "English with Lucy / Easy English", "book": "Oxford Bookworms Starter/Stage 1"},
     ),
     _a1_a2_intensive(
-        lang_fa="آلمانی",
-        lang_tag="de",
-        resources={
-            "app": "Duolingo / Babbel Deutsch",
-            "course": "Menschen A1–A2 / Grammatik aktiv",
-            "podcast": "Slow German / Deutsch – warum nicht?",
-            "youtube": "Deutsch für Euch / Easy German",
-            "book": "Cafe in Berlin (A1–A2) یا خواندنی‌های ساده Hueber",
-        },
+        lang_fa="آلمانی", lang_tag="de",
+        resources={"app": "Duolingo / Babbel Deutsch", "course": "Menschen A1–A2 / Grammatik aktiv", "podcast": "Slow German / Deutsch – warum nicht?", "youtube": "Deutsch für Euch / Easy German", "book": "Cafe in Berlin (A1–A2) یا خواندنی‌های ساده Hueber"},
     ),
+    _german_a2_b1_30d(),
     _a1_a2_intensive(
-        lang_fa="فرانسوی",
-        lang_tag="fr",
-        resources={
-            "app": "Duolingo / Busuu Français",
-            "course": "Grammaire Progressive du Français (Débutant)",
-            "podcast": "Coffee Break French / InnerFrench (شروع آرام)",
-            "youtube": "Learn French with Alexa / Français Authentique",
-            "book": "LFF A1 / short graded readers",
-        },
+        lang_fa="فرانسوی", lang_tag="fr",
+        resources={"app": "Duolingo / Busuu Français", "course": "Grammaire Progressive du Français (Débutant)", "podcast": "Coffee Break French / InnerFrench (شروع آرام)", "youtube": "Learn French with Alexa / Français Authentique", "book": "LFF A1 / short graded readers"},
     ),
     {
         "id": "fitness_30d",
         "title": "برنامه تناسب اندام ۳۰ روزه",
         "description": "۳۰ روز ورزش منظم — ترکیبی از کاردیو و قدرتی",
-        "category": "سلامت",
-        "tags": "ورزش تناسب‌اندام",
-        "priority": "medium",
+        "category": "سلامت", "tags": "ورزش تناسب‌اندام", "priority": "medium",
         "steps": [
             {"title": "اندازه‌گیری وزن و ثبت وضعیت فعلی", "day_offset": 0, "priority": "high"},
             {"title": "خرید / آماده‌سازی وسایل ورزشی ساده", "day_offset": 0},
@@ -160,12 +162,7 @@ TEMPLATES = [
         ],
     },
     {
-        "id": "project_launch_6w",
-        "title": "راه‌اندازی پروژه (۶ هفته)",
-        "description": "از ایده تا لانچ — برنامه ۶ هفته‌ای برای یک پروژه کوچک",
-        "category": "پروژه",
-        "tags": "راه‌اندازی لانچ",
-        "priority": "high",
+        "id": "project_launch_6w", "title": "راه‌اندازی پروژه (۶ هفته)", "description": "از ایده تا لانچ — برنامه ۶ هفته‌ای برای یک پروژه کوچک", "category": "پروژه", "tags": "راه‌اندازی لانچ", "priority": "high",
         "steps": [
             {"title": "تعریف دقیق ایده و هدف پروژه", "day_offset": 0, "priority": "high"},
             {"title": "تحقیق بازار و رقبا", "day_offset": 2},
@@ -181,12 +178,7 @@ TEMPLATES = [
         ],
     },
     {
-        "id": "reading_habit_30d",
-        "title": "عادت کتابخوانی ۳۰ روزه",
-        "description": "ساخت عادت مطالعه روزانه به مدت یک ماه",
-        "category": "توسعه فردی",
-        "tags": "کتاب مطالعه",
-        "priority": "low",
+        "id": "reading_habit_30d", "title": "عادت کتابخوانی ۳۰ روزه", "description": "ساخت عادت مطالعه روزانه به مدت یک ماه", "category": "توسعه فردی", "tags": "کتاب مطالعه", "priority": "low",
         "steps": [
             {"title": "انتخاب کتاب اول", "day_offset": 0, "priority": "high"},
             {"title": "مطالعه ۲۰ صفحه — روزهای ۱ تا ۷", "day_offset": 1},
