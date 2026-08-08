@@ -1,3 +1,6 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from handlers.reports import show_reports_menu
@@ -10,40 +13,28 @@ from handlers.integrations import show_integrations
 # فهرست مناطق زمانی قابل انتخاب؛ نام شهر برای نمایش به کاربر است و مقدار دوم
 # منطقه زمانی واقعی IANA است که برای محاسبه ساعت و یادآوری‌ها استفاده می‌شود.
 TIMEZONE_CHOICES = [
-    ("🇮🇷 تهران", "Asia/Tehran"),
-    ("🇮🇷 مشهد", "Asia/Tehran"),
-    ("🇮🇷 اصفهان", "Asia/Tehran"),
-    ("🇮🇷 شیراز", "Asia/Tehran"),
-    ("🇮🇷 تبریز", "Asia/Tehran"),
-    ("🇮🇷 کرج", "Asia/Tehran"),
-    ("🇮🇷 اهواز", "Asia/Tehran"),
-    ("🇮🇷 قم", "Asia/Tehran"),
-    ("🇮🇷 رشت", "Asia/Tehran"),
-    ("🇮🇷 کرمان", "Asia/Tehran"),
-    ("🇮🇷 یزد", "Asia/Tehran"),
-    ("🇮🇷 ارومیه", "Asia/Tehran"),
-    ("🇮🇷 کرمانشاه", "Asia/Tehran"),
-    ("🇦🇫 کابل", "Asia/Kabul"),
-    ("🇦🇫 هرات", "Asia/Kabul"),
-    ("🇹🇯 دوشنبه", "Asia/Dushanbe"),
-    ("🇦🇪 دبی", "Asia/Dubai"),
-    ("🇹🇷 استانبول", "Europe/Istanbul"),
-    ("🇷🇺 مسکو", "Europe/Moscow"),
-    ("🇷🇺 سن‌پترزبورگ", "Europe/Moscow"),
-    ("🇷🇺 کازان", "Europe/Moscow"),
-    ("🇷🇺 نیژنی نووگورود", "Europe/Moscow"),
-    ("🇷🇺 سامارا", "Europe/Samara"),
-    ("🇷🇺 یکاترینبورگ", "Asia/Yekaterinburg"),
-    ("🇷🇺 نووسیبیرسک", "Asia/Novosibirsk"),
-    ("🇷🇺 کراسنویارسک", "Asia/Krasnoyarsk"),
-    ("🇷🇺 ایرکوتسک", "Asia/Irkutsk"),
-    ("🇷🇺 ولادی‌وستوک", "Asia/Vladivostok"),
-    ("🇩🇪 برلین", "Europe/Berlin"),
-    ("🇬🇧 لندن", "Europe/London"),
-    ("🇺🇸 نیویورک", "America/New_York"),
-    ("🇺🇸 لس‌آنجلس", "America/Los_Angeles"),
-    ("🇨🇦 تورنتو", "America/Toronto"),
-    ("🇨🇦 ونکوور", "America/Vancouver"),
+    ("🇮🇷 ایران · تهران", "Asia/Tehran"),
+    ("🇦🇫 افغانستان · کابل", "Asia/Kabul"),
+    ("🇹🇯 تاجیکستان · دوشنبه", "Asia/Dushanbe"),
+    ("🇦🇪 امارات · دبی", "Asia/Dubai"),
+    ("🇹🇷 ترکیه · استانبول", "Europe/Istanbul"),
+    ("🇷🇺 روسیه · مسکو", "Europe/Moscow"),
+    ("🇷🇺 روسیه · سامارا", "Europe/Samara"),
+    ("🇷🇺 روسیه · یکاترینبورگ", "Asia/Yekaterinburg"),
+    ("🇷🇺 روسیه · نووسیبیرسک", "Asia/Novosibirsk"),
+    ("🇩🇪 آلمان · برلین", "Europe/Berlin"),
+    ("🇫🇷 فرانسه · پاریس", "Europe/Paris"),
+    ("🇬🇧 بریتانیا · لندن", "Europe/London"),
+    ("🇺🇸 آمریکا · نیویورک", "America/New_York"),
+    ("🇺🇸 آمریکا · شیکاگو", "America/Chicago"),
+    ("🇺🇸 آمریکا · دنور", "America/Denver"),
+    ("🇺🇸 آمریکا · لس‌آنجلس", "America/Los_Angeles"),
+    ("🇨🇦 کانادا · تورنتو", "America/Toronto"),
+    ("🇨🇦 کانادا · ونکوور", "America/Vancouver"),
+    ("🇦🇺 استرالیا · سیدنی", "Australia/Sydney"),
+    ("🇯🇵 ژاپن · توکیو", "Asia/Tokyo"),
+    ("🇰🇷 کره جنوبی · سئول", "Asia/Seoul"),
+    ("🇮🇳 هند · دهلی", "Asia/Kolkata"),
 ]
 
 
@@ -67,9 +58,6 @@ def main_menu(context=None):
     for item in menu_items:
         if _feature_enabled(profile, item.get("feature")):
             keyboard.append([InlineKeyboardButton(item["label"], callback_data=item["callback_data"])])
-
-    # اتصال به سرویس‌های مدیریت تسک باید در منوی اصلی و جدا از تنظیمات باشد.
-    keyboard.append([InlineKeyboardButton("🔗 اتصال به سرویس‌های مدیریت تسک", callback_data="integrations")])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -93,14 +81,54 @@ def tasks_options_keyboard(context=None):
     return InlineKeyboardMarkup(rows)
 
 
-def settings_keyboard(user_id):
+def settings_keyboard(context=None):
+    """Top-level settings categories; detailed settings open only after selection."""
+    profile = _bot_profile(context)
+    rows = []
+    if _feature_enabled(profile, "integrations"):
+        rows.append([InlineKeyboardButton("🔗 اتصال به سرویس‌های مدیریت تسک", callback_data="integrations")])
+    rows.append([InlineKeyboardButton("🌍 زمان محلی", callback_data="settings_timezone")])
+    rows.append([InlineKeyboardButton("🌐 تغییر زبان", callback_data="settings_language")])
+    if _feature_enabled(profile, "custom_bots"):
+        rows.append([InlineKeyboardButton("🤖 ساخت ربات اختصاصی", callback_data="custom_bot")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="tasks_back")])
+    return InlineKeyboardMarkup(rows)
+
+
+def timezone_keyboard(user_id):
     current = get_user_timezone(user_id)
     rows = []
     for label, tz_name in TIMEZONE_CHOICES:
         selected = " ✅" if tz_name == current else ""
         rows.append([InlineKeyboardButton(f"{label}{selected}", callback_data=f"timezone_set_{tz_name}")])
-    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="tasks_back")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="settings")])
     return InlineKeyboardMarkup(rows)
+
+
+def timezone_text(user_id):
+    current = get_user_timezone(user_id)
+    try:
+        now = datetime.now(ZoneInfo(current))
+        current_time = now.strftime("%H:%M:%S")
+        current_date = now.strftime("%Y/%m/%d")
+    except Exception:
+        current_time = "--:--:--"
+        current_date = "----/--/--"
+    return (
+        "🌍 **زمان محلی**\n\n"
+        f"🕐 ساعت فعلی: **{current_time}**\n"
+        f"📅 تاریخ: **{current_date}**\n"
+        f"📍 منطقه زمانی: `{current}`\n\n"
+        "منطقه زمانی موردنظر خود را انتخاب کنید:"
+    )
+
+
+def language_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🇮🇷 فارسی", callback_data="language_fa")],
+        [InlineKeyboardButton("🇬🇧 English", callback_data="language_en")],
+        [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="settings")],
+    ])
 
 
 def contact_text():
@@ -189,21 +217,39 @@ async def button_handler(update, context):
         from handlers.import_bulk import start_import_flow
         await start_import_flow(update, context)
     elif data == "settings":
-        current = get_user_timezone(update.effective_user.id)
         await query.message.reply_text(
-            f"⚙️ تنظیمات\n\n🌍 زمان محلی فعلی: {current}\n\nمنطقه زمانی خود را انتخاب کنید:",
-            reply_markup=settings_keyboard(update.effective_user.id),
+            "⚙️ **تنظیمات**\n\nبخش موردنظر خود را انتخاب کنید:",
+            parse_mode="Markdown",
+            reply_markup=settings_keyboard(context),
         )
+    elif data == "settings_timezone":
+        await query.message.reply_text(
+            timezone_text(update.effective_user.id),
+            parse_mode="Markdown",
+            reply_markup=timezone_keyboard(update.effective_user.id),
+        )
+    elif data == "settings_language":
+        await query.message.reply_text(
+            "🌐 **تغییر زبان**\n\nانتخاب زبان در نسخه بعدی فعال خواهد شد.",
+            parse_mode="Markdown",
+            reply_markup=language_keyboard(),
+        )
+    elif data in {"language_fa", "language_en"}:
+        await query.answer("این قابلیت در نسخه بعدی فعال می‌شود.", show_alert=True)
     elif data == "integrations":
         await show_integrations(update, context)
     elif data.startswith("timezone_set_"):
         tz_name = data.replace("timezone_set_", "", 1)
+        valid_timezones = {name for _, name in TIMEZONE_CHOICES}
+        if tz_name not in valid_timezones:
+            await query.message.reply_text("⚠️ منطقه زمانی نامعتبر است.")
+            return
         if set_user_timezone(update.effective_user.id, tz_name):
             await query.message.reply_text(
                 f"✅ زمان محلی شما روی {tz_name} تنظیم شد. از این پس یادآوری‌ها با ساعت محلی شما ارسال می‌شوند.",
-                reply_markup=settings_keyboard(update.effective_user.id),
+                reply_markup=timezone_keyboard(update.effective_user.id),
             )
         else:
-            await query.message.reply_text("⚠️ منطقه زمانی نامعتبر است.")
+            await query.message.reply_text("⚠️ ذخیره منطقه زمانی ناموفق بود.")
     elif data == "contact_us":
         await query.message.reply_text(contact_text(), parse_mode="Markdown", reply_markup=contact_keyboard())

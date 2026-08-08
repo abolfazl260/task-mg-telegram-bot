@@ -20,6 +20,7 @@ BOTS_DIR = BASE_DIR / "bots"
 
 DEFAULT_FEATURES = {
     "custom_bots": True,
+    "integrations": True,
     "tasks": True,
     "teams": True,
     "templates": True,
@@ -40,7 +41,6 @@ DEFAULT_MENU = [
     {"label": "🧩 تمپلیت‌ها", "callback_data": "templates", "feature": "templates"},
     {"label": "🌱 مدیریت عادت‌ها", "callback_data": "habit_menu", "feature": "habits"},
     {"label": "📊 گزارشات", "callback_data": "stats", "feature": "reports"},
-    {"label": "🤖 ساخت ربات اختصاصی", "callback_data": "custom_bot", "feature": "custom_bots"},
     {"label": "📖 راهنما", "callback_data": "help"},
     {"label": "⚙️ تنظیمات", "callback_data": "settings"},
     {"label": "📞 ارتباط با ما", "callback_data": "contact_us"},
