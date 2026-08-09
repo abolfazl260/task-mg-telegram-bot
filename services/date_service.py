@@ -103,7 +103,8 @@ def calendar_month_bounds(user_id, year: int | None = None, month: int | None = 
         next_j = jdatetime.date(year + 1, 1, 1)
     else:
         next_j = jdatetime.date(year, month + 1, 1)
-    return start_j.togregorian(), (next_j - jdatetime.timedelta(days=1)).togregorian()
+    end_j = next_j - timedelta(days=1)
+    return start_j.togregorian(), end_j.togregorian()
 
 
 def current_month_bounds(user_id):
