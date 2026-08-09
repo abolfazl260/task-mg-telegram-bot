@@ -40,9 +40,14 @@ import handlers.extra_reports as extra_reports_handler
 from services import calendar_runtime
 from services import calendar_runtime_extensions
 from services import calendar_reports_v2
+from services import calendar_report_legacy
 
 task_handler.format_task_card = calendar_runtime_extensions.format_task_card
 task_handler.build_full_report = calendar_runtime_extensions.build_full_report
+reports_handler.report_all_tasks = calendar_report_legacy.report_all_tasks
+reports_handler.report_by_priority = calendar_report_legacy.report_by_priority
+reports_handler.report_stuck = calendar_report_legacy.report_stuck
+reports_handler.report_trend = calendar_report_legacy.report_trend
 reports_handler.report_calendar = calendar_reports_v2.report_calendar
 reports_handler.report_week = calendar_runtime.report_week
 reports_handler.report_heatmap = calendar_reports_v2.report_heatmap
