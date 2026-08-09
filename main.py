@@ -35,6 +35,20 @@ from handlers.business import handle_business_connection, handle_business_messag
 from handlers.jira import jira_start, jira_type, jira_url, jira_identity, jira_credential, jira_project, jira_cancel, jira_disconnect_command, jira_status_command, JIRA_TYPE, JIRA_URL, JIRA_IDENTITY, JIRA_CREDENTIAL, JIRA_PROJECT
 from handlers.tag_suggestions import handle_tag_callback, handle_tag_text, safe_assignment_confirm, install_tag_flow
 import handlers.task as task_handler
+import handlers.reports as reports_handler
+import handlers.extra_reports as extra_reports_handler
+from services import calendar_runtime
+
+# Per-user calendar display adapters. Storage/query dates remain Gregorian.
+task_handler.format_task_card = calendar_runtime.format_task_card
+task_handler.build_full_report = calendar_runtime.build_full_report
+reports_handler.report_calendar = calendar_runtime.report_calendar
+reports_handler.report_week = calendar_runtime.report_week
+reports_handler.report_heatmap = calendar_runtime.report_heatmap
+reports_handler.report_heatmap_week = calendar_runtime.report_heatmap_week
+reports_handler.report_today = calendar_runtime.report_today
+extra_reports_handler.report_compare_months = calendar_runtime.report_compare_months
+report_compare_months = calendar_runtime.report_compare_months
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -189,7 +203,7 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(assignment_callback, pattern="^assign_"))
     app.add_handler(CallbackQueryHandler(assignment_manage_callback, pattern="^(owner_|asg_|chg_)"))
     app.add_handler(CallbackQueryHandler(task_details_callback, pattern="^(task_details_|task_history_)"))
-    app.add_handler(CallbackQueryHandler(comment_callback, pattern="^comment_add_"))
+    app.add_handler(CallbackQueryHandler(comment_callback, pattern="^comment_add_") )
     app.add_handler(CallbackQueryHandler(paginated_detail_page, pattern="^detail_page_"))
     app.add_handler(CallbackQueryHandler(download_csv, pattern="^download_csv"))
     app.add_handler(CallbackQueryHandler(paginated_sort_callback, pattern="^sort_"))
