@@ -4,6 +4,7 @@ import jdatetime
 
 from services import date_service
 from services import user_service
+from utils.date_parse import parse_deadline_input
 
 
 def _configure_users(tmp_path, monkeypatch):
@@ -17,6 +18,11 @@ def test_jalali_and_gregorian_formatting():
     value = date(2026, 8, 20)
     assert date_service.format_date(value, "gregorian") == "2026/08/20"
     assert date_service.format_date(value, "jalali") == jdatetime.date.fromgregorian(date=value).strftime("%Y/%m/%d")
+
+
+def test_parser_accepts_both_calendars_and_stores_gregorian():
+    assert parse_deadline_input("2026-08-20") == "2026-08-20"
+    assert parse_deadline_input("1405-05-29") == jdatetime.date(1405, 5, 29).togregorian().isoformat()
 
 
 def test_new_user_defaults_to_jalali(tmp_path, monkeypatch):
@@ -51,10 +57,8 @@ def test_change_date_format_does_not_change_stored_data(tmp_path, monkeypatch):
 
 
 def test_jalali_month_boundary_maps_to_gregorian():
-    # 1405/01/01 .. 1405/01/31 is 2026-03-21 .. 2026-04-20.
-    start, end = date_service.calendar_month_bounds.__wrapped__(None) if hasattr(date_service.calendar_month_bounds, "__wrapped__") else (None, None)
-    # Keep this assertion independent from user storage by checking the underlying conversion.
-    start_j = jdatetime.date(1405, 1, 1).togregorian()
-    end_j = jdatetime.date(1405, 2, 1).togregorian()
-    assert start_j == date(2026, 3, 21)
-    assert end_j == date(2026, 4, 21)
+    start = jdatetime.date(1405, 1, 1).togregorian()
+    next_month = jdatetime.date(1405, 2, 1).togregorian()
+    end = next_month.fromordinal(next_month.toordinal() - 1)
+    assert start == date(2026, 3, 21)
+    assert end == date(2026, 4, 20)
