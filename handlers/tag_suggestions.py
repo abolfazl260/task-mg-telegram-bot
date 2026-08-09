@@ -17,7 +17,6 @@ def _split_tags(raw):
 
 
 def get_suggested_tags(user_id, limit=12):
-    """Return tags previously used by the user or in teams visible to them."""
     seen = set()
     result = []
     for task in get_all_user_tasks(user_id):
@@ -33,9 +32,7 @@ def get_suggested_tags(user_id, limit=12):
 
 def _tag_keyboard(tags, context):
     context.user_data["tag_suggestions"] = list(tags)
-    rows = []
-    for index, tag in enumerate(tags):
-        rows.append([InlineKeyboardButton(f"🏷 {tag}", callback_data=f"tags_pick_{index}")])
+    rows = [[InlineKeyboardButton(f"🏷 {tag}", callback_data=f"tags_pick_{index}")] for index, tag in enumerate(tags)]
     rows.append([InlineKeyboardButton("➕ تگ جدید", callback_data="tags_new")])
     rows.append([InlineKeyboardButton("⏭ بدون تگ", callback_data="tags_skip")])
     return InlineKeyboardMarkup(rows)
@@ -112,10 +109,7 @@ def install_tag_flow(task_module):
 
     async def _ask_description(message, context):
         context.user_data["step"] = "description"
-        await _edit_task_ui(
-            message, context, _task_ui_text(context.user_data.get("new_task", {}), "description"),
-            InlineKeyboardMarkup([[InlineKeyboardButton("⏭ رد کردن", callback_data="description_skip")]])
-        )
+        await _edit_task_ui(message, context, _task_ui_text(context.user_data.get("new_task", {}), "description"), InlineKeyboardMarkup([[InlineKeyboardButton("⏭ رد کردن", callback_data="description_skip")]]))
 
     async def _ask_category(message, context, user_id):
         context.user_data["step"] = "category"
@@ -325,50 +319,38 @@ def install_tag_flow(task_module):
     task_module.assignment_callback = assignment_single
 
 
-def _single_tag_callback_impl(update, context):
-    return None
-
-
-def handle_tag_callback(update, context):
+async def handle_tag_callback(update, context):
     query = update.callback_query
     data = query.data or ""
     if not data.startswith("tags_"):
         return
-    # This function is intentionally resolved at call time from task.py because
-    # main.py imported this handler before install_tag_flow runs.
+    await query.answer()
+    task = context.user_data.get("new_task")
+    if not isinstance(task, dict):
+        return
     import handlers.task as task_module
-
-    async def run():
-        await query.answer()
-        task = context.user_data.get("new_task")
-        if not isinstance(task, dict):
+    if data == "tags_skip":
+        task["tags"] = ""
+        context.user_data.pop("tag_suggestions", None)
+        await task_module._ask_description(query.message, context)
+        return
+    if data == "tags_new":
+        context.user_data["step"] = "tags"
+        await _edit_task_ui(query.message, context, _task_ui_text(task, "tags") + "\n\nتگ جدید را وارد کنید:", None)
+        return
+    if data.startswith("tags_pick_"):
+        try:
+            index = int(data.replace("tags_pick_", "", 1))
+        except ValueError:
             return
-        if data == "tags_skip":
-            task["tags"] = ""
+        suggestions = context.user_data.get("tag_suggestions") or []
+        if 0 <= index < len(suggestions):
+            task["tags"] = suggestions[index]
             context.user_data.pop("tag_suggestions", None)
             await task_module._ask_description(query.message, context)
-            return
-        if data == "tags_new":
-            context.user_data["step"] = "tags"
-            await _edit_task_ui(query.message, context, _task_ui_text(task, "tags") + "\n\nتگ جدید را وارد کنید:", None)
-            return
-        if data.startswith("tags_pick_"):
-            try:
-                index = int(data.replace("tags_pick_", "", 1))
-            except ValueError:
-                return
-            suggestions = context.user_data.get("tag_suggestions") or []
-            if 0 <= index < len(suggestions):
-                task["tags"] = suggestions[index]
-                context.user_data.pop("tag_suggestions", None)
-                await task_module._ask_description(query.message, context)
-
-    import asyncio
-    return asyncio.create_task(run())
 
 
 async def handle_tag_text(update, context):
-    """Delegate non-tag steps while handling direct tag input."""
     if context.user_data.get("step") != "tags":
         from handlers.task import save_task
         await save_task(update, context)
@@ -392,7 +374,6 @@ async def handle_tag_text(update, context):
 
 
 async def safe_assignment_confirm(update, context):
-    """Guard stale confirmation callbacks before task.py indexes required fields."""
     query = update.callback_query
     if (query.data or "") != "assign_confirm_create":
         return
@@ -412,11 +393,7 @@ async def safe_assignment_confirm(update, context):
 
     if missing:
         await query.answer("اطلاعات تسک ناقص است.", show_alert=True)
-        await query.message.edit_text(
-            "⚠️ امکان ثبت این تسک وجود ندارد چون اطلاعات زیر ناقص است:\n"
-            + "، ".join(missing)
-            + "\n\nلطفاً تسک را دوباره از ابتدا ایجاد کنید."
-        )
+        await query.message.edit_text("⚠️ امکان ثبت این تسک وجود ندارد چون اطلاعات زیر ناقص است:\n" + "، ".join(missing) + "\n\nلطفاً تسک را دوباره از ابتدا ایجاد کنید.")
         context.user_data.clear()
         return
 
