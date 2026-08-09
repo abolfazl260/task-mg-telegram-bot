@@ -160,8 +160,7 @@ async def button_handler(update, context):
         return
 
     if data == "start_menu":
-        from handlers.start import start
-        await start(update, context)
+        await query.message.reply_text("منوی اصلی:", reply_markup=main_menu(context))
     elif data == "add_task":
         await query.message.reply_text(
             "➕ افزودن تسک\n\nروش ثبت را انتخاب کنید:",
