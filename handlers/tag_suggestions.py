@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import sys
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -9,11 +10,7 @@ from services.team_service import get_user_teams, get_team_members, member_displ
 def _split_tags(raw):
     if not raw:
         return []
-    return [
-        item.strip().lstrip("#")
-        for item in str(raw).replace("\n", ",").replace("،", ",").split(",")
-        if item.strip()
-    ]
+    return [item.strip().lstrip("#") for item in str(raw).replace("\n", ",").replace("،", ",").split(",") if item.strip()]
 
 
 def get_suggested_tags(user_id, limit=12):
@@ -32,21 +29,15 @@ def get_suggested_tags(user_id, limit=12):
 
 def _tag_keyboard(tags, context):
     context.user_data["tag_suggestions"] = list(tags)
-    rows = [[InlineKeyboardButton(f"🏷 {tag}", callback_data=f"tags_pick_{index}")] for index, tag in enumerate(tags)]
+    rows = [[InlineKeyboardButton(f"🏷 {tag}", callback_data=f"tags_pick_{i}")] for i, tag in enumerate(tags)]
     rows.append([InlineKeyboardButton("➕ تگ جدید", callback_data="tags_new")])
     rows.append([InlineKeyboardButton("⏭ بدون تگ", callback_data="tags_skip")])
     return InlineKeyboardMarkup(rows)
 
 
-def _ui_message(context, message):
-    if message is not None:
-        context.user_data["task_ui_message_id"] = message.message_id
-        context.user_data["task_ui_chat_id"] = message.chat_id
-    return message
-
-
 async def _edit_task_ui(message, context, text, reply_markup=None, parse_mode=None):
-    _ui_message(context, message)
+    context.user_data["task_ui_message_id"] = message.message_id
+    context.user_data["task_ui_chat_id"] = message.chat_id
     kwargs = {"text": text, "reply_markup": reply_markup}
     if parse_mode:
         kwargs["parse_mode"] = parse_mode
@@ -54,7 +45,8 @@ async def _edit_task_ui(message, context, text, reply_markup=None, parse_mode=No
         await message.edit_text(**kwargs)
     except Exception:
         sent = await message.reply_text(**kwargs)
-        _ui_message(context, sent)
+        context.user_data["task_ui_message_id"] = sent.message_id
+        context.user_data["task_ui_chat_id"] = sent.chat_id
 
 
 def _task_ui_text(task, step):
@@ -65,21 +57,18 @@ def _task_ui_text(task, step):
     deadline_label = deadline or "—"
     if deadline:
         try:
-            d = datetime.strptime(deadline, "%Y-%m-%d").date()
-            diff = (d - datetime.now().date()).days
+            diff = (datetime.strptime(deadline, "%Y-%m-%d").date() - datetime.now().date()).days
             if diff == 0:
                 deadline_label = "امروز"
             elif diff == 1:
                 deadline_label = "فردا"
         except Exception:
             pass
-
     lines = ["📋 **افزودن تسک**", "", f"**عنوان:** {title}"]
     if priority:
         lines.append(f"**اولویت:** {priority_label}")
     if deadline:
         lines.append(f"**مهلت:** {deadline_label}")
-
     prompts = {
         "title": "عنوان تسک را وارد کنید:",
         "priority": "حالا اولویت را انتخاب کنید:",
@@ -97,15 +86,14 @@ def _task_ui_text(task, step):
 
 
 def install_tag_flow(task_module):
-    """Install reusable tag suggestions and the single-message task creation flow."""
+    """Install reusable tag suggestions and make task creation a single editable message."""
     original_save_task = task_module.save_task
     original_assignment_callback = task_module.assignment_callback
 
     async def _ask_tags(message, context):
         context.user_data["step"] = "tags"
         user_id = getattr(getattr(message, "chat", None), "id", 0)
-        tags = get_suggested_tags(user_id)
-        await _edit_task_ui(message, context, _task_ui_text(context.user_data.get("new_task", {}), "tags"), _tag_keyboard(tags, context))
+        await _edit_task_ui(message, context, _task_ui_text(context.user_data.get("new_task", {}), "tags"), _tag_keyboard(get_suggested_tags(user_id), context))
 
     async def _ask_description(message, context):
         context.user_data["step"] = "description"
@@ -117,27 +105,26 @@ def install_tag_flow(task_module):
 
     async def _ask_assignment(update, context):
         context.user_data["step"] = "assignment_method"
-        await _edit_task_ui(
-            update.effective_message, context, _task_ui_text(context.user_data.get("new_task", {}), "assignment_method"),
-            InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔎 جستجوی کاربر", callback_data="assign_search")],
-                [InlineKeyboardButton("👥 انتخاب از اعضای تیم", callback_data="assign_teams")],
-                [InlineKeyboardButton("⏭ بدون مسئول", callback_data="assign_none")],
-            ])
-        )
+        await _edit_task_ui(update.effective_message, context, _task_ui_text(context.user_data.get("new_task", {}), "assignment_method"), InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔎 جستجوی کاربر", callback_data="assign_search")],
+            [InlineKeyboardButton("👥 انتخاب از اعضای تیم", callback_data="assign_teams")],
+            [InlineKeyboardButton("⏭ بدون مسئول", callback_data="assign_none")],
+        ]))
 
     async def add_task_single(update, context):
         context.user_data["new_task"] = {}
         context.user_data["step"] = "title"
         context.user_data.pop("task_ui_message_id", None)
         context.user_data.pop("task_ui_chat_id", None)
-        await _edit_task_ui(update.effective_message, context, _task_ui_text({}, "title"), None)
+        # /add creates the one persistent UI message.
+        sent = await update.effective_message.reply_text(_task_ui_text({}, "title"))
+        context.user_data["task_ui_message_id"] = sent.message_id
+        context.user_data["task_ui_chat_id"] = sent.chat_id
 
     async def save_task_single(update, context):
         step = context.user_data.get("step")
         task = context.user_data.get("new_task")
         message = update.effective_message
-
         if isinstance(task, dict) and step == "title" and message and message.text:
             task["title"] = message.text.strip()
             if not task["title"]:
@@ -145,57 +132,50 @@ def install_tag_flow(task_module):
             context.user_data["step"] = "priority"
             await _edit_task_ui(message, context, _task_ui_text(task, "priority"), task_module.priority_keyboard())
             return
-
         if isinstance(task, dict) and step == "deadline_custom" and message and message.text:
             parsed = task_module.parse_deadline_input(message.text.strip())
             if not parsed:
-                await _edit_task_ui(message, context, _task_ui_text(task, "deadline_custom") + "\n\n⚠️ تاریخ واردشده معتبر نیست.", None)
+                await _edit_task_ui(message, context, _task_ui_text(task, "deadline_custom") + "\n\n⚠️ تاریخ واردشده معتبر نیست.")
                 return
             task["deadline"] = parsed
             await _ask_category(message, context, update.effective_user.id)
             return
-
         if isinstance(task, dict) and step == "category" and message and message.text:
             task["category"] = message.text.strip()
             await _ask_tags(message, context)
             return
-
         if isinstance(task, dict) and step == "tags" and message and message.text:
             task["tags"] = message.text.strip()[:120]
             await _ask_description(message, context)
             return
-
         if isinstance(task, dict) and step == "description" and message and message.text:
             task["description"] = message.text.strip()
             await _ask_assignment(update, context)
             return
-
         if isinstance(task, dict) and step == "assignment_search" and message and message.text:
             q = message.text.strip().lower()
             matches = []
             for team in get_user_teams(update.effective_user.id):
                 for member in get_team_members(team["team"]["team_id"]):
-                    blob = f"{member.get('display_name','')} {member.get('username','')}".lower()
-                    if q and q in blob:
+                    if q and q in f"{member.get('display_name','')} {member.get('username','')}".lower():
                         matches.append(member)
             if not matches:
-                await _edit_task_ui(message, context, _task_ui_text(task, "assignment_search") + "\n\n❌ نتیجه‌ای پیدا نشد.", None)
+                await _edit_task_ui(message, context, _task_ui_text(task, "assignment_search") + "\n\n❌ نتیجه‌ای پیدا نشد.")
                 return
             rows = [[InlineKeyboardButton(f"انتخاب: {member_display(m)}", callback_data=f"assign_member_{m.get('user_id')}")] for m in matches[:10]]
             context.user_data["step"] = "assignment_method"
             await _edit_task_ui(message, context, _task_ui_text(task, "assignment_method") + "\n\nنتایج جستجو:", InlineKeyboardMarkup(rows))
             return
-
         await original_save_task(update, context)
 
     async def priority_single(update, context):
         query = update.callback_query
         await query.answer()
-        priority = (query.data or "").replace("priority_", "")
-        if priority not in ("high", "medium", "low"):
+        value = (query.data or "").replace("priority_", "")
+        if value not in ("high", "medium", "low"):
             return
         task = context.user_data.setdefault("new_task", {})
-        task["priority"] = priority
+        task["priority"] = value
         context.user_data["step"] = "deadline"
         await _edit_task_ui(query.message, context, _task_ui_text(task, "deadline"), task_module.deadline_keyboard())
 
@@ -206,7 +186,7 @@ def install_tag_flow(task_module):
         task = context.user_data.setdefault("new_task", {})
         if value == "custom":
             context.user_data["step"] = "deadline_custom"
-            await _edit_task_ui(query.message, context, _task_ui_text(task, "deadline_custom"), None)
+            await _edit_task_ui(query.message, context, _task_ui_text(task, "deadline_custom"))
             return
         if value == "none":
             task["deadline"] = ""
@@ -247,15 +227,14 @@ def install_tag_flow(task_module):
         if not isinstance(task, dict):
             return
         uid = update.effective_user.id
-
         if data == "assign_search":
             context.user_data["step"] = "assignment_search"
-            await _edit_task_ui(query.message, context, _task_ui_text(task, "assignment_search"), None)
+            await _edit_task_ui(query.message, context, _task_ui_text(task, "assignment_search"))
             return
         if data == "assign_teams":
             teams = get_user_teams(uid)
             if not teams:
-                await _edit_task_ui(query.message, context, _task_ui_text(task, "assignment_method") + "\n\n❌ تیم مشترکی ندارید.", None)
+                await _edit_task_ui(query.message, context, _task_ui_text(task, "assignment_method") + "\n\n❌ تیم مشترکی ندارید.")
                 return
             rows = [[InlineKeyboardButton(f"📌 {i['team']['name']}", callback_data=f"assign_team_{i['team']['team_id']}")] for i in teams]
             await _edit_task_ui(query.message, context, _task_ui_text(task, "assignment_method") + "\n\nانتخاب تیم:", InlineKeyboardMarkup(rows))
@@ -290,7 +269,7 @@ def install_tag_flow(task_module):
             return
         if data == "assign_cancel_create":
             context.user_data.clear()
-            await _edit_task_ui(query.message, context, "❌ ایجاد تسک لغو شد.", None)
+            await _edit_task_ui(query.message, context, "❌ ایجاد تسک لغو شد.")
             return
         if data == "assign_confirm_create":
             task_id = task_module._finalize_task(uid, task)
@@ -300,11 +279,10 @@ def install_tag_flow(task_module):
             priority = {"high": "🔴 بالا", "medium": "🟡 متوسط", "low": "🟢 پایین"}.get(task.get("priority"), "—")
             deadline = task.get("deadline") or "بدون مهلت"
             context.user_data.clear()
-            await _edit_task_ui(query.message, context, f"✅ **تسک با موفقیت ایجاد شد**\n\n📌 {title}\n{priority}\n📅 مهلت: {deadline}", None)
+            await _edit_task_ui(query.message, context, f"✅ **تسک با موفقیت ایجاد شد**\n\n📌 {title}\n{priority}\n📅 مهلت: {deadline}")
             if assignee:
                 await task_module._notify_assignment(context, saved or task, assignee, update.effective_user)
             return
-
         await original_assignment_callback(update, context)
 
     task_module._ask_tags = _ask_tags
@@ -317,6 +295,18 @@ def install_tag_flow(task_module):
     task_module.deadline_selected = deadline_single
     task_module.optional_field_callback = optional_single
     task_module.assignment_callback = assignment_single
+
+    # main.py imports these handlers directly before build_application().
+    # Replace those module-level references too, without changing main.py.
+    main_module = sys.modules.get("main")
+    if main_module is not None:
+        main_module.add_task = add_task_single
+        main_module.save_task = save_task_single
+        main_module.priority_selected = priority_single
+        main_module.deadline_selected = deadline_single
+        main_module.optional_field_callback = optional_single
+        main_module.assignment_callback = assignment_single
+        main_module.handle_tag_callback = handle_tag_callback
 
 
 async def handle_tag_callback(update, context):
@@ -336,7 +326,7 @@ async def handle_tag_callback(update, context):
         return
     if data == "tags_new":
         context.user_data["step"] = "tags"
-        await _edit_task_ui(query.message, context, _task_ui_text(task, "tags") + "\n\nتگ جدید را وارد کنید:", None)
+        await _edit_task_ui(query.message, context, _task_ui_text(task, "tags") + "\n\nتگ جدید را وارد کنید:")
         return
     if data.startswith("tags_pick_"):
         try:
@@ -355,7 +345,6 @@ async def handle_tag_text(update, context):
         from handlers.task import save_task
         await save_task(update, context)
         return True
-
     task = context.user_data.get("new_task")
     if not isinstance(task, dict):
         return False
@@ -377,25 +366,21 @@ async def safe_assignment_confirm(update, context):
     query = update.callback_query
     if (query.data or "") != "assign_confirm_create":
         return
-
     task = context.user_data.get("new_task")
     if not isinstance(task, dict):
         await query.answer("فرایند ایجاد تسک منقضی شده است.", show_alert=True)
         await query.message.edit_text("⚠️ اطلاعات تسک ناقص است. لطفاً تسک را دوباره از ابتدا ایجاد کنید.")
         context.user_data.clear()
         return
-
     missing = []
     if not (task.get("title") or "").strip():
         missing.append("عنوان")
     if task.get("priority") not in ("high", "medium", "low"):
         missing.append("اولویت")
-
     if missing:
         await query.answer("اطلاعات تسک ناقص است.", show_alert=True)
         await query.message.edit_text("⚠️ امکان ثبت این تسک وجود ندارد چون اطلاعات زیر ناقص است:\n" + "، ".join(missing) + "\n\nلطفاً تسک را دوباره از ابتدا ایجاد کنید.")
         context.user_data.clear()
         return
-
     from handlers.task import assignment_callback
     await assignment_callback(update, context)
