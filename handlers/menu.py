@@ -33,6 +33,7 @@ def main_menu(context=None):
     for item in menu_items:
         if _feature_enabled(profile, item.get("feature")):
             keyboard.append([InlineKeyboardButton(item["label"], callback_data=item["callback_data"])])
+    keyboard.append([InlineKeyboardButton("🏠 شروع / منوی اصلی", callback_data="start_menu")])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -158,7 +159,10 @@ async def button_handler(update, context):
         await query.message.reply_text("⚠️ این قابلیت برای این ربات فعال نیست.")
         return
 
-    if data == "add_task":
+    if data == "start_menu":
+        from handlers.start import start
+        await start(update, context)
+    elif data == "add_task":
         await query.message.reply_text(
             "➕ افزودن تسک\n\nروش ثبت را انتخاب کنید:",
             reply_markup=InlineKeyboardMarkup(
