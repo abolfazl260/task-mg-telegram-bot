@@ -39,12 +39,13 @@ import handlers.reports as reports_handler
 import handlers.extra_reports as extra_reports_handler
 from services import calendar_runtime
 from services import calendar_runtime_extensions
+from services import calendar_reports_v2
 
 task_handler.format_task_card = calendar_runtime_extensions.format_task_card
 task_handler.build_full_report = calendar_runtime_extensions.build_full_report
-reports_handler.report_calendar = calendar_runtime.report_calendar
+reports_handler.report_calendar = calendar_reports_v2.report_calendar
 reports_handler.report_week = calendar_runtime.report_week
-reports_handler.report_heatmap = calendar_runtime.report_heatmap
+reports_handler.report_heatmap = calendar_reports_v2.report_heatmap
 reports_handler.report_heatmap_week = calendar_runtime.report_heatmap_week
 reports_handler.report_today = calendar_runtime.report_today
 extra_reports_handler.report_compare_months = calendar_runtime.report_compare_months
