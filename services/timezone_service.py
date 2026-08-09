@@ -1,7 +1,9 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from services.user_service import get_user_timezone, set_user_timezone
+import jdatetime
+
+from services.user_service import get_user_date_format, get_user_timezone, set_user_timezone
 
 
 # User-facing timezone choices. Values are IANA timezone identifiers.
@@ -58,10 +60,15 @@ def get_current_local_datetime(user_id) -> tuple[str, datetime]:
 
 def build_timezone_text(user_id) -> str:
     timezone_name, now = get_current_local_datetime(user_id)
+    date_format = get_user_date_format(user_id)
+    if date_format == "gregorian":
+        display_date = now.strftime("%Y/%m/%d")
+    else:
+        display_date = jdatetime.date.fromgregorian(date=now.date()).strftime("%Y/%m/%d")
     return (
         "🌍 **زمان محلی**\n\n"
         f"🕐 ساعت فعلی: **{now:%H:%M:%S}**\n"
-        f"📅 تاریخ: **{now:%Y/%m/%d}**\n"
+        f"📅 تاریخ: **{display_date}**\n"
         f"📍 منطقه زمانی: `{timezone_name}`\n\n"
         "منطقه زمانی موردنظر خود را انتخاب کنید:"
     )
