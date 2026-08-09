@@ -10,6 +10,7 @@ from services.timezone_service import (
     build_timezone_text,
     set_user_timezone,
 )
+from services.user_service import get_user_date_format, set_user_date_format
 
 
 def _bot_profile(context=None):
@@ -62,6 +63,7 @@ def settings_keyboard(context=None):
     if _feature_enabled(profile, "integrations"):
         rows.append([InlineKeyboardButton("🔗 اتصال به سرویس‌های مدیریت تسک", callback_data="integrations")])
     rows.append([InlineKeyboardButton("🌍 زمان محلی", callback_data="settings_timezone")])
+    rows.append([InlineKeyboardButton("📅 نوع تاریخ", callback_data="settings_date_format")])
     rows.append([InlineKeyboardButton("🌐 تغییر زبان", callback_data="settings_language")])
     if _feature_enabled(profile, "custom_bots"):
         rows.append([InlineKeyboardButton("🤖 ساخت ربات اختصاصی", callback_data="custom_bot")])
@@ -77,6 +79,28 @@ def timezone_keyboard(user_id):
 
 def timezone_text(user_id):
     return build_timezone_text(user_id)
+
+
+def date_format_keyboard(user_id):
+    current = get_user_date_format(user_id)
+    jalali = "🇮🇷 شمسی (Jalali)" + (" ✅" if current == "jalali" else "")
+    gregorian = "🌍 میلادی (Gregorian)" + (" ✅" if current == "gregorian" else "")
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(jalali, callback_data="date_format_jalali")],
+        [InlineKeyboardButton(gregorian, callback_data="date_format_gregorian")],
+        [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="settings")],
+    ])
+
+
+def date_format_text(user_id):
+    current = get_user_date_format(user_id)
+    label = "🇮🇷 شمسی" if current == "jalali" else "🌍 میلادی"
+    return (
+        "📅 **نوع تاریخ**\n\n"
+        f"نوع تاریخ فعلی: **{label}**\n\n"
+        "این انتخاب فقط نحوه نمایش و محاسبه تقویمی را تغییر می‌دهد؛ "
+        "تاریخ‌های ذخیره‌شده همیشه میلادی و به صورت استاندارد داخلی باقی می‌مانند."
+    )
 
 
 def language_keyboard():
@@ -184,6 +208,21 @@ async def button_handler(update, context):
             parse_mode="Markdown",
             reply_markup=timezone_keyboard(update.effective_user.id),
         )
+    elif data == "settings_date_format":
+        await query.message.reply_text(
+            date_format_text(update.effective_user.id),
+            parse_mode="Markdown",
+            reply_markup=date_format_keyboard(update.effective_user.id),
+        )
+    elif data in {"date_format_jalali", "date_format_gregorian"}:
+        selected = data.replace("date_format_", "", 1)
+        if set_user_date_format(update.effective_user.id, selected):
+            await query.message.reply_text(
+                "✅ نوع تاریخ تغییر کرد. از این پس تاریخ‌ها و گزارش‌ها با تقویم انتخابی شما نمایش داده می‌شوند.",
+                reply_markup=date_format_keyboard(update.effective_user.id),
+            )
+        else:
+            await query.message.reply_text("⚠️ ذخیره نوع تاریخ ناموفق بود.")
     elif data == "settings_language":
         await query.message.reply_text(
             "🌐 **تغییر زبان**\n\nانتخاب زبان در نسخه بعدی فعال خواهد شد.",
