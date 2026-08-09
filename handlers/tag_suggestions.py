@@ -98,8 +98,18 @@ async def handle_tag_callback(update, context):
 
 
 async def handle_tag_text(update, context):
+    """Handle tag text while allowing every other task-creation step through.
+
+    This handler is registered before save_task in main.py. Telegram's
+    MessageHandler stops dispatching within the same group after a match,
+    regardless of the callback's return value. Therefore non-tag steps must
+    explicitly delegate to save_task instead of simply returning False.
+    """
     if context.user_data.get("step") != "tags":
-        return False
+        from handlers.task import save_task
+        await save_task(update, context)
+        return True
+
     task = context.user_data.get("new_task")
     if not isinstance(task, dict):
         return False
