@@ -1,8 +1,10 @@
-import asyncio
-
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from services.task_service import get_active_tasks, get_unassigned_tasks, user_can_modify_task
+from services.task_service import (
+    get_active_tasks_async,
+    get_unassigned_tasks_async,
+    user_can_modify_task_async,
+)
 from handlers.task import (
     PAGE_SIZE,
     build_detail_table,
@@ -10,10 +12,6 @@ from handlers.task import (
     sort_tasks,
     _task_details_keyboard,
 )
-
-
-async def _db_call(fn, *args, **kwargs):
-    return await asyncio.to_thread(fn, *args, **kwargs)
 
 
 async def paginated_list_tasks(update, context):
@@ -43,7 +41,7 @@ async def paginated_detail_page(update, context):
 
 
 async def _render_page(update, context, page, sort_key, edit):
-    tasks = await _db_call(get_active_tasks, update.effective_user.id)
+    tasks = await get_active_tasks_async(update.effective_user.id)
     if not tasks:
         await update.effective_message.reply_text("🎉 تسک فعال ندارید")
         return
@@ -73,7 +71,7 @@ async def _render_page(update, context, page, sort_key, edit):
     else:
         await message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     for task in page_tasks:
-        can_mod = await _db_call(user_can_modify_task, update.effective_user.id, task)
+        can_mod = await user_can_modify_task_async(update.effective_user.id, task)
         reply_markup = (
             __import__("utils.keyboard", fromlist=["task_action_keyboard"]).task_action_keyboard(
                 task.get("id", ""), task.get("status", "pending"), context.bot_data.get("bot_config")
@@ -83,7 +81,7 @@ async def _render_page(update, context, page, sort_key, edit):
 
 
 async def _full_unassigned_tasks(update, context):
-    tasks = sort_tasks(await _db_call(get_unassigned_tasks, update.effective_user.id), "created")
+    tasks = sort_tasks(await get_unassigned_tasks_async(update.effective_user.id), "created")
     if not tasks:
         await update.effective_message.reply_text("وظیفه بدون مسئول ندارید.")
         return
