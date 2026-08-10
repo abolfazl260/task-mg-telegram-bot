@@ -62,7 +62,8 @@ async def jira_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
         label = "Jira Server / Data Center" if data["deployment"] == "server" else "Jira Cloud"
         await update.effective_message.reply_text(f"✅ اتصال {label} با موفقیت انجام شد.\n\nProject: {project}\n🔄 همگام‌سازی خودکار فعال شد.\nهر ۶۰ ثانیه تغییرات Jira و Telegram بررسی می‌شوند.")
     except Exception as exc:
-        context.user_data.pop("jira_connect", None"); await update.effective_message.reply_text(f"❌ اتصال برقرار نشد.\n\nجزئیات: {str(exc)[:500]}\n\nدوباره /jira را اجرا کنید.")
+        context.user_data.pop("jira_connect", None)
+        await update.effective_message.reply_text(f"❌ اتصال برقرار نشد.\n\nجزئیات: {str(exc)[:500]}\n\nدوباره /jira را اجرا کنید.")
     return ConversationHandler.END
 
 async def jira_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
