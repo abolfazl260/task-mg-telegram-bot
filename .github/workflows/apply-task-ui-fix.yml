@@ -1,0 +1,40 @@
+name: apply-task-ui-fix
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-task-ui-fix.yml'
+      - 'handlers/task.py'
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, 'Apply task registration UI fix')"
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore task handler and patch registration UI
+        run: |
+          git show 8a5078bb7847b5dac2cbf1f043ae80e5626e1caa:handlers/task.py > handlers/task.py
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('handlers/task.py')
+          s = p.read_text()
+          s = s.replace('from handlers.custom_bot import handle_custom_bot_text\n', 'from handlers.custom_bot import handle_custom_bot_text\nfrom services.date_service import format_date, get_user_date_format_for_display\n')
+          s = re.sub(r"def _assignment_methods_keyboard\(prefix='assign'\):.*?\ndef _assignment_summary", """def _assignment_methods_keyboard(prefix='assign'):\n    return InlineKeyboardMarkup([\n        [InlineKeyboardButton('🙋‍♂️ من انجام می‌دهم', callback_data=f'{prefix}_self')],\n        [InlineKeyboardButton('🔍 جستجوی کاربر', callback_data=f'{prefix}_search'), InlineKeyboardButton('⏩ بدون مسئول', callback_data=f'{prefix}_none')],\n    ])\n\ndef _assignment_summary""", s, flags=re.S)
+          s = re.sub(r"def _assignment_summary\(task\):.*?\ndef _confirm_create_keyboard", """def _assignment_summary(task, user_id=None):\n    assignee = task.get('assignee') or {}\n    assignee_name = assignee.get('display_name') or task.get('assignee_name') or '❌ تعیین نشده'\n    deadline = task.get('deadline') or ''\n    if deadline:\n        date_format = get_user_date_format_for_display(user_id) if user_id is not None else 'jalali'\n        deadline_text = format_date(deadline, date_format)\n    else:\n        deadline_text = 'بدون مهلت'\n    return f\"📋 خلاصه و تایید نهایی وظیفه\\n\\n🔹 عنوان: {task.get('title', '-')}\\n👤 مسئول: {assignee_name}\\n📝 توضیحات: {task.get('description') or '—'}\\n🔴 اولویت: {PRIORITY_LABEL.get(task.get('priority'), task.get('priority', '-'))}\\n⏰ مهلت: {deadline_text}\\n\\nآیا اطلاعات فوق مورد تایید است؟\"\n\ndef _confirm_create_keyboard""", s, flags=re.S)
+          s = s.replace("_assignment_summary(context.user_data['new_task'])", "_assignment_summary(context.user_data['new_task'], uid)")
+          marker = "    if data == 'assign_search':\n"
+          insert = """    if data == 'assign_self':\n        context.user_data.setdefault('new_task', {})['assignee'] = {\n            'user_id': str(uid),\n            'display_name': update.effective_user.full_name,\n            'username': update.effective_user.username or '',\n        }\n        await query.message.reply_text(_assignment_summary(context.user_data['new_task'], uid), reply_markup=_confirm_create_keyboard())\n        return\n"""
+          s = s.replace(marker, insert + marker, 1)
+          p.write_text(s)
+          PY
+          python -m py_compile handlers/task.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add handlers/task.py
+          git commit -m 'Apply task registration UI fix'
+          git push
