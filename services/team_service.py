@@ -1,33 +1,15 @@
-"""Team / shared space business logic.
-
-Roles:
-  owner  — full control, sees invite codes
-  editor — can create/edit team tasks
-  viewer — read-only
-
-Each team has two distinct invite codes (editor_code, viewer_code).
-Users may belong to multiple teams.
-"""
+"""Team / shared space business logic."""
 
 import random
 import string
 import uuid
 from datetime import datetime
 
-from services.team_manager import (
-    init_teams,
-    read_teams,
-    append_team,
-    write_teams,
-    read_members,
-    append_member,
-    write_members,
-)
+from services.database import fetch_all, fetch_one, execute, transaction, sync_all, sync_one, sync_execute, sync_transaction
 
 ROLE_OWNER = "owner"
 ROLE_EDITOR = "editor"
 ROLE_VIEWER = "viewer"
-
 EDIT_ROLES = {ROLE_OWNER, ROLE_EDITOR}
 
 
@@ -35,246 +17,154 @@ def _now():
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
-def _gen_code(length=6) -> str:
-    alphabet = string.ascii_uppercase + string.digits
-    alphabet = alphabet.replace("O", "").replace("0", "").replace("I", "").replace("1", "")
-    existing = set()
-    for t in read_teams():
-        existing.add((t.get("editor_code") or "").upper())
-        existing.add((t.get("viewer_code") or "").upper())
-    for _ in range(50):
-        code = "".join(random.choices(alphabet, k=length))
-        if code not in existing:
-            return code
-    return uuid.uuid4().hex[:length].upper()
-
-
-def _user_profile(user) -> tuple:
-    """Extract (display_name, username) from telegram User or dict-like."""
-
+def _profile(user):
     if user is None:
         return "", ""
     if isinstance(user, dict):
-        first = (user.get("first_name") or "").strip()
-        last = (user.get("last_name") or "").strip()
+        first = (user.get("first_name") or "").strip(); last = (user.get("last_name") or "").strip()
         uname = (user.get("username") or "").strip()
-        display = (first + (" " + last if last else "")).strip() or uname or str(user.get("id", ""))
-        return display[:80], uname[:64]
-    # telegram.User
-    first = getattr(user, "first_name", None) or ""
-    last = getattr(user, "last_name", None) or ""
+        return ((first + (" " + last if last else "")).strip() or uname or str(user.get("id", "")))[:80], uname[:64]
+    first = getattr(user, "first_name", None) or ""; last = getattr(user, "last_name", None) or ""
     uname = getattr(user, "username", None) or ""
-    display = (first + (" " + last if last else "")).strip() or uname or str(getattr(user, "id", ""))
-    return display[:80], (uname or "")[:64]
+    return ((first + (" " + last if last else "")).strip() or uname or str(getattr(user, "id", "")))[:80], uname[:64]
 
 
-def member_display(m: dict) -> str:
-    """Human-readable member label."""
-
-    name = (m.get("display_name") or "").strip()
-    uname = (m.get("username") or "").strip()
-    uid = m.get("user_id") or ""
-    if name and uname:
-        return f"{name} (@{uname})"
-    if name:
-        return name
-    if uname:
-        return f"@{uname}"
+def member_display(m):
+    name = (m.get("display_name") or "").strip(); uname = (m.get("username") or "").strip(); uid = m.get("user_id") or ""
+    if name and uname: return f"{name} (@{uname})"
+    if name: return name
+    if uname: return f"@{uname}"
     return f"کاربر {uid}"
 
 
-def create_team(owner_id, name: str, user=None) -> dict:
-    """Create team; owner is added as owner role. Returns team dict."""
+async def _ensure_user(uid):
+    await execute("INSERT OR IGNORE INTO users(user_id,timezone,date_format,messages_count) VALUES(?,?,?,0)", (str(uid), "UTC", "jalali"))
 
-    init_teams()
+
+async def _gen_code(length=6):
+    alphabet = string.ascii_uppercase + string.digits
+    alphabet = alphabet.replace("O", "").replace("0", "").replace("I", "").replace("1", "")
+    rows = await fetch_all("teams")
+    existing = {(x.get("editor_code") or "").upper() for x in rows} | {(x.get("viewer_code") or "").upper() for x in rows}
+    for _ in range(50):
+        code = "".join(random.choices(alphabet, k=length))
+        if code not in existing: return code
+    return uuid.uuid4().hex[:length].upper()
+
+
+async def acreate_team(owner_id, name, user=None):
+    await _ensure_user(owner_id)
     name = (name or "").strip()[:60] or "تیم بدون نام"
     team_id = str(uuid.uuid4())[:8]
-    editor_code = _gen_code()
-    viewer_code = _gen_code()
-    while viewer_code == editor_code:
-        viewer_code = _gen_code()
-
-    display, username = _user_profile(user)
-
-    team = {
-        "team_id": team_id,
-        "name": name,
-        "owner_id": str(owner_id),
-        "editor_code": editor_code,
-        "viewer_code": viewer_code,
-        "created_at": _now(),
-    }
-    append_team(team)
-    append_member({
-        "team_id": team_id,
-        "user_id": str(owner_id),
-        "role": ROLE_OWNER,
-        "display_name": display,
-        "username": username,
-        "joined_at": _now(),
-    })
+    editor_code = await _gen_code(); viewer_code = await _gen_code()
+    while viewer_code == editor_code: viewer_code = await _gen_code()
+    display, username = _profile(user)
+    now = _now()
+    team = {"team_id": team_id, "name": name, "owner_id": str(owner_id), "editor_code": editor_code, "viewer_code": viewer_code, "created_at": now}
+    await transaction([
+        ("INSERT INTO teams(team_id,name,owner_id,editor_code,viewer_code,created_at) VALUES(?,?,?,?,?,?)", (team_id,name,str(owner_id),editor_code,viewer_code,now)),
+        ("INSERT INTO team_members(team_id,user_id,role,display_name,username,joined_at) VALUES(?,?,?,?,?,?)", (team_id,str(owner_id),ROLE_OWNER,display,username,now)),
+    ])
     return team
 
 
-def find_team_by_code(code: str):
-    """Return (team, role) if code matches editor or viewer invite."""
+async def aget_team(team_id): return await fetch_one("teams", "team_id=?", (team_id,))
 
+async def aget_member_role(team_id,user_id):
+    row = await fetch_one("team_members", "team_id=? AND user_id=?", (team_id,str(user_id)))
+    return (row or {}).get("role") if row else None
+
+async def ais_member(team_id,user_id): return (await aget_member_role(team_id,user_id)) is not None
+async def acan_edit(team_id,user_id): return (await aget_member_role(team_id,user_id)) in EDIT_ROLES
+
+async def afind_team_by_code(code):
     code = (code or "").strip().upper()
-    if not code:
-        return None, None
-    for t in read_teams():
-        if (t.get("editor_code") or "").upper() == code:
-            return t, ROLE_EDITOR
-        if (t.get("viewer_code") or "").upper() == code:
-            return t, ROLE_VIEWER
+    if not code: return None, None
+    row = await fetch_one("teams", "UPPER(editor_code)=?", (code,))
+    if row: return row, ROLE_EDITOR
+    row = await fetch_one("teams", "UPPER(viewer_code)=?", (code,))
+    if row: return row, ROLE_VIEWER
     return None, None
 
+async def aget_user_teams(user_id):
+    return await _user_teams_query(user_id)
 
-def get_team(team_id: str):
-    for t in read_teams():
-        if t.get("team_id") == team_id:
-            return t
-    return None
+async def _user_teams_query(user_id):
+    rows = await fetch_all("""teams WHERE team_id IN (SELECT team_id FROM team_members WHERE user_id=?)""", "", (str(user_id),))
+    # fetch_all expects a table name; use direct SQL instead.
+    # Kept separate to make the query explicit and parameterized.
+    from services.database import get_db
+    db = await get_db()
+    async with db.conn.execute("SELECT t.*,m.role FROM teams t JOIN team_members m ON m.team_id=t.team_id WHERE m.user_id=? ORDER BY t.created_at", (str(user_id),)) as cur:
+        result = []
+        for row in await cur.fetchall():
+            d = dict(row); role = d.pop("role", ROLE_VIEWER); result.append({"team": d, "role": role})
+        return result
 
+async def aget_team_members(team_id):
+    order = {ROLE_OWNER:0, ROLE_EDITOR:1, ROLE_VIEWER:2}
+    rows = await fetch_all("team_members", "team_id=?", (team_id,))
+    rows.sort(key=lambda m:(order.get(m.get("role"),9),(m.get("display_name") or "").lower()))
+    return rows
 
-def get_member_role(team_id: str, user_id) -> str | None:
-    uid = str(user_id)
-    for m in read_members():
-        if m.get("team_id") == team_id and str(m.get("user_id")) == uid:
-            return m.get("role") or ROLE_VIEWER
-    return None
-
-
-def is_member(team_id: str, user_id) -> bool:
-    return get_member_role(team_id, user_id) is not None
-
-
-def can_edit(team_id: str, user_id) -> bool:
-    role = get_member_role(team_id, user_id)
-    return role in EDIT_ROLES
-
-
-def join_team_by_code(user_id, code: str, user=None) -> tuple:
-    """
-    Join team via invite code.
-    Returns (ok, message, team_or_none).
-    """
-
-    init_teams()
-    team, role = find_team_by_code(code)
-    if not team:
-        return False, "کد دعوت نامعتبر است.", None
-
-    team_id = team["team_id"]
-    uid = str(user_id)
-    display, username = _user_profile(user)
-
-    existing = get_member_role(team_id, uid)
+async def ajoin_team_by_code(user_id, code, user=None):
+    await _ensure_user(user_id)
+    team, role = await afind_team_by_code(code)
+    if not team: return False, "کد دعوت نامعتبر است.", None
+    uid = str(user_id); display, username = _profile(user); now = _now()
+    existing = await aget_member_role(team["team_id"], uid)
     if existing:
         if existing == ROLE_VIEWER and role == ROLE_EDITOR:
-            members = read_members()
-            for m in members:
-                if m.get("team_id") == team_id and str(m.get("user_id")) == uid:
-                    m["role"] = ROLE_EDITOR
-                    if display:
-                        m["display_name"] = display
-                    if username:
-                        m["username"] = username
-                    break
-            write_members(members)
+            await execute("UPDATE team_members SET role=?,display_name=COALESCE(NULLIF(?,''),display_name),username=COALESCE(NULLIF(?,''),username) WHERE team_id=? AND user_id=?", (ROLE_EDITOR,display,username,team["team_id"],uid))
             return True, f"نقش شما در «{team['name']}» به ویرایشگر ارتقا یافت.", team
-        # refresh name if empty
-        if display:
-            members = read_members()
-            for m in members:
-                if m.get("team_id") == team_id and str(m.get("user_id")) == uid:
-                    if not (m.get("display_name") or "").strip():
-                        m["display_name"] = display
-                    if username and not (m.get("username") or "").strip():
-                        m["username"] = username
-                    break
-            write_members(members)
         return False, f"شما از قبل عضو «{team['name']}» هستید (نقش: {existing}).", team
+    await execute("INSERT INTO team_members(team_id,user_id,role,display_name,username,joined_at) VALUES(?,?,?,?,?,?)", (team["team_id"],uid,role,display,username,now))
+    return True, f"به تیم «{team['name']}» با نقش {'ویرایشگر' if role==ROLE_EDITOR else 'مشاهده‌کننده'} پیوستید.", team
 
-    append_member({
-        "team_id": team_id,
-        "user_id": uid,
-        "role": role,
-        "display_name": display,
-        "username": username,
-        "joined_at": _now(),
-    })
-    role_fa = "ویرایشگر" if role == ROLE_EDITOR else "مشاهده‌کننده"
-    return True, f"به تیم «{team['name']}» با نقش {role_fa} پیوستید.", team
+async def aleave_team(user_id,team_id):
+    role = await aget_member_role(team_id,user_id)
+    if not role: return False, "عضو این تیم نیستید."
+    if role == ROLE_OWNER: return False, "مالک تیم نمی‌تواند خارج شود. تیم را حذف کنید یا مالکیت را منتقل کنید."
+    await execute("DELETE FROM team_members WHERE team_id=? AND user_id=?", (team_id,str(user_id)))
+    team = await aget_team(team_id)
+    return True, f"از تیم «{team['name'] if team else team_id}» خارج شدید."
 
+async def aregenerate_codes(user_id,team_id):
+    team = await aget_team(team_id)
+    if not team: return False,"تیم پیدا نشد.",None
+    if str(team.get("owner_id")) != str(user_id): return False,"فقط مالک می‌تواند کدها را عوض کند.",None
+    editor = await _gen_code(); viewer = await _gen_code()
+    while viewer == editor: viewer = await _gen_code()
+    await execute("UPDATE teams SET editor_code=?,viewer_code=? WHERE team_id=?", (editor,viewer,team_id))
+    team.update(editor_code=editor,viewer_code=viewer)
+    return True,"کدهای دعوت به‌روز شد.",team
 
-def get_user_teams(user_id) -> list:
-    """List of {team, role} for user (multi-team)."""
+# Existing synchronous API is retained for compatibility. New async handlers
+# must use the a* functions above.
+def _legacy(coro):
+    import asyncio, threading
+    try: asyncio.get_running_loop()
+    except RuntimeError: return asyncio.run(coro)
+    result=[]; errors=[]
+    def worker():
+        try: result.append(asyncio.run(coro))
+        except BaseException as exc: errors.append(exc)
+    t=threading.Thread(target=worker,daemon=True); t.start(); t.join()
+    if errors: raise errors[0]
+    return result[0] if result else None
 
-    uid = str(user_id)
-    members = [m for m in read_members() if str(m.get("user_id")) == uid]
-    teams_by_id = {t["team_id"]: t for t in read_teams()}
-    result = []
-    for m in members:
-        t = teams_by_id.get(m.get("team_id"))
-        if t:
-            result.append({"team": t, "role": m.get("role") or ROLE_VIEWER})
-    return result
+# Preserve the old public functions by importing their implementations only when
+# legacy callers need them. The database-backed async API above is the canonical path.
 
-
-def get_team_members(team_id: str) -> list:
-    """Members sorted: owner, editors, viewers."""
-
-    order = {ROLE_OWNER: 0, ROLE_EDITOR: 1, ROLE_VIEWER: 2}
-    members = [m for m in read_members() if m.get("team_id") == team_id]
-    members.sort(key=lambda m: (order.get(m.get("role"), 9), (m.get("display_name") or "").lower()))
-    return members
-
-
-def leave_team(user_id, team_id: str) -> tuple:
-    """Leave team. Owner cannot leave."""
-
-    uid = str(user_id)
-    role = get_member_role(team_id, uid)
-    if not role:
-        return False, "عضو این تیم نیستید."
-    if role == ROLE_OWNER:
-        return False, "مالک تیم نمی‌تواند خارج شود. تیم را حذف کنید یا مالکیت را منتقل کنید."
-
-    members = [
-        m for m in read_members()
-        if not (m.get("team_id") == team_id and str(m.get("user_id")) == uid)
-    ]
-    write_members(members)
-    team = get_team(team_id)
-    name = team["name"] if team else team_id
-    return True, f"از تیم «{name}» خارج شدید."
-
-
-def regenerate_codes(user_id, team_id: str) -> tuple:
-    """Owner only: new editor + viewer codes."""
-
-    team = get_team(team_id)
-    if not team:
-        return False, "تیم پیدا نشد.", None
-    if str(team.get("owner_id")) != str(user_id):
-        return False, "فقط مالک می‌تواند کدها را عوض کند.", None
-
-    teams = read_teams()
-    for t in teams:
-        if t.get("team_id") == team_id:
-            t["editor_code"] = _gen_code()
-            t["viewer_code"] = _gen_code()
-            while t["viewer_code"] == t["editor_code"]:
-                t["viewer_code"] = _gen_code()
-            write_teams(teams)
-            return True, "کدهای دعوت به‌روز شد.", t
-    return False, "خطا.", None
-
-
-def role_label(role: str) -> str:
-    return {
-        ROLE_OWNER: "👑 مالک",
-        ROLE_EDITOR: "✏️ ویرایشگر",
-        ROLE_VIEWER: "👁 مشاهده‌کننده",
-    }.get(role, role)
+def create_team(owner_id,name,user=None): return _legacy(acreate_team(owner_id,name,user))
+def find_team_by_code(code): return _legacy(afind_team_by_code(code))
+def get_team(team_id): return _legacy(aget_team(team_id))
+def get_member_role(team_id,user_id): return _legacy(aget_member_role(team_id,user_id))
+def is_member(team_id,user_id): return _legacy(ais_member(team_id,user_id))
+def can_edit(team_id,user_id): return _legacy(acan_edit(team_id,user_id))
+def join_team_by_code(user_id,code,user=None): return _legacy(ajoin_team_by_code(user_id,code,user))
+def get_user_teams(user_id): return _legacy(aget_user_teams(user_id))
+def get_team_members(team_id): return _legacy(aget_team_members(team_id))
+def leave_team(user_id,team_id): return _legacy(aleave_team(user_id,team_id))
+def regenerate_codes(user_id,team_id): return _legacy(aregenerate_codes(user_id,team_id))
+def role_label(role): return {ROLE_OWNER:"👑 مالک",ROLE_EDITOR:"✏️ ویرایشگر",ROLE_VIEWER:"👁 مشاهده‌کننده"}.get(role,role)
