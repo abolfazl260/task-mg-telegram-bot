@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from services.database import fetch_all, fetch_one, execute, get_db, init_db
+from services.database import fetch_all, fetch_one, execute, get_db, init_db, _run
 
 DEFAULT_TIMEZONE = "UTC"
 DEFAULT_DATE_FORMAT = "jalali"
@@ -9,13 +9,16 @@ DEFAULT_DATE_FORMAT = "jalali"
 async def init_users():
     await init_db()
 
-async def read_users():
+async def read_users_async():
     rows = await fetch_all("users")
     for row in rows:
         row["user_id"] = str(row.get("user_id", ""))
         row["messages_count"] = str(row.get("messages_count") or 0)
         row["date_format"] = row.get("date_format") or DEFAULT_DATE_FORMAT
     return rows
+
+def read_users():
+    return _run(read_users_async())
 
 def validate_timezone(tz_name: str) -> bool:
     try:
@@ -24,7 +27,7 @@ def validate_timezone(tz_name: str) -> bool:
     except (ZoneInfoNotFoundError, ValueError):
         return False
 
-async def record_user(user, increment_usage=True):
+async def record_user_async(user, increment_usage=True):
     """Atomic user upsert with correct new-user detection."""
     if not user:
         return False
@@ -50,37 +53,51 @@ async def record_user(user, increment_usage=True):
         await db.conn.commit()
     return is_new
 
-async def set_user_timezone(user_id, tz_name: str) -> bool:
+def record_user(user, increment_usage=True):
+    """Legacy sync facade. Async handlers should await record_user_async()."""
+    return _run(record_user_async(user, increment_usage))
+
+async def set_user_timezone_async(user_id, tz_name: str) -> bool:
     tz_name = (tz_name or "").strip()
     if not validate_timezone(tz_name):
         return False
-    uid = str(user_id)
     await execute(
         "INSERT INTO users(user_id,timezone,date_format,messages_count) VALUES(?,?,?,0) "
         "ON CONFLICT(user_id) DO UPDATE SET timezone=excluded.timezone",
-        (uid, tz_name, DEFAULT_DATE_FORMAT),
+        (str(user_id), tz_name, DEFAULT_DATE_FORMAT),
     )
     return True
 
-async def get_user_timezone(user_id):
+def set_user_timezone(user_id, tz_name: str) -> bool:
+    return _run(set_user_timezone_async(user_id, tz_name))
+
+async def get_user_timezone_async(user_id):
     row = await fetch_one("users", "user_id=?", (str(user_id),))
     return (row or {}).get("timezone") or DEFAULT_TIMEZONE
 
-async def set_user_date_format(user_id, date_format):
+def get_user_timezone(user_id):
+    return _run(get_user_timezone_async(user_id))
+
+async def set_user_date_format_async(user_id, date_format):
     value = (date_format or "").strip().lower()
     if value not in {"jalali", "gregorian"}:
         return False
-    uid = str(user_id)
     await execute(
         "INSERT INTO users(user_id,date_format,timezone,messages_count) VALUES(?,?,?,0) "
         "ON CONFLICT(user_id) DO UPDATE SET date_format=excluded.date_format",
-        (uid, value, DEFAULT_TIMEZONE),
+        (str(user_id), value, DEFAULT_TIMEZONE),
     )
     return True
 
-async def get_user_date_format(user_id):
+def set_user_date_format(user_id, date_format):
+    return _run(set_user_date_format_async(user_id, date_format))
+
+async def get_user_date_format_async(user_id):
     value = ((await fetch_one("users", "user_id=?", (str(user_id),)) or {}).get("date_format") or DEFAULT_DATE_FORMAT).lower()
     return value if value in {"jalali", "gregorian"} else DEFAULT_DATE_FORMAT
 
-async def all_users():
-    return await read_users()
+def get_user_date_format(user_id):
+    return _run(get_user_date_format_async(user_id))
+
+def all_users():
+    return read_users()
