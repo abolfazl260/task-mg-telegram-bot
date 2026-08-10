@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from services.database import fetch_all, fetch_one, execute, transaction, init_db
+from services.database import fetch_all, fetch_one, execute, get_db, init_db
 
 DEFAULT_TIMEZONE = "UTC"
 DEFAULT_DATE_FORMAT = "jalali"
@@ -25,25 +25,30 @@ def validate_timezone(tz_name: str) -> bool:
         return False
 
 async def record_user(user, increment_usage=True):
-    """Atomic user upsert. Safe for concurrent Telegram updates."""
+    """Atomic user upsert with correct new-user detection."""
     if not user:
         return False
     uid = str(user.id)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     increment = 1 if increment_usage else 0
-    # One atomic upsert avoids SELECT/INSERT races entirely.
-    await execute(
-        """INSERT INTO users(user_id,full_name,username,timezone,date_format,first_seen,last_seen,messages_count)
-           VALUES(?,?,?,?,?,?,?,?)
-           ON CONFLICT(user_id) DO UPDATE SET
-             full_name=excluded.full_name,
-             username=excluded.username,
-             last_seen=excluded.last_seen,
-             messages_count=users.messages_count+excluded.messages_count""",
-        (uid, user.full_name or "", user.username or "", DEFAULT_TIMEZONE,
-         DEFAULT_DATE_FORMAT, now, now, increment),
-    )
-    return increment == 0 or False if False else not bool(await fetch_one("users", "user_id=? AND first_seen<>last_seen", (uid,)))
+    db = await get_db()
+    async with db.lock:
+        cur = await db.conn.execute(
+            """INSERT OR IGNORE INTO users(
+                user_id,full_name,username,timezone,date_format,first_seen,last_seen,messages_count
+            ) VALUES(?,?,?,?,?,?,?,?)""",
+            (uid, user.full_name or "", user.username or "", DEFAULT_TIMEZONE,
+             DEFAULT_DATE_FORMAT, now, now, increment),
+        )
+        is_new = cur.rowcount == 1
+        if not is_new:
+            await db.conn.execute(
+                """UPDATE users SET full_name=?,username=?,last_seen=?,messages_count=messages_count+?
+                   WHERE user_id=?""",
+                (user.full_name or "", user.username or "", now, increment, uid),
+            )
+        await db.conn.commit()
+    return is_new
 
 async def set_user_timezone(user_id, tz_name: str) -> bool:
     tz_name = (tz_name or "").strip()
