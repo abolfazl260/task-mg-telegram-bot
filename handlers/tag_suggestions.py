@@ -57,10 +57,8 @@ def _suggested_tag_keyboard(context, user_id):
     return InlineKeyboardMarkup(rows)
 
 
-async def install_tag_flow(task_module):
+def install_tag_flow(task_module):
     """Compatibility hook: keep the legacy multi-message task flow and only add suggestions."""
-    original_ask_tags = task_module._ask_tags
-    original_ask_assignment = task_module._ask_assignment
     original_assignment_callback = task_module.assignment_callback
 
     async def ask_tags(message, context):
