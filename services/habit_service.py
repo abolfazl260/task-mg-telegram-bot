@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import sqlite3
 from services.database import sync_all, sync_one, sync_execute
 
@@ -54,7 +54,7 @@ def create_habit(user_id, title, category="", description="", repeat_type="daily
             reminder_time or "",
             start_date or date.today().isoformat(),
             1,
-            datetime.now().strftime("%Y-%m-%d %H:%M"),
+            datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
         ),
     )
     return hid
@@ -92,7 +92,7 @@ def mark_done(habit_id, user_id, day=None):
     try:
         sync_execute(
             "INSERT INTO habit_logs(habit_id,user_id,done_date,done_at) VALUES(?,?,?,?)",
-            (habit_id, str(user_id), day, datetime.now().strftime("%Y-%m-%d %H:%M")),
+            (habit_id, str(user_id), day, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")),
         )
         return True
     except sqlite3.IntegrityError:
