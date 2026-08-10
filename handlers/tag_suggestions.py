@@ -1,4 +1,5 @@
 from collections import Counter
+import sys
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -58,7 +59,7 @@ def _suggested_tag_keyboard(context, user_id):
 
 
 def install_tag_flow(task_module):
-    """Compatibility hook for the legacy multi-message task flow; never installs Single Message UI."""
+    """Install the task-flow overrides used by the current tag/assignment UI."""
     if getattr(task_module, "_legacy_suggestions_installed", False):
         return
     task_module._legacy_suggestions_installed = True
@@ -91,7 +92,11 @@ def install_tag_flow(task_module):
             await query.answer()
             user = update.effective_user
             task = context.user_data.setdefault("new_task", {})
-            task["assignee"] = {"user_id": str(user.id), "display_name": user.full_name, "username": user.username or ""}
+            task["assignee"] = {
+                "user_id": str(user.id),
+                "display_name": user.full_name,
+                "username": user.username or "",
+            }
             await query.message.reply_text(
                 task_module._assignment_summary(task),
                 reply_markup=task_module._confirm_create_keyboard(),
@@ -102,6 +107,13 @@ def install_tag_flow(task_module):
     task_module._ask_tags = ask_tags
     task_module._ask_assignment = ask_assignment
     task_module.assignment_callback = assignment_callback
+
+    # main.py imports assignment_callback before build_application() calls this
+    # hook. Refresh that module-level alias so the registered handler points to
+    # the wrapped callback that actually handles assign_self.
+    main_module = sys.modules.get("main")
+    if main_module is not None:
+        main_module.assignment_callback = assignment_callback
 
 
 async def handle_tag_callback(update, context):
