@@ -1,5 +1,7 @@
 """AI assistant command powered by Groq."""
 
+import asyncio
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -16,15 +18,13 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
         )
         return
-
     waiting = await update.message.reply_text("🤖 در حال تحلیل تسک‌ها با Groq...")
     try:
-        answer = ask_task_assistant(update.effective_user.id, question)
+        answer = await asyncio.to_thread(ask_task_assistant, update.effective_user.id, question)
     except GroqConfigurationError:
         await waiting.edit_text("⚠️ برای فعال شدن دستیار هوشمند، متغیر `GROQ_API_KEY` را در `.env` تنظیم کنید.", parse_mode="Markdown")
         return
     except GroqRequestError as exc:
         await waiting.edit_text(f"⚠️ {exc}")
         return
-
     await waiting.edit_text(f"🤖 پاسخ دستیار:\n\n{answer}")
