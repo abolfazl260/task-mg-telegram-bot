@@ -129,10 +129,8 @@ CREATE INDEX IF NOT EXISTS idx_jira_links_key ON jira_task_links(jira_key);
 CREATE INDEX IF NOT EXISTS idx_business_messages_connection ON business_messages(business_connection_id);
 '''
 
-
 class Database:
     """One async SQLite connection per event loop."""
-
     def __init__(self):
         self.conn: aiosqlite.Connection | None = None
         self.lock = asyncio.Lock()
@@ -158,7 +156,6 @@ class Database:
             await self.conn.close()
             self.conn = None
             self.initialized = False
-
 
 _db_by_loop: dict[int, Database] = {}
 
@@ -215,23 +212,13 @@ async def transaction(statements):
             await db.conn.rollback()
             raise
 
-
-# ---------------------------------------------------------------------------
-# Synchronous database API
-# ---------------------------------------------------------------------------
-# These functions are deliberately implemented with sqlite3. They are used by
-# legacy synchronous integrations (Jira/Microsoft/Google sync jobs) which run
-# in worker threads. They must never create an asyncio event loop or an
-# aiosqlite connection. One sqlite3 connection is kept per worker thread.
 _sync_local = threading.local()
 _sync_init_lock = threading.Lock()
-
 
 def _get_sync_db() -> sqlite3.Connection:
     conn = getattr(_sync_local, "conn", None)
     if conn is not None:
         return conn
-
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=True)
     conn.row_factory = sqlite3.Row
@@ -245,14 +232,11 @@ def _get_sync_db() -> sqlite3.Connection:
     _sync_local.conn = conn
     return conn
 
-
 def close_sync_db() -> None:
-    """Close the sqlite3 connection owned by the current worker thread."""
     conn = getattr(_sync_local, "conn", None)
     if conn is not None:
         conn.close()
         _sync_local.conn = None
-
 
 def sync_all(table: str, where: str = "", params: Iterable[Any] = ()):
     conn = _get_sync_db()
@@ -260,18 +244,15 @@ def sync_all(table: str, where: str = "", params: Iterable[Any] = ()):
     cur = conn.execute(query, tuple(params))
     return [dict(row) for row in cur.fetchall()]
 
-
 def sync_one(table: str, where: str, params: Iterable[Any] = ()):
     rows = sync_all(table, where, params)
     return rows[0] if rows else None
-
 
 def sync_execute(sql: str, params: Iterable[Any] = ()):
     conn = _get_sync_db()
     cur = conn.execute(sql, tuple(params))
     conn.commit()
     return cur.lastrowid
-
 
 def sync_transaction(statements):
     conn = _get_sync_db()
@@ -283,3 +264,26 @@ def sync_transaction(statements):
     except BaseException:
         conn.rollback()
         raise
+
+def _run(coro):
+    """Run an async database coroutine from legacy synchronous service APIs."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    result = []
+    errors = []
+
+    def worker():
+        try:
+            result.append(asyncio.run(coro))
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    thread.join()
+    if errors:
+        raise errors[0]
+    return result[0] if result else None
