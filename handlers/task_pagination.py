@@ -1,3 +1,5 @@
+import asyncio
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from services.task_service import get_active_tasks, get_unassigned_tasks, user_can_modify_task
@@ -10,8 +12,11 @@ from handlers.task import (
 )
 
 
+async def _db_call(fn, *args, **kwargs):
+    return await asyncio.to_thread(fn, *args, **kwargs)
+
+
 async def paginated_list_tasks(update, context):
-    """Render active tasks in pages without generating the full report eagerly."""
     sort_key = context.user_data.get("tasks_sort", "deadline")
     await _render_page(update, context, page=1, sort_key=sort_key, edit=False)
 
@@ -38,29 +43,22 @@ async def paginated_detail_page(update, context):
 
 
 async def _render_page(update, context, page, sort_key, edit):
-    tasks = get_active_tasks(update.effective_user.id)
+    tasks = await _db_call(get_active_tasks, update.effective_user.id)
     if not tasks:
-        target = update.effective_message
-        await target.reply_text("🎉 تسک فعال ندارید")
+        await update.effective_message.reply_text("🎉 تسک فعال ندارید")
         return
-
     tasks = sort_tasks(tasks, sort_key)
     total = len(tasks)
     total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     page = min(page, total_pages)
     start = (page - 1) * PAGE_SIZE
     page_tasks = tasks[start:start + PAGE_SIZE]
-
-    text = build_detail_table(page_tasks, start_index=start + 1)
-    text += f"\n\n📄 صفحه {page} از {total_pages}"
-
-    keyboard = [
-        [
-            InlineKeyboardButton("📅 ددلاین", callback_data="sort_deadline"),
-            InlineKeyboardButton("🎯 اولویت", callback_data="sort_priority"),
-            InlineKeyboardButton("🕐 ایجاد", callback_data="sort_created"),
-        ]
-    ]
+    text = build_detail_table(page_tasks, start_index=start + 1) + f"\n\n📄 صفحه {page} از {total_pages}"
+    keyboard = [[
+        InlineKeyboardButton("📅 ددلاین", callback_data="sort_deadline"),
+        InlineKeyboardButton("🎯 اولویت", callback_data="sort_priority"),
+        InlineKeyboardButton("🕐 ایجاد", callback_data="sort_created"),
+    ]]
     nav = []
     if page > 1:
         nav.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"detail_page_{page - 1}"))
@@ -69,76 +67,50 @@ async def _render_page(update, context, page, sort_key, edit):
     if nav:
         keyboard.append(nav)
     keyboard.append([InlineKeyboardButton("📥 خروجی Excel", callback_data="download_csv")])
-
     message = update.effective_message
     if edit:
         await message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
         await message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-
     for task in page_tasks:
-        can_mod = user_can_modify_task(update.effective_user.id, task)
+        can_mod = await _db_call(user_can_modify_task, update.effective_user.id, task)
         reply_markup = (
             __import__("utils.keyboard", fromlist=["task_action_keyboard"]).task_action_keyboard(
                 task.get("id", ""), task.get("status", "pending"), context.bot_data.get("bot_config")
-            )
-            if can_mod
-            else _task_details_keyboard(task.get("id", ""))
+            ) if can_mod else _task_details_keyboard(task.get("id", ""))
         )
-        await message.reply_text(
-            format_task_card(task),
-            reply_markup=reply_markup,
-            parse_mode="Markdown",
-        )
+        await message.reply_text(format_task_card(task), reply_markup=reply_markup, parse_mode="Markdown")
 
 
 async def _full_unassigned_tasks(update, context):
-    """Render unassigned tasks with the complete task action keyboard."""
-    tasks = sort_tasks(get_unassigned_tasks(update.effective_user.id), "created")
+    tasks = sort_tasks(await _db_call(get_unassigned_tasks, update.effective_user.id), "created")
     if not tasks:
         await update.effective_message.reply_text("وظیفه بدون مسئول ندارید.")
         return
-
     offset = context.user_data.get("unassigned_offset", 0)
     if offset >= len(tasks):
         offset = 0
-
     page_tasks = tasks[offset:offset + PAGE_SIZE]
     context.user_data["unassigned_offset"] = offset + len(page_tasks)
     total_pages = max(1, (len(tasks) + PAGE_SIZE - 1) // PAGE_SIZE)
     page = offset // PAGE_SIZE + 1
-
     await update.effective_message.reply_text(
-        f"📋 وظایف بدون مسئول: {len(tasks)} مورد\n"
-        f"📄 صفحه {page} از {total_pages}\n"
-        f"نمایش {offset + 1} تا {offset + len(page_tasks)}."
+        f"📋 وظایف بدون مسئول: {len(tasks)} مورد\n📄 صفحه {page} از {total_pages}\nنمایش {offset + 1} تا {offset + len(page_tasks)}."
     )
-
     profile = context.bot_data.get("bot_config")
     for task in page_tasks:
         await update.effective_message.reply_text(
             format_task_card(task),
-            reply_markup=__import__("utils.keyboard", fromlist=["task_action_keyboard"]).task_action_keyboard(
-                task.get("id", ""),
-                task.get("status", "pending"),
-                profile,
-            ),
+            reply_markup=__import__("utils.keyboard", fromlist=["task_action_keyboard"]).task_action_keyboard(task.get("id", ""), task.get("status", "pending"), profile),
             parse_mode="Markdown",
         )
-
     remaining = len(tasks) - context.user_data["unassigned_offset"]
     if remaining > 0:
-        await update.effective_message.reply_text(
-            f"➡️ {remaining} وظیفه دیگر باقی مانده است.\n"
-            "برای دیدن سری بعدی دوباره /unassigned را انتخاب کنید."
-        )
+        await update.effective_message.reply_text(f"➡️ {remaining} وظیفه دیگر باقی مانده است.\nبرای دیدن سری بعدی دوباره /unassigned را انتخاب کنید.")
     else:
         context.user_data["unassigned_offset"] = 0
         await update.effective_message.reply_text("✅ همه وظایف بدون مسئول نمایش داده شد.")
 
 
-# main.py imports unassigned_tasks directly from handlers.task before this module
-# is imported. Replace its code object here so the existing registration picks up
-# the improved implementation without changing command routing or handler order.
 import handlers.task as _task_handler
 _task_handler.unassigned_tasks.__code__ = _full_unassigned_tasks.__code__
