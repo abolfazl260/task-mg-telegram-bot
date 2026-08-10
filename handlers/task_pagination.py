@@ -77,7 +77,10 @@ async def _render_page(update, context, page, sort_key, edit):
                 task.get("id", ""), task.get("status", "pending"), context.bot_data.get("bot_config")
             ) if can_mod else _task_details_keyboard(task.get("id", ""))
         )
-        await message.reply_text(format_task_card(task), reply_markup=reply_markup, parse_mode="Markdown")
+        # format_task_card is an async adapter after the calendar runtime patch
+        # in main.py; await it before passing the rendered text to Telegram.
+        card_text = await format_task_card(task)
+        await message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 
 async def _full_unassigned_tasks(update, context):
@@ -97,8 +100,9 @@ async def _full_unassigned_tasks(update, context):
     )
     profile = context.bot_data.get("bot_config")
     for task in page_tasks:
+        card_text = await format_task_card(task)
         await update.effective_message.reply_text(
-            format_task_card(task),
+            card_text,
             reply_markup=__import__("utils.keyboard", fromlist=["task_action_keyboard"]).task_action_keyboard(task.get("id", ""), task.get("status", "pending"), profile),
             parse_mode="Markdown",
         )
