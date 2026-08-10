@@ -10,7 +10,7 @@ from bot_context import set_current_bot_key
 from handlers.start import start
 from handlers.menu import button_handler
 from handlers.integrations import integration_callback
-from handlers.task import (add_task, save_task, list_tasks, priority_selected, deadline_selected, optional_field_callback, detail_page, download_csv, start_task, done_task, cancel_task, pending_task, sort_tasks_callback, assignment_callback, unassigned_tasks, take_assignment, take_confirm, assignment_manage_callback, task_details_callback, comment_callback)
+from handlers.task import (add_task, save_task, list_tasks, priority_selected, deadline_selected, optional_field_callback, detail_page, download_csv, start_task, done_task, cancel_task, pending_task, sort_tasks_callback, assignment_callback, unassigned_tasks, take_assignment, take_confirm, assignment_manage_callback, task_details_callback, comment_callback, comment_cancel_callback)
 from handlers.task_pagination import paginated_list_tasks, paginated_detail_page, paginated_sort_callback
 from handlers.reports import show_reports_menu, reports_callback
 from handlers.templates import show_templates_menu, templates_callback
@@ -228,6 +228,7 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(assignment_manage_callback, pattern="^(owner_|asg_|chg_)"))
     app.add_handler(CallbackQueryHandler(task_details_callback, pattern="^(task_details_|task_history_)"))
     app.add_handler(CallbackQueryHandler(comment_callback, pattern="^comment_add_"))
+    app.add_handler(CallbackQueryHandler(comment_cancel_callback, pattern="^comment_cancel_"))
     app.add_handler(CallbackQueryHandler(paginated_detail_page, pattern="^detail_page_"))
     app.add_handler(CallbackQueryHandler(download_csv, pattern="^download_csv"))
     app.add_handler(CallbackQueryHandler(paginated_sort_callback, pattern="^sort_"))
@@ -249,7 +250,7 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(integration_callback, pattern="^int_"))
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
-    app.add_handler(CallbackQueryHandler(button_handler, pattern="^(?!priority_|deadline_|category_pick_|category_skip|tags_|description_skip|detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|task_details_|task_history_|comment_add_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_|custombot_|int_)"))
+    app.add_handler(CallbackQueryHandler(button_handler, pattern="^(?!priority_|deadline_|category_pick_|category_skip|tags_|description_skip|detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|task_details_|task_history_|comment_add_|comment_cancel_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_|custombot_|int_)"))
     # Do not register handle_tag_text as a catch-all handler here. save_task
     # already delegates tag input to handle_tag_text. A second catch-all
     # MessageHandler at the same group would consume every normal text message
