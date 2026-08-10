@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 import logging
 import jdatetime
 from telegram import Update
-from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from services.task_service import create_task_async, get_active_tasks_async, get_task_by_id_async, change_task_status_async, user_can_modify_task_async, assign_task_async, get_unassigned_tasks_async, add_task_comment_async, get_task_comments_async
@@ -20,20 +19,6 @@ PAGE_SIZE = 10
 PRIORITY_LABEL = {'high': '🔴 بالا', 'medium': '🟠 متوسط', 'low': '🟢 پایین'}
 STATUS_LABEL = {'pending': '⏳ در انتظار', 'in_progress': '🚀 در حال انجام', 'done': '✅ انجام شده', 'cancelled': '❌ لغو شده'}
 PRIORITY_ORDER = {'high': 0, 'medium': 1, 'low': 2}
-
-async def _safe_query_answer(query, text=None, show_alert=False):
-    try:
-        if text is None:
-            await query.answer()
-        else:
-            await query.answer(text, show_alert=show_alert)
-        return True
-    except BadRequest as exc:
-        message = str(exc).lower()
-        if 'too old' in message or 'invalid' in message or 'query id' in message:
-            logger.info('Ignoring stale/invalid callback query id=%s: %s', getattr(query, 'id', ''), exc)
-            return False
-        raise
 
 def _skip_keyboard(callback_data: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton('⏭ رد کردن', callback_data=callback_data)]])
@@ -138,8 +123,7 @@ def _extract_comment_content(message) -> dict | None:
 
 async def show_task_by_id_if_matches(update, context) -> bool:
     text = (update.message.text or '').strip()
-    if not _is_bare_task_id(text):
-        return False
+    if not _is_bare_task_id(text): return False
     task = await get_task_by_id_async(text)
     if not task or not await _can_view_task(update.effective_user.id, task):
         await update.message.reply_text('تسکی با این کد برای شما پیدا نشد.')
@@ -170,8 +154,7 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if 'step' not in context.user_data: return
     step = context.user_data['step']; text = update.message.text; task = context.user_data.get('new_task')
     if task is None and step not in ('search_query', 'import_bulk', 'team_create_name', 'team_join_code'): return
-    if step == 'title':
-        task['title'] = text; context.user_data['step'] = 'priority'; await update.message.reply_text('🎯 اولویت را انتخاب کنید:', reply_markup=priority_keyboard()); return
+    if step == 'title': task['title'] = text; context.user_data['step'] = 'priority'; await update.message.reply_text('🎯 اولویت را انتخاب کنید:', reply_markup=priority_keyboard()); return
     if step == 'deadline_custom':
         parsed = parse_deadline_input(text)
         if not parsed: await update.message.reply_text('⚠️ تاریخ نامعتبر است.\nمثال میلادی: `2026-08-20`\nمثال شمسی: `1405-05-29`', parse_mode='Markdown'); return
@@ -313,28 +296,25 @@ STATUS_LABELS = {'pending': '⏳ در انتظار', 'in_progress': '🚀 در �
 
 async def _handle_status_change(update, context, new_status: str):
     query = update.callback_query
-    await _safe_query_answer(query)
+    await query.answer()
     prefix = query.data.split('_')[0]
     task_id = query.data.replace(f'{prefix}_', '', 1)
     task = await get_task_by_id_async(task_id)
     if not task:
-        await query.message.reply_text('⚠️ این تسک پیدا نشد.')
+        await query.edit_message_text('⚠️ این تسک پیدا نشد.')
         return
     if not await user_can_modify_task_async(update.effective_user.id, task):
+        await query.answer('شما مجاز به تغییر این تسک نیستید (مشاهده\u200cکننده یا غیرعضو).', show_alert=True)
         return
     success = await change_task_status_async(task_id, new_status)
     if not success:
-        await query.message.reply_text('❌ خطا در تغییر وضعیت تسک.')
+        await query.edit_message_text('❌ خطا در تغییر وضعیت تسک.')
         return
     task['status'] = new_status
     if new_status == 'done':
         task['completed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M')
     label = STATUS_LABELS.get(new_status, new_status)
-    try:
-        await query.edit_message_text(await format_task_card(task), parse_mode='Markdown')
-    except BadRequest as exc:
-        if 'message is not modified' not in str(exc).lower():
-            raise
+    await query.edit_message_text(await format_task_card(task), parse_mode='Markdown')
     logger.info('task_status_changed task_id=%s user_id=%s new_status=%s', task_id, update.effective_user.id, new_status)
     await query.message.reply_text(f"وضعیت تسک «{task.get('title', '-')}» به {label} تغییر کرد.")
 
