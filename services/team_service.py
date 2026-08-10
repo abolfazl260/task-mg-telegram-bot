@@ -3,7 +3,7 @@
 import random
 import string
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from services.database import fetch_all, fetch_one, execute, transaction, sync_all, sync_one, sync_execute, sync_transaction
 
@@ -14,7 +14,7 @@ EDIT_ROLES = {ROLE_OWNER, ROLE_EDITOR}
 
 
 def _now():
-    return datetime.now().strftime("%Y-%m-%d %H:%M")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
 
 
 def _profile(user):
