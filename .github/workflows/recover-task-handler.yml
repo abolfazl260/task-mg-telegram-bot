@@ -1,0 +1,74 @@
+name: recover-task-handler
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/recover-task-handler.yml'
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Recover a complete task handler
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast, subprocess, pathlib, sys
+          main = pathlib.Path('main.py').read_text()
+          tree = ast.parse(main)
+          required = []
+          for node in tree.body:
+              if isinstance(node, ast.ImportFrom) and node.module == 'handlers.task':
+                  required = [a.name for a in node.names]
+                  break
+          if not required:
+              raise SystemExit('Could not determine handlers.task imports from main.py')
+          candidates = subprocess.check_output(['git','log','--format=%H','--','handlers/task.py'], text=True).splitlines()
+          found = None
+          for sha in candidates:
+              try:
+                  src = subprocess.check_output(['git','show',f'{sha}:handlers/task.py'], text=True)
+                  t = ast.parse(src)
+                  names = {n.name for n in t.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef))}
+                  if all(name in names for name in required):
+                      found = (sha, src)
+                      break
+              except Exception:
+                  continue
+          if not found:
+              raise SystemExit('No historical handlers/task.py contains every symbol imported by main.py')
+          sha, src = found
+          pathlib.Path('handlers/task.py').write_text(src)
+          print('Recovered handlers/task.py from', sha)
+          PY
+      - name: Validate imports and syntax
+        run: |
+          python -m py_compile handlers/task.py main.py
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          main = ast.parse(Path('main.py').read_text())
+          task = ast.parse(Path('handlers/task.py').read_text())
+          required = next(n for n in main.body if isinstance(n, ast.ImportFrom) and n.module == 'handlers.task')
+          names = {n.name for n in task.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef))}
+          missing = [n.name for n in required.names if n.name not in names]
+          if missing:
+              raise SystemExit('Missing handlers.task symbols: ' + ', '.join(missing))
+          print('All handlers.task imports are present')
+          PY
+      - name: Commit recovered handler
+        run: |
+          if git diff --quiet -- handlers/task.py; then
+            echo 'No recovery change needed'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add handlers/task.py
+          git commit -m 'Restore complete task handler'
+          git push
