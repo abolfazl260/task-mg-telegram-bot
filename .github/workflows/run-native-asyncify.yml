@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   asyncify:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit.message == 'Run native async codemod') || (github.event_name == 'issue_comment' && github.event.issue.pull_request == null && contains(github.event.comment.body, '/native-asyncify'))
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.event.head_commit.message == 'Run native async codemod' || github.event.head_commit.message == 'Run native async codemod 2')) || (github.event_name == 'issue_comment' && github.event.issue.pull_request == null && contains(github.event.comment.body, '/native-asyncify'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +31,7 @@ jobs:
 
       - name: Verify no legacy task/team calls remain in handlers
         run: |
-          ! grep -R -nE '\b(create_task|get_active_tasks|get_task_by_id|change_task_status|user_can_modify_task|assign_task|get_unassigned_tasks|add_task_comment|get_task_comments|get_user_teams|get_team_members)\s*\(' handlers/task.py handlers/team.py
+          ! grep -R -nE '\b(create_task|get_active_tasks|get_task_by_id|change_task_status|user_can_modify_task|assign_task|get_unassigned_tasks|add_task_comment|get_task_comments|get_team_tasks|get_all_user_tasks|link_user_category_to_team|get_user_teams|get_team_members|create_team|join_team_by_code|find_team_by_code|get_team|leave_team|regenerate_codes|can_edit)\s*\(' handlers/task.py handlers/team.py
 
       - name: Commit changes
         run: |
