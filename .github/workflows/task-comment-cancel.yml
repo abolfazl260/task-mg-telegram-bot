@@ -24,8 +24,8 @@ jobs:
           text = task.read_text(encoding='utf-8')
 
           old = """    await query.message.reply_text('💬 کامنت خود را ارسال کنید؛ متن، عکس، صدا، فایل یا هر پیام تلگرامی پشتیبانی\\u200cشده قابل ثبت است.')\n"""
-          new = """    await query.message.reply_text(\n              '💬 کامنت خود را ارسال کنید؛ متن، عکس، صدا، فایل یا هر پیام تلگرامی پشتیبانی\\u200cشده قابل ثبت است.',\n              reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('❌ انصراف از ارسال کامنت', callback_data=f'comment_cancel_{task_id}')]])\n          )\n"""
-          if old in text and 'comment_cancel_' not in text:
+          new = """    await query.message.reply_text(\n        '💬 کامنت خود را ارسال کنید؛ متن، عکس، صدا، فایل یا هر پیام تلگرامی پشتیبانی\\u200cشده قابل ثبت است.',\n        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('❌ انصراف از ارسال کامنت', callback_data=f'comment_cancel_{task_id}')]])\n    )\n"""
+          if old in text:
               text = text.replace(old, new, 1)
 
           marker = "async def handle_comment_input(update, context):\n"
@@ -38,7 +38,10 @@ jobs:
           main = Path('main.py')
           text = main.read_text(encoding='utf-8')
           text = text.replace('task_details_callback, comment_callback)', 'task_details_callback, comment_callback, comment_cancel_callback)')
-          text = text.replace('CallbackQueryHandler(comment_callback, pattern="^comment_add_")', 'CallbackQueryHandler(comment_callback, pattern="^comment_add_")\n    app.add_handler(CallbackQueryHandler(comment_cancel_callback, pattern="^comment_cancel_"))')
+          old_handler = 'app.add_handler(CallbackQueryHandler(comment_callback, pattern="^comment_add_"))'
+          new_handler = old_handler + '\n    app.add_handler(CallbackQueryHandler(comment_cancel_callback, pattern="^comment_cancel_"))'
+          if old_handler in text and 'CallbackQueryHandler(comment_cancel_callback' not in text:
+              text = text.replace(old_handler, new_handler, 1)
           text = text.replace('comment_add_|report_', 'comment_add_|comment_cancel_|report_')
           main.write_text(text, encoding='utf-8')
           PY
@@ -51,7 +54,11 @@ jobs:
           from pathlib import Path
           for path in ('handlers/task.py', 'main.py', 'utils/keyboard.py'):
               ast.parse(Path(path).read_text(encoding='utf-8'))
-          print('syntax/import source validation passed')
+          main = Path('main.py').read_text(encoding='utf-8')
+          task = Path('handlers/task.py').read_text(encoding='utf-8')
+          assert 'comment_cancel_callback' in task
+          assert 'CallbackQueryHandler(comment_cancel_callback' in main
+          print('validation passed')
           PY
 
       - name: Commit changes
