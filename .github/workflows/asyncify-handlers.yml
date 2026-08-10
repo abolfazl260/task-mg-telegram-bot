@@ -1,0 +1,36 @@
+name: Asyncify Telegram handlers
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  asyncify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run async codemod
+        run: python scripts/asyncify_handlers.py
+      - name: Validate Python syntax
+        run: python -m compileall -q handlers services scripts
+      - name: Commit generated migration
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add handlers services scripts
+          if git diff --cached --quiet; then
+            echo 'No async migration changes.'
+          else
+            git commit -m 'refactor: migrate remaining handlers to native async'
+            git push
+          fi
