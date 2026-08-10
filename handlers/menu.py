@@ -84,8 +84,8 @@ def timezone_text(user_id):
 
 def date_format_keyboard(user_id):
     current = get_user_date_format(user_id)
-    jalali = "🇮🇷 شمسی (Jalali)" + (" ✅" if current == "jalali" else "")
-    gregorian = "🌍 میلادی (Gregorian)" + (" ✅" if current == "gregorian" else "")
+    jalali = "✅ شمسی 🇮🇷" if current == "jalali" else "شمسی 🇮🇷"
+    gregorian = "✅ میلادی 🌐" if current == "gregorian" else "میلادی 🌐"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(jalali, callback_data="date_format_jalali")],
         [InlineKeyboardButton(gregorian, callback_data="date_format_gregorian")],
@@ -95,12 +95,11 @@ def date_format_keyboard(user_id):
 
 def date_format_text(user_id):
     current = get_user_date_format(user_id)
-    label = "🇮🇷 شمسی" if current == "jalali" else "🌍 میلادی"
+    label = "شمسی 🇮🇷" if current == "jalali" else "میلادی 🌐"
     return (
-        "📅 **نوع تاریخ**\n\n"
-        f"نوع تاریخ فعلی: **{label}**\n\n"
-        "این انتخاب فقط نحوه نمایش و محاسبه تقویمی را تغییر می‌دهد؛ "
-        "تاریخ‌های ذخیره‌شده همیشه میلادی و به صورت استاندارد داخلی باقی می‌مانند."
+        "🗓 **تنظیمات تقویم**\n\n"
+        f"تقویم فعال: **{label}**\n\n"
+        "لطفا تقویم مورد نظر خود را برای نمایش تاریخ تسک‌ها و گزارش‌ها انتخاب کنید."
     )
 
 
@@ -221,7 +220,7 @@ async def button_handler(update, context):
         selected = data.replace("date_format_", "", 1)
         if set_user_date_format(update.effective_user.id, selected):
             await query.message.reply_text(
-                "✅ نوع تاریخ تغییر کرد. از این پس تاریخ‌ها و گزارش‌ها با تقویم انتخابی شما نمایش داده می‌شوند.",
+                "✅ تقویم نمایش تاریخ تغییر کرد.",
                 reply_markup=date_format_keyboard(update.effective_user.id),
             )
         else:
