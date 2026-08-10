@@ -4,3 +4,4 @@ pandas
 openpyxl
 jdatetime
 aiohttp
+aiosqlite>=0.20,<1
