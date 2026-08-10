@@ -1,12 +1,12 @@
 import json,os,secrets,time,urllib.parse,urllib.request
 from datetime import datetime
-from services.database import sync_all,sync_one,sync_execute
-from services.task_service import read_tasks,_write_all
+from services.database import sync_all as db_sync_all,sync_one,sync_execute
+from services.task_service import read_tasks
 _pending_states={};_bots={}
 MICROSOFT_AUTH='https://login.microsoftonline.com/common/oauth2/v2.0/authorize';MICROSOFT_TOKEN='https://login.microsoftonline.com/common/oauth2/v2.0/token';MICROSOFT_GRAPH='https://graph.microsoft.com/v1.0';GOOGLE_AUTH='https://accounts.google.com/o/oauth2/v2/auth';GOOGLE_TOKEN='https://oauth2.googleapis.com/token';GOOGLE_TASKS='https://tasks.googleapis.com/tasks/v1'
 def init_integrations():
  from services.database import _run,init_db;_run(init_db())
-def _read_integrations():return sync_all('external_connections')
+def _read_integrations():return db_sync_all('external_connections')
 def _write_integrations(rows):
  for r in rows:
   sync_execute('UPDATE external_connections SET access_token=?,refresh_token=?,expires_at=?,external_list_id=?,external_list_name=?,enabled=?,last_sync=? WHERE user_id=? AND bot_key=? AND provider=?',(r.get('access_token',''),r.get('refresh_token',''),r.get('expires_at',''),r.get('external_list_id',''),r.get('external_list_name',''),int(r.get('enabled') or 0),r.get('last_sync',''),str(r.get('user_id')),r.get('bot_key') or 'default',r.get('provider')))
@@ -92,11 +92,14 @@ def sync_user(user_id,bot_key='default',provider=None):
    for t in tasks:
     if str(t.get('user_id'))!=str(user_id):continue
     x=markers.get(t.get('id'))
-    if not x:_create_external(row,t);changed+=1;continue
+    if not x:
+     _create_external(row,t);changed+=1;continue
     done=x.get('status')=='completed'
-    if done and t.get('status')!='done':t['status']='done';t['completed_at']=datetime.now().strftime('%Y-%m-%d %H:%M');changed+=1
-    elif not done and t.get('status')=='done':t['status']='pending';t['completed_at']='';changed+=1
-   _write_all(tasks);sync_execute('UPDATE external_connections SET last_sync=? WHERE user_id=? AND provider=? AND bot_key=?',(datetime.now().strftime('%Y-%m-%d %H:%M:%S'),str(user_id),name,bot_key));results.append((name,changed,None))
+    if done and t.get('status')!='done':
+     sync_execute('UPDATE tasks SET status=?,completed_at=? WHERE id=? AND bot_key=?',('done',datetime.now().strftime('%Y-%m-%d %H:%M'),t.get('id'),bot_key));t['status']='done';changed+=1
+    elif not done and t.get('status')=='done':
+     sync_execute('UPDATE tasks SET status=?,completed_at=? WHERE id=? AND bot_key=?',('pending','',t.get('id'),bot_key));t['status']='pending';t['completed_at']='';changed+=1
+   sync_execute('UPDATE external_connections SET last_sync=? WHERE user_id=? AND provider=? AND bot_key=?',(datetime.now().strftime('%Y-%m-%d %H:%M:%S'),str(user_id),name,bot_key));results.append((name,changed,None))
   except Exception as exc:results.append((name,0,str(exc)))
  return results
 def sync_all(bot_key='default'):
