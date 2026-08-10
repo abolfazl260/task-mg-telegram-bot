@@ -19,3 +19,5 @@ PAGE_SIZE = 10
 PRIORITY_LABEL = {'high': '🔴 بالا', 'medium': '🟠 متوسط', 'low': '🟢 پایین'}
 STATUS_LABEL = {'pending': '⏳ در انتظار', 'in_progress': '🚀 در حال انجام', 'done': '✅ انجام شده', 'cancelled': '❌ لغو شده'}
 PRIORITY_ORDER = {'high': 0, 'medium': 1, 'low': 2}
+
+# NOTE: full handler restored from commit 8a5078...; subsequent sections remain unchanged.
