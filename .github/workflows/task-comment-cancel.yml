@@ -1,0 +1,67 @@
+name: Apply task comment cancellation
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch comment flow
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          task = Path('handlers/task.py')
+          text = task.read_text(encoding='utf-8')
+
+          old = """    await query.message.reply_text('💬 کامنت خود را ارسال کنید؛ متن، عکس، صدا، فایل یا هر پیام تلگرامی پشتیبانی\\u200cشده قابل ثبت است.')\n"""
+          new = """    await query.message.reply_text(\n              '💬 کامنت خود را ارسال کنید؛ متن، عکس، صدا، فایل یا هر پیام تلگرامی پشتیبانی\\u200cشده قابل ثبت است.',\n              reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('❌ انصراف از ارسال کامنت', callback_data=f'comment_cancel_{task_id}')]])\n          )\n"""
+          if old in text and 'comment_cancel_' not in text:
+              text = text.replace(old, new, 1)
+
+          marker = "async def handle_comment_input(update, context):\n"
+          func = """async def comment_cancel_callback(update, context):\n    query = update.callback_query\n    await query.answer()\n    context.user_data.pop('comment_task_id', None)\n    if context.user_data.get('step') == 'task_comment':\n        context.user_data.pop('step', None)\n    await query.message.edit_text('❌ ارسال کامنت لغو شد.')\n\n\n"""
+          if marker in text and 'async def comment_cancel_callback' not in text:
+              text = text.replace(marker, func + marker, 1)
+
+          task.write_text(text, encoding='utf-8')
+
+          main = Path('main.py')
+          text = main.read_text(encoding='utf-8')
+          text = text.replace('task_details_callback, comment_callback)', 'task_details_callback, comment_callback, comment_cancel_callback)')
+          text = text.replace('CallbackQueryHandler(comment_callback, pattern="^comment_add_")', 'CallbackQueryHandler(comment_callback, pattern="^comment_add_")\n    app.add_handler(CallbackQueryHandler(comment_cancel_callback, pattern="^comment_cancel_"))')
+          text = text.replace('comment_add_|report_', 'comment_add_|comment_cancel_|report_')
+          main.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate
+        run: |
+          python -m py_compile handlers/task.py main.py utils/keyboard.py
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          for path in ('handlers/task.py', 'main.py', 'utils/keyboard.py'):
+              ast.parse(Path(path).read_text(encoding='utf-8'))
+          print('syntax/import source validation passed')
+          PY
+
+      - name: Commit changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add handlers/task.py main.py utils/keyboard.py
+          if git diff --cached --quiet; then
+            echo 'No changes to commit'
+          else
+            git commit -m 'Add cancel action to task comment flow'
+            git push
+          fi
