@@ -14,7 +14,6 @@ from handlers.import_bulk import handle_import_document, handle_import_text
 from handlers.team import handle_team_text
 from handlers.habits import handle_habit_text, habit_skip
 from handlers.custom_bot import handle_custom_bot_text
-from services.date_service import format_date, get_user_date_format_for_display
 logger = logging.getLogger(__name__)
 PAGE_SIZE = 10
 PRIORITY_LABEL = {'high': '🔴 بالا', 'medium': '🟠 متوسط', 'low': '🟢 پایین'}
@@ -124,7 +123,8 @@ def _extract_comment_content(message) -> dict | None:
 
 async def show_task_by_id_if_matches(update, context) -> bool:
     text = (update.message.text or '').strip()
-    if not _is_bare_task_id(text): return False
+    if not _is_bare_task_id(text):
+        return False
     task = await get_task_by_id_async(text)
     if not task or not await _can_view_task(update.effective_user.id, task):
         await update.message.reply_text('تسکی با این کد برای شما پیدا نشد.')
@@ -142,157 +142,364 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('📝 عنوان تسک را وارد کنید:')
 
 async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if await handle_custom_bot_text(update, context): return
-    if await handle_habit_text(update, context): return
-    if await handle_team_text(update, context): return
-    if await handle_import_document(update, context): return
-    if await handle_import_text(update, context): return
-    if await handle_change_assignment_search_text(update, context): return
-    if await handle_assignment_search_text(update, context): return
-    if await handle_comment_input(update, context): return
-    if await handle_search_text(update, context): return
-    if await show_task_by_id_if_matches(update, context): return
-    if 'step' not in context.user_data: return
-    step = context.user_data['step']; text = update.message.text; task = context.user_data.get('new_task')
-    if task is None and step not in ('search_query', 'import_bulk', 'team_create_name', 'team_join_code'): return
-    if step == 'title': task['title'] = text; context.user_data['step'] = 'priority'; await update.message.reply_text('🎯 اولویت را انتخاب کنید:', reply_markup=priority_keyboard()); return
+    if await handle_custom_bot_text(update, context):
+        return
+    if await handle_habit_text(update, context):
+        return
+    if await handle_team_text(update, context):
+        return
+    if await handle_import_document(update, context):
+        return
+    if await handle_import_text(update, context):
+        return
+    if await handle_change_assignment_search_text(update, context):
+        return
+    if await handle_assignment_search_text(update, context):
+        return
+    if await handle_comment_input(update, context):
+        return
+    if await handle_search_text(update, context):
+        return
+    if await show_task_by_id_if_matches(update, context):
+        return
+    if 'step' not in context.user_data:
+        return
+    step = context.user_data['step']
+    text = update.message.text
+    task = context.user_data.get('new_task')
+    if task is None and step not in ('search_query', 'import_bulk', 'team_create_name', 'team_join_code'):
+        return
+    if step == 'title':
+        task['title'] = text
+        context.user_data['step'] = 'priority'
+        await update.message.reply_text('🎯 اولویت را انتخاب کنید:', reply_markup=priority_keyboard())
+        return
     if step == 'deadline_custom':
         parsed = parse_deadline_input(text)
-        if not parsed: await update.message.reply_text('⚠️ تاریخ نامعتبر است.\nمثال میلادی: `2026-08-20`\nمثال شمسی: `1405-05-29`', parse_mode='Markdown'); return
-        task['deadline'] = parsed; context.user_data['step'] = 'category'; await _ask_category(update.message, context, update.effective_user.id); return
-    if step == 'category': task['category'] = text; await _ask_tags(update.message, context); return
-    if step == 'tags': task['tags'] = text; await _ask_description(update.message, context); return
-    if step == 'description': task['description'] = text; await _ask_assignment(update, context)
+        if not parsed:
+            await update.message.reply_text('⚠️ تاریخ نامعتبر است.\nمثال میلادی: `2026-08-20`\nمثال شمسی: `1405-05-29`', parse_mode='Markdown')
+            return
+        task['deadline'] = parsed
+        context.user_data['step'] = 'category'
+        await _ask_category(update.message, context, update.effective_user.id)
+        return
+    if step == 'category':
+        task['category'] = text
+        await _ask_tags(update.message, context)
+        return
+    if step == 'tags':
+        task['tags'] = text
+        await _ask_description(update.message, context)
+        return
+    if step == 'description':
+        task['description'] = text
+        await _ask_assignment(update, context)
 
 async def priority_selected(update, context):
-    query = update.callback_query; await query.answer(); priority = query.data.replace('priority_', '')
-    if priority not in PRIORITY_LABEL: await query.message.reply_text('⚠️ لطفاً یکی از سه اولویت بالا، متوسط یا پایین را انتخاب کنید.'); return
-    context.user_data.setdefault('new_task', {})['priority'] = priority
+    query = update.callback_query
+    await query.answer()
+    priority = query.data.replace('priority_', '')
+    if priority not in PRIORITY_LABEL:
+        await query.message.reply_text('⚠️ لطفاً یکی از سه اولویت بالا، متوسط یا پایین را انتخاب کنید.')
+        return
+    if 'new_task' not in context.user_data:
+        context.user_data['new_task'] = {}
+    context.user_data['new_task']['priority'] = priority
     await query.message.reply_text('📅 زمان انجام را انتخاب کنید:\n(می\u200cتوانید بدون زمان\u200cبندی ثبت کنید)', reply_markup=deadline_keyboard())
 
 async def deadline_selected(update, context):
-    query = update.callback_query; await query.answer(); value = query.data.replace('deadline_', '')
-    if value == 'custom': context.user_data['step'] = 'deadline_custom'; await query.message.reply_text('📅 تاریخ دقیق را وارد کنید:\n• میلادی: `2026-08-20`\n• شمسی: `1405-05-29`', parse_mode='Markdown'); return
-    if value == 'none': context.user_data['new_task']['deadline'] = ''; context.user_data['step'] = 'category'; await _ask_category(query.message, context, update.effective_user.id); return
-    days = int(value); deadline = datetime.now() + timedelta(days=days); context.user_data['new_task']['deadline'] = deadline.strftime('%Y-%m-%d'); context.user_data['step'] = 'category'; await _ask_category(query.message, context, update.effective_user.id)
+    query = update.callback_query
+    await query.answer()
+    value = query.data.replace('deadline_', '')
+    if value == 'custom':
+        context.user_data['step'] = 'deadline_custom'
+        await query.message.reply_text('📅 تاریخ دقیق را وارد کنید:\n• میلادی: `2026-08-20`\n• شمسی: `1405-05-29`', parse_mode='Markdown')
+        return
+    if value == 'none':
+        context.user_data['new_task']['deadline'] = ''
+        context.user_data['step'] = 'category'
+        await _ask_category(query.message, context, update.effective_user.id)
+        return
+    days = int(value)
+    deadline = datetime.now() + timedelta(days=days)
+    context.user_data['new_task']['deadline'] = deadline.strftime('%Y-%m-%d')
+    context.user_data['step'] = 'category'
+    await _ask_category(query.message, context, update.effective_user.id)
 
 async def skip_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if await habit_skip(update, context): return
-    step = context.user_data.get('step'); task = context.user_data.get('new_task')
-    if not task: return
-    if step == 'category': task['category'] = ''; await _ask_tags(update.message, context); return
-    if step == 'tags': task['tags'] = ''; await _ask_description(update.message, context); return
-    if step == 'description': task['description'] = ''; await _ask_assignment(update, context)
+    if await habit_skip(update, context):
+        return
+    step = context.user_data.get('step')
+    task = context.user_data.get('new_task')
+    if not task:
+        return
+    if step == 'category':
+        task['category'] = ''
+        await _ask_tags(update.message, context)
+        return
+    if step == 'tags':
+        task['tags'] = ''
+        await _ask_description(update.message, context)
+        return
+    if step == 'description':
+        task['description'] = ''
+        await _ask_assignment(update, context)
 
 async def optional_field_callback(update, context):
-    query = update.callback_query; await query.answer(); data = query.data; task = context.user_data.get('new_task')
-    if not task: await query.message.reply_text('فرایند ایجاد تسک فعالی پیدا نشد.'); return
-    if data == 'category_skip': task['category'] = ''; await _ask_tags(query.message, context); return
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    task = context.user_data.get('new_task')
+    if not task:
+        await query.message.reply_text('فرایند ایجاد تسک فعالی پیدا نشد.')
+        return
+    if data == 'category_skip':
+        task['category'] = ''
+        await _ask_tags(query.message, context)
+        return
     if data.startswith('category_pick_'):
-        selected = data.replace('category_pick_', '', 1); categories = [(t.get('category') or '').strip() for t in await get_active_tasks_async(update.effective_user.id) if (t.get('category') or '').strip()]; matched = next((c for c in categories if c[:40] == selected), selected); task['category'] = matched; await _ask_tags(query.message, context); return
-    if data == 'tags_skip': task['tags'] = ''; await _ask_description(query.message, context); return
-    if data == 'description_skip': task['description'] = ''; await _ask_assignment(update, context); return
+        selected = data.replace('category_pick_', '', 1)
+        categories = [(t.get('category') or '').strip() for t in await get_active_tasks_async(update.effective_user.id) if (t.get('category') or '').strip()]
+        matched = next((c for c in categories if c[:40] == selected), selected)
+        task['category'] = matched
+        await _ask_tags(query.message, context)
+        return
+    if data == 'tags_skip':
+        task['tags'] = ''
+        await _ask_description(query.message, context)
+        return
+    if data == 'description_skip':
+        task['description'] = ''
+        await _ask_assignment(update, context)
+        return
 
 def sort_tasks(tasks, key: str='deadline'):
-    if key == 'priority': return sorted(tasks, key=lambda x: PRIORITY_ORDER.get(x.get('priority'), 9))
-    if key == 'created': return sorted(tasks, key=lambda x: x.get('created_at') or '', reverse=True)
+    if key == 'priority':
+        return sorted(tasks, key=lambda x: PRIORITY_ORDER.get(x.get('priority'), 9))
+    if key == 'created':
+        return sorted(tasks, key=lambda x: x.get('created_at') or '', reverse=True)
     return sorted(tasks, key=lambda x: x.get('deadline') or '9999-99-99')
 
 def build_detail_table(tasks, start_index=1):
     text = '# 📋 فهرست اقدامات\n\n| شماره | جزئیات |\n|---|---|\n'
     for index, task in enumerate(tasks, start=start_index):
-        priority = {'high': '🔴', 'medium': '🟠', 'low': '🟢'}.get(task.get('priority'), '🟢'); status = {'pending': '⏳', 'in_progress': '🚀', 'done': '✅', 'cancelled': '❌'}.get(task.get('status'), '⏳'); team_mark = ' 👥' if task.get('team_id') else ''; text += f"| {index} | {priority} {task.get('title', '-')} {status}{team_mark} |\n"
-    text += '\n\n📌 راهنما\n\n🔴 بالا\n🟠 متوسط\n🟢 پایین\n\n⏳ در انتظار\n🚀 در حال انجام\n✅ انجام شده\n❌ لغو شده\n👥 تیمی\n'; return text
+        priority = {'high': '🔴', 'medium': '🟠', 'low': '🟢'}.get(task.get('priority'), '🟢')
+        status = {'pending': '⏳', 'in_progress': '🚀', 'done': '✅', 'cancelled': '❌'}.get(task.get('status'), '⏳')
+        team_mark = ' 👥' if task.get('team_id') else ''
+        text += f"| {index} | {priority} {task.get('title', '-')} {status}{team_mark} |\n"
+    text += '\n\n📌 راهنما\n\n🔴 بالا\n🟠 متوسط\n🟢 پایین\n\n⏳ در انتظار\n🚀 در حال انجام\n✅ انجام شده\n❌ لغو شده\n👥 تیمی\n'
+    return text
 
 def _assignee_label(task):
-    name = (task.get('assignee_name') or '').strip(); username = (task.get('assignee_username') or '').strip(); assignee_id = (task.get('assignee_id') or '').strip()
-    if name: return name
-    if username: return f"@{username.lstrip('@')}"
-    if assignee_id: return f'ID:{assignee_id}'
+    name = (task.get('assignee_name') or '').strip()
+    username = (task.get('assignee_username') or '').strip()
+    assignee_id = (task.get('assignee_id') or '').strip()
+    if name:
+        return name
+    if username:
+        return f"@{username.lstrip('@')}"
+    if assignee_id:
+        return f'ID:{assignee_id}'
     return 'بدون مسئول'
 
 def build_full_report(tasks):
-    table = '# 📊 گزارش پیگیری اقدامات\n\n| # | موضوع | مسئول | دسته | تگ | اولویت | میلادی | شمسی | زمان | وضعیت | توضیح |\n|---|---|---|---|---|---|---|---|---|---|---|\n'
+    table = '# 📊 گزارش پیگیری اقدامات\n\n'
+    table += '| # | موضوع | مسئول | دسته | تگ | اولویت | میلادی | شمسی | زمان | وضعیت | توضیح |\n'
+    table += '|---|---|---|---|---|---|---|---|---|---|---|\n'
     for index, task in enumerate(tasks, start=1):
-        priority = {'high': '🔴', 'medium': '🟠', 'low': '🟢'}.get(task.get('priority'), '🟢'); deadline = task.get('deadline') or '-'
+        priority = {'high': '🔴', 'medium': '🟠', 'low': '🟢'}.get(task.get('priority'), '🟢')
+        deadline = task.get('deadline') or '-'
         try:
-            deadline_date = datetime.strptime(deadline, '%Y-%m-%d').date(); diff = (deadline_date - datetime.now().date()).days; remaining = f'🔻{abs(diff)}' if diff < 0 else ('⏰' if diff == 0 else (f'⚠️{diff}' if diff <= 3 else f'🕒{diff}')); jalali_date = jdatetime.date.fromgregorian(date=deadline_date).strftime('%Y/%m/%d')
-        except Exception: remaining = '-'; jalali_date = '-'
-        status = {'pending': '⏳', 'in_progress': '🚀', 'done': '✅', 'cancelled': '❌'}.get(task.get('status'), '-'); desc = (task.get('description') or '-').replace('\n', ' ')[:40]
+            deadline_date = datetime.strptime(deadline, '%Y-%m-%d').date()
+            diff = (deadline_date - datetime.now().date()).days
+            if diff < 0:
+                remaining = f'🔻{abs(diff)}'
+            elif diff == 0:
+                remaining = '⏰'
+            elif diff <= 3:
+                remaining = f'⚠️{diff}'
+            else:
+                remaining = f'🕒{diff}'
+            jalali_date = jdatetime.date.fromgregorian(date=deadline_date).strftime('%Y/%m/%d')
+        except Exception:
+            remaining = '-'
+            jalali_date = '-'
+        status = {'pending': '⏳', 'in_progress': '🚀', 'done': '✅', 'cancelled': '❌'}.get(task.get('status'), '-')
+        desc = (task.get('description') or '-').replace('\n', ' ')[:40]
         table += f"| {index} | {task.get('title', '-')} | {_assignee_label(task)} | {task.get('category') or '-'} | {task.get('tags') or '-'} | {priority} | {deadline} | {jalali_date} | {remaining} | {status} | {desc} |\n"
     return table
 
 async def format_task_card(task: dict) -> str:
-    title = task.get('title', '-'); task_id = task.get('id', ''); priority = PRIORITY_LABEL.get(task.get('priority'), task.get('priority', '-')); status = STATUS_LABEL.get(task.get('status'), task.get('status', '-')); deadline = task.get('deadline') or 'بدون ددلاین'; category = task.get('category') or '—'; tags = task.get('tags') or '—'; created = task.get('created_at') or '—'; description = task.get('description') or '—'; team_id = task.get('team_id') or ''; jalali = '—'; remaining = '—'
+    title = task.get('title', '-')
+    task_id = task.get('id', '')
+    priority = PRIORITY_LABEL.get(task.get('priority'), task.get('priority', '-'))
+    status = STATUS_LABEL.get(task.get('status'), task.get('status', '-'))
+    deadline = task.get('deadline') or 'بدون ددلاین'
+    category = task.get('category') or '—'
+    tags = task.get('tags') or '—'
+    created = task.get('created_at') or '—'
+    description = task.get('description') or '—'
+    team_id = task.get('team_id') or ''
+    jalali = '—'
+    remaining = '—'
     if task.get('deadline'):
         try:
-            deadline_date = datetime.strptime(task['deadline'], '%Y-%m-%d').date(); jalali = jdatetime.date.fromgregorian(date=deadline_date).strftime('%Y/%m/%d'); diff = (deadline_date - datetime.now().date()).days; remaining = f'🔻 {abs(diff)} روز گذشته' if diff < 0 else ('⏰ امروز' if diff == 0 else (f'⚠️ {diff} روز مانده' if diff <= 3 else f'🕒 {diff} روز مانده'))
-        except Exception: pass
-    team_line = f'👥 تیم: `{team_id}`\n' if team_id else ''; assignee = task.get('assignee_name') or '❌ تعیین نشده'; comments_count = len(await get_task_comments_async(task_id)) if task_id else 0
+            deadline_date = datetime.strptime(task['deadline'], '%Y-%m-%d').date()
+            jalali = jdatetime.date.fromgregorian(date=deadline_date).strftime('%Y/%m/%d')
+            diff = (deadline_date - datetime.now().date()).days
+            if diff < 0:
+                remaining = f'🔻 {abs(diff)} روز گذشته'
+            elif diff == 0:
+                remaining = '⏰ امروز'
+            elif diff <= 3:
+                remaining = f'⚠️ {diff} روز مانده'
+            else:
+                remaining = f'🕒 {diff} روز مانده'
+        except Exception:
+            pass
+    team_line = f'👥 تیم: `{team_id}`\n' if team_id else ''
+    assignee = task.get('assignee_name') or '❌ تعیین نشده'
+    comments_count = len(await get_task_comments_async(task_id)) if task_id else 0
     return f'**{title}**\n\n🆔 `{task_id}`\n{team_line}🎯 اولویت: {priority}\n📌 وضعیت: {status}\n👤 مسئول: 🖼 {assignee}\n📅 مهلت: {deadline}\n🗓️ شمسی: {jalali}\n⏳ باقی\u200cمانده: {remaining}\n📂 دسته: {category}\n🏷 تگ: {tags}\n📄 توضیح: {description}\n🕐 ثبت: {created}\n💬 کامنت\u200cها: {comments_count}'
 
 async def _render_task_list(update, context, sort_key='deadline', edit=False):
-    message = update.effective_message; tasks = await get_active_tasks_async(update.effective_user.id)
-    if not tasks: await message.reply_text('🎉 تسک فعال ندارید'); return
-    tasks = sort_tasks(tasks, sort_key); context.user_data['tasks_sort'] = sort_key; high_count = medium_count = low_count = 0
+    message = update.effective_message
+    tasks = await get_active_tasks_async(update.effective_user.id)
+    if not tasks:
+        await message.reply_text('🎉 تسک فعال ندارید')
+        return
+    tasks = sort_tasks(tasks, sort_key)
+    context.user_data['tasks_sort'] = sort_key
+    high_count = medium_count = low_count = 0
     for task in tasks:
-        if task.get('priority') == 'high': high_count += 1
-        elif task.get('priority') == 'medium': medium_count += 1
-        else: low_count += 1
+        if task.get('priority') == 'high':
+            high_count += 1
+        elif task.get('priority') == 'medium':
+            medium_count += 1
+        else:
+            low_count += 1
     sort_label = {'deadline': 'ددلاین', 'priority': 'اولویت', 'created': 'تاریخ ایجاد'}.get(sort_key, sort_key)
     await message.reply_text(f'\n# 🚦 وضعیت اولویت\u200cها\n\n🔴 بالا — {high_count}\n🟠 متوسط — {medium_count}\n🟢 پایین — {low_count}\n\n🔀 مرتب\u200cسازی فعلی: **{sort_label}**', parse_mode='Markdown')
-    first_page = tasks[:PAGE_SIZE]; text = build_detail_table(first_page); keyboard = [[InlineKeyboardButton('📅 ددلاین', callback_data='sort_deadline'), InlineKeyboardButton('🎯 اولویت', callback_data='sort_priority'), InlineKeyboardButton('🕐 ایجاد', callback_data='sort_created')]]
-    if len(tasks) > PAGE_SIZE: keyboard.append([InlineKeyboardButton('➡️ صفحه بعد', callback_data='detail_page_2')])
-    keyboard.append([InlineKeyboardButton('📥 خروجی Excel', callback_data='download_csv')]); await message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard)); table = build_full_report(tasks); await context.bot._post('sendRichMessage', data={'chat_id': update.effective_chat.id, 'rich_message': {'markdown': table}}); await message.reply_text('⬇️ جزئیات کامل هر تسک + دکمه\u200cهای تغییر وضعیت:')
+    first_page = tasks[:PAGE_SIZE]
+    text = build_detail_table(first_page)
+    keyboard = [[InlineKeyboardButton('📅 ددلاین', callback_data='sort_deadline'), InlineKeyboardButton('🎯 اولویت', callback_data='sort_priority'), InlineKeyboardButton('🕐 ایجاد', callback_data='sort_created')]]
+    if len(tasks) > PAGE_SIZE:
+        keyboard.append([InlineKeyboardButton('➡️ صفحه بعد', callback_data='detail_page_2')])
+    keyboard.append([InlineKeyboardButton('📥 خروجی Excel', callback_data='download_csv')])
+    await message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    table = build_full_report(tasks)
+    await context.bot._post('sendRichMessage', data={'chat_id': update.effective_chat.id, 'rich_message': {'markdown': table}})
+    await message.reply_text('⬇️ جزئیات کامل هر تسک + دکمه\u200cهای تغییر وضعیت:')
     for task in first_page:
-        can_mod = await user_can_modify_task_async(update.effective_user.id, task); kb = task_action_keyboard(task.get('id', ''), task.get('status', 'pending'), context.bot_data.get('bot_config')) if can_mod else _task_details_keyboard(task.get('id', '')); await message.reply_text(await format_task_card(task), reply_markup=kb, parse_mode='Markdown')
+        can_mod = await user_can_modify_task_async(update.effective_user.id, task)
+        kb = task_action_keyboard(task.get('id', ''), task.get('status', 'pending'), context.bot_data.get('bot_config')) if can_mod else _task_details_keyboard(task.get('id', ''))
+        await message.reply_text(await format_task_card(task), reply_markup=kb, parse_mode='Markdown')
 
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    sort_key = context.user_data.get('tasks_sort', 'deadline'); await _render_task_list(update, context, sort_key=sort_key)
+    sort_key = context.user_data.get('tasks_sort', 'deadline')
+    await _render_task_list(update, context, sort_key=sort_key)
 
 async def sort_tasks_callback(update, context):
-    query = update.callback_query; await query.answer(); key = query.data.replace('sort_', ''); key = key if key in ('deadline', 'priority', 'created') else 'deadline'; await _render_task_list(update, context, sort_key=key)
+    query = update.callback_query
+    await query.answer()
+    key = query.data.replace('sort_', '')
+    if key not in ('deadline', 'priority', 'created'):
+        key = 'deadline'
+    await _render_task_list(update, context, sort_key=key)
 
 async def download_csv(update, context):
-    query = update.callback_query; await query.answer(); buffer, count = build_csv_bytes(update.effective_user.id)
-    if count == 0: await query.message.reply_text('🎉 تسک فعالی برای دانلود ندارید'); return
+    query = update.callback_query
+    await query.answer()
+    buffer, count = build_csv_bytes(update.effective_user.id)
+    if count == 0:
+        await query.message.reply_text('🎉 تسک فعالی برای دانلود ندارید')
+        return
     await query.message.reply_document(document=buffer, filename='tasks.csv', caption=f'📥 {count} تسک فعال (فرمت CSV)')
 
 async def detail_page(update, context):
-    query = update.callback_query; await query.answer()
-    try: page = int(query.data.replace('detail_page_', ''))
-    except ValueError: page = 1
+    query = update.callback_query
+    await query.answer()
+    try:
+        page = int(query.data.replace('detail_page_', ''))
+    except ValueError:
+        page = 1
     tasks = await get_active_tasks_async(update.effective_user.id)
-    if not tasks: await query.message.reply_text('🎉 تسک فعال ندارید'); return
-    sort_key = context.user_data.get('tasks_sort', 'deadline'); tasks = sort_tasks(tasks, sort_key); total_pages = max(1, -(-len(tasks) // PAGE_SIZE)); page = min(page, total_pages); start_index = (page - 1) * PAGE_SIZE + 1; start = (page - 1) * PAGE_SIZE; end = start + PAGE_SIZE; page_tasks = tasks[start:end]; text = build_detail_table(page_tasks, start_index=start_index) + f'\n\n📄 صفحه {page} از {total_pages}'; keyboard = []; nav = []
-    if page > 1: nav.append(InlineKeyboardButton('⬅️ قبلی', callback_data=f'detail_page_{page - 1}'))
-    if page < total_pages: nav.append(InlineKeyboardButton('➡️ بعدی', callback_data=f'detail_page_{page + 1}'))
-    if nav: keyboard.append(nav)
-    keyboard.append([InlineKeyboardButton('📥 خروجی Excel', callback_data='download_csv')]); await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    if not tasks:
+        await query.message.reply_text('🎉 تسک فعال ندارید')
+        return
+    sort_key = context.user_data.get('tasks_sort', 'deadline')
+    tasks = sort_tasks(tasks, sort_key)
+    total_pages = max(1, -(-len(tasks) // PAGE_SIZE))
+    page = min(page, total_pages)
+    start_index = (page - 1) * PAGE_SIZE + 1
+    start = (page - 1) * PAGE_SIZE
+    end = start + PAGE_SIZE
+    page_tasks = tasks[start:end]
+    text = build_detail_table(page_tasks, start_index=start_index)
+    text += f'\n\n📄 صفحه {page} از {total_pages}'
+    keyboard = []
+    nav = []
+    if page > 1:
+        nav.append(InlineKeyboardButton('⬅️ قبلی', callback_data=f'detail_page_{page - 1}'))
+    if page < total_pages:
+        nav.append(InlineKeyboardButton('➡️ بعدی', callback_data=f'detail_page_{page + 1}'))
+    if nav:
+        keyboard.append(nav)
+    keyboard.append([InlineKeyboardButton('📥 خروجی Excel', callback_data='download_csv')])
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 def _task_details_keyboard(task_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton('💬 افزودن کامنت', callback_data=f'comment_add_{task_id}')], [InlineKeyboardButton('📜 تاریخچه', callback_data=f'task_history_{task_id}')]])
 
 async def task_details_callback(update, context):
-    query = update.callback_query; await query.answer(); data = query.data; task_id = data.replace('task_details_', '', 1).replace('task_history_', '', 1); task = await get_task_by_id_async(task_id)
-    if not task or not await _can_view_task(update.effective_user.id, task): await query.message.reply_text('تسک پیدا نشد یا دسترسی ندارید.'); return
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    task_id = data.replace('task_details_', '', 1).replace('task_history_', '', 1)
+    task = await get_task_by_id_async(task_id)
+    if not task or not await _can_view_task(update.effective_user.id, task):
+        await query.message.reply_text('تسک پیدا نشد یا دسترسی ندارید.')
+        return
     text = f'{await format_task_card(task)}\n\n{_history_text(task)}\n\n{await _comments_markdown(task_id)}'
-    try: await context.bot._post('sendRichMessage', data={'chat_id': query.message.chat_id, 'rich_message': {'markdown': text}})
-    except Exception: await query.message.reply_text(text, parse_mode='Markdown')
-    await _send_comment_attachments(query.message, task_id); await query.message.reply_text('برای ثبت کامنت جدید دکمه زیر را بزنید:', reply_markup=_task_details_keyboard(task_id))
+    try:
+        await context.bot._post('sendRichMessage', data={'chat_id': query.message.chat_id, 'rich_message': {'markdown': text}})
+    except Exception:
+        await query.message.reply_text(text, parse_mode='Markdown')
+    await _send_comment_attachments(query.message, task_id)
+    await query.message.reply_text('برای ثبت کامنت جدید دکمه زیر را بزنید:', reply_markup=_task_details_keyboard(task_id))
 
 async def comment_callback(update, context):
-    query = update.callback_query; await query.answer(); task_id = query.data.replace('comment_add_', '', 1); task = await get_task_by_id_async(task_id)
-    if not task or not await _can_view_task(update.effective_user.id, task): await query.message.reply_text('تسک پیدا نشد یا دسترسی ندارید.'); return
-    context.user_data['comment_task_id'] = task_id; context.user_data['step'] = 'task_comment'; await query.message.reply_text('💬 کامنت خود را ارسال کنید؛ متن، عکس، صدا، فایل یا هر پیام تلگرامی پشتیبانی\u200cشده قابل ثبت است.')
+    query = update.callback_query
+    await query.answer()
+    task_id = query.data.replace('comment_add_', '', 1)
+    task = await get_task_by_id_async(task_id)
+    if not task or not await _can_view_task(update.effective_user.id, task):
+        await query.message.reply_text('تسک پیدا نشد یا دسترسی ندارید.')
+        return
+    context.user_data['comment_task_id'] = task_id
+    context.user_data['step'] = 'task_comment'
+    await query.message.reply_text('💬 کامنت خود را ارسال کنید؛ متن، عکس، صدا، فایل یا هر پیام تلگرامی پشتیبانی\u200cشده قابل ثبت است.')
 
 async def handle_comment_input(update, context):
-    if context.user_data.get('step') != 'task_comment': return False
-    task_id = context.user_data.get('comment_task_id'); task = await get_task_by_id_async(task_id)
-    if not task or not await _can_view_task(update.effective_user.id, task): context.user_data.pop('comment_task_id', None); context.user_data.pop('step', None); await update.effective_message.reply_text('تسک پیدا نشد یا دسترسی ندارید.'); return True
+    if context.user_data.get('step') != 'task_comment':
+        return False
+    task_id = context.user_data.get('comment_task_id')
+    task = await get_task_by_id_async(task_id)
+    if not task or not await _can_view_task(update.effective_user.id, task):
+        context.user_data.pop('comment_task_id', None)
+        context.user_data.pop('step', None)
+        await update.effective_message.reply_text('تسک پیدا نشد یا دسترسی ندارید.')
+        return True
     content = _extract_comment_content(update.effective_message)
-    if not content: await update.effective_message.reply_text('این نوع پیام برای کامنت پشتیبانی نشد. لطفاً متن، عکس، صدا یا فایل بفرستید.'); return True
-    user = update.effective_user; ok = await add_task_comment_async(task_id, {'id': user.id, 'full_name': user.full_name, 'username': user.username or ''}, content); context.user_data.pop('comment_task_id', None); context.user_data.pop('step', None); await update.effective_message.reply_text('✅ کامنت ثبت شد.' if ok else '❌ خطا در ثبت کامنت.'); return True
+    if not content:
+        await update.effective_message.reply_text('این نوع پیام برای کامنت پشتیبانی نشد. لطفاً متن، عکس، صدا یا فایل بفرستید.')
+        return True
+    user = update.effective_user
+    ok = await add_task_comment_async(task_id, {'id': user.id, 'full_name': user.full_name, 'username': user.username or ''}, content)
+    context.user_data.pop('comment_task_id', None)
+    context.user_data.pop('step', None)
+    await update.effective_message.reply_text('✅ کامنت ثبت شد.' if ok else '❌ خطا در ثبت کامنت.')
+    return True
 STATUS_LABELS = {'pending': '⏳ در انتظار', 'in_progress': '🚀 در حال انجام', 'done': '✅ انجام شده', 'cancelled': '❌ لغو شده'}
 
 async def _handle_status_change(update, context, new_status: str):
@@ -319,8 +526,277 @@ async def _handle_status_change(update, context, new_status: str):
     logger.info('task_status_changed task_id=%s user_id=%s new_status=%s', task_id, update.effective_user.id, new_status)
     await query.message.reply_text(f"وضعیت تسک «{task.get('title', '-')}» به {label} تغییر کرد.")
 
-async def start_task(update, context): await _handle_status_change(update, context, 'in_progress')
-async def done_task(update, context): await _handle_status_change(update, context, 'done')
-async def cancel_task(update, context): await _handle_status_change(update, context, 'cancelled')
-async def pending_task(update, context): await _handle_status_change(update, context, 'pending')
+async def start_task(update, context):
+    await _handle_status_change(update, context, 'in_progress')
 
+async def done_task(update, context):
+    await _handle_status_change(update, context, 'done')
+
+async def cancel_task(update, context):
+    await _handle_status_change(update, context, 'cancelled')
+
+async def pending_task(update, context):
+    await _handle_status_change(update, context, 'pending')
+
+def _member_key(member):
+    return str(member.get('user_id') or '')
+
+async def _visible_assignment_members(user_id):
+    members = {}
+    for item in await aget_user_teams(user_id):
+        for member in await aget_team_members(item['team']['team_id']):
+            members[_member_key(member)] = member
+    return list(members.values())
+
+def _assignment_methods_keyboard(prefix='assign'):
+    return InlineKeyboardMarkup([[InlineKeyboardButton('🔎 جستجوی کاربر', callback_data=f'{prefix}_search')], [InlineKeyboardButton('👥 انتخاب از اعضای تیم', callback_data=f'{prefix}_teams')], [InlineKeyboardButton('⏭ بدون مسئول', callback_data=f'{prefix}_none')]])
+
+def _assignment_summary(task):
+    assignee = task.get('assignee') or {}
+    assignee_name = assignee.get('display_name') or task.get('assignee_name') or '❌ تعیین نشده'
+    return f"📋 خلاصه وظیفه\n\nعنوان:\n{task.get('title', '-')}\n\n👤 مسئول:\n{assignee_name}\n\n⭐ اولویت:\n{PRIORITY_LABEL.get(task.get('priority'), task.get('priority', '-'))}\n\n⏰ مهلت:\n{task.get('deadline') or 'بدون مهلت'}\n\nآیا تایید می\u200cکنید؟"
+
+def _confirm_create_keyboard():
+    return InlineKeyboardMarkup([[InlineKeyboardButton('✅ تایید و ثبت', callback_data='assign_confirm_create')], [InlineKeyboardButton('🔄 تغییر مسئول', callback_data='assign_change_create')], [InlineKeyboardButton('❌ لغو', callback_data='assign_cancel_create')]])
+
+async def _ask_assignment(update, context):
+    context.user_data['step'] = 'assignment_method'
+    await update.effective_message.reply_text('👤 انتخاب مسئول وظیفه', reply_markup=_assignment_methods_keyboard('assign'))
+
+async def _notify_assignment(context, task, assignee, creator):
+    uid = assignee.get('user_id')
+    if not uid:
+        return
+    creator_name = creator.full_name if creator else '—'
+    text = f"🔔 وظیفه جدید به شما اختصاص داده شد\n\n📌 عنوان:\n{task.get('title', '-')}\n\n👤 ایجاد کننده:\n{creator_name}\n\n⭐ اولویت:\n{PRIORITY_LABEL.get(task.get('priority'), task.get('priority', '-'))}\n\n⏰ مهلت:\n{task.get('deadline') or 'بدون مهلت'}\n\nوضعیت:\n⏳ منتظر شروع"
+    try:
+        await context.bot.send_message(chat_id=uid, text=text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('مشاهده وظیفه', callback_data=f"assignee_view_{task.get('id')}")], [InlineKeyboardButton('شروع کار', callback_data=f"start_{task.get('id')}")]]))
+    except Exception:
+        pass
+
+async def assignment_callback(update, context):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    uid = update.effective_user.id
+    if data == 'assign_search':
+        context.user_data['step'] = 'assignment_search'
+        await query.message.reply_text('نام یا نام خانوادگی کاربر را وارد کنید:')
+        return
+    if data == 'assign_teams':
+        teams = await aget_user_teams(uid)
+        if not teams:
+            await query.message.reply_text('تیم مشترکی برای انتخاب مسئول ندارید.')
+            return
+        kb = [[InlineKeyboardButton(f"📌 {i['team']['name']}", callback_data=f"assign_team_{i['team']['team_id']}")] for i in teams]
+        await query.message.reply_text('انتخاب گروه مشترک:', reply_markup=InlineKeyboardMarkup(kb))
+        return
+    if data.startswith('assign_team_'):
+        team_id = data.replace('assign_team_', '')
+        members = await aget_team_members(team_id)
+        kb = [[InlineKeyboardButton(f'🖼 {member_display(m)}', callback_data=f"assign_member_{m.get('user_id')}")] for m in members]
+        await query.message.reply_text('اعضای این تیم:', reply_markup=InlineKeyboardMarkup(kb))
+        return
+    if data.startswith('assign_member_'):
+        mid = data.replace('assign_member_', '')
+        member = next((m for m in await _visible_assignment_members(uid) if _member_key(m) == mid), None)
+        if not member:
+            await query.message.reply_text('کاربر انتخاب\u200cشده در تیم مشترک پیدا نشد.')
+            return
+        context.user_data.setdefault('new_task', {})['assignee'] = member
+        await query.message.reply_text(_assignment_summary(context.user_data['new_task']), reply_markup=_confirm_create_keyboard())
+        return
+    if data == 'assign_none':
+        context.user_data.setdefault('new_task', {})['assignee'] = None
+        await query.message.reply_text(_assignment_summary(context.user_data['new_task']), reply_markup=_confirm_create_keyboard())
+        return
+    if data == 'assign_change_create':
+        await _ask_assignment(update, context)
+        return
+    if data == 'assign_cancel_create':
+        context.user_data.clear()
+        await query.message.reply_text('❌ ایجاد تسک لغو شد.')
+        return
+    if data == 'assign_confirm_create':
+        task = context.user_data.get('new_task') or {}
+        task_id = await _finalize_task(uid, task)
+        saved = await get_task_by_id_async(task_id)
+        assignee = task.get('assignee')
+        context.user_data.clear()
+        logger.info('task_created task_id=%s user_id=%s assignee_id=%s team_id=%s', task_id, uid, (assignee or {}).get('user_id') or '', task.get('team_id', ''))
+        await query.message.reply_text(f'✅ تسک ثبت شد\n🆔 {task_id}')
+        if assignee:
+            await _notify_assignment(context, saved or task, assignee, update.effective_user)
+        return
+
+async def handle_assignment_search_text(update, context):
+    if context.user_data.get('step') != 'assignment_search':
+        return False
+    q = (update.message.text or '').strip().lower()
+    matches = []
+    for m in await _visible_assignment_members(update.effective_user.id):
+        blob = f"{m.get('display_name', '')} {m.get('username', '')}".lower()
+        if q and q in blob:
+            matches.append(m)
+    if not matches:
+        await update.message.reply_text('نتیجه\u200cای در تیم\u200cهای مشترک پیدا نشد.')
+        return True
+    kb = []
+    for m in matches[:10]:
+        uname = f"\n@{m.get('username')}" if m.get('username') else ''
+        await update.message.reply_text(f"🖼\n{m.get('display_name') or 'کاربر'}{uname}")
+        kb.append([InlineKeyboardButton(f'انتخاب مسئول: {member_display(m)}', callback_data=f"assign_member_{m.get('user_id')}")])
+    await update.message.reply_text('👤 نتایج جستجو', reply_markup=InlineKeyboardMarkup(kb))
+    return True
+
+async def unassigned_tasks(update, context):
+    tasks = sort_tasks(await get_unassigned_tasks_async(update.effective_user.id), 'created')
+    if not tasks:
+        await update.effective_message.reply_text('وظیفه بدون مسئول ندارید.')
+        return
+    offset = context.user_data.get('unassigned_offset', 0)
+    if offset >= len(tasks):
+        offset = 0
+    page_tasks = tasks[offset:offset + PAGE_SIZE]
+    context.user_data['unassigned_offset'] = offset + len(page_tasks)
+    await update.effective_message.reply_text(f'📋 وظایف بدون مسئول: {len(tasks)} مورد\nنمایش {offset + 1} تا {offset + len(page_tasks)} با توضیحات کامل.')
+    for task in page_tasks:
+        await update.effective_message.reply_text(await format_task_card(task), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🙋 برعهده گرفتن', callback_data=f"take_{task.get('id')}")]]), parse_mode='Markdown')
+    remaining = len(tasks) - context.user_data.get('unassigned_offset', 0)
+    if remaining > 0:
+        await update.effective_message.reply_text(f'➡️ {remaining} وظیفه دیگر باقی مانده است. برای دیدن سری بعدی دوباره /unassigned را انتخاب کنید.')
+    else:
+        context.user_data['unassigned_offset'] = 0
+
+async def take_assignment(update, context):
+    query = update.callback_query
+    await query.answer()
+    task_id = query.data.replace('take_', '')
+    task = await get_task_by_id_async(task_id)
+    if not task:
+        await query.message.reply_text('تسک پیدا نشد.')
+        return
+    if task.get('assignee_id'):
+        await query.message.reply_text('این تسک قبلاً مسئول دارد.')
+        return
+    context.user_data['take_task_id'] = task_id
+    await query.message.reply_text(f"آیا این وظیفه را برای خودتان انتخاب می\u200cکنید؟\n\nوظیفه:\n{task.get('title')}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('✅ بله، مسئول می\u200cشوم', callback_data='take_confirm')], [InlineKeyboardButton('❌ لغو', callback_data='take_cancel')]]))
+
+async def take_confirm(update, context):
+    query = update.callback_query
+    await query.answer()
+    if query.data == 'take_cancel':
+        context.user_data.pop('take_task_id', None)
+        await query.message.reply_text('لغو شد.')
+        return
+    task_id = context.user_data.pop('take_task_id', '')
+    user = update.effective_user
+    member = {'user_id': str(user.id), 'display_name': user.full_name, 'username': user.username or ''}
+    if await assign_task_async(task_id, member, user.id, 'taken'):
+        await query.message.reply_text('✅ این وظیفه به شما اختصاص داده شد.')
+    else:
+        await query.message.reply_text('❌ خطا در تخصیص وظیفه.')
+
+def _history_text(task):
+    lines = ['📜 تاریخچه', '', task.get('created_at') or '', 'وظیفه ایجاد شد']
+    for raw in (task.get('assignment_history') or '').splitlines():
+        parts = raw.split('|', 4)
+        if len(parts) != 5:
+            continue
+        when, _actor, action, old, new = parts
+        lines += ['', when]
+        if action == 'changed':
+            lines += ['مسئول تغییر کرد:', f'از: {old}', f'به: {new}']
+        elif action == 'removed':
+            lines += ['مسئول حذف شد:', old]
+        elif action == 'taken':
+            lines += ['مسئول تعیین شد:', new]
+        else:
+            lines += ['مسئول تعیین شد:', new]
+    return '\n'.join(lines)
+
+async def assignment_manage_callback(update, context):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    uid = update.effective_user.id
+    if data.startswith('owner_'):
+        task_id = data.replace('owner_', '')
+        task = await get_task_by_id_async(task_id)
+        if not task:
+            await query.message.reply_text('تسک پیدا نشد.')
+            return
+        current = task.get('assignee_name') or '❌ تعیین نشده'
+        kb = [[InlineKeyboardButton('🔄 تغییر مسئول', callback_data=f'chg_start_{task_id}')], [InlineKeyboardButton('🙋 برعهده گرفتن', callback_data=f'take_{task_id}')], [InlineKeyboardButton('❌ حذف مسئول', callback_data=f'asg_remove_{task_id}')], [InlineKeyboardButton('📜 تاریخچه', callback_data=f'asg_history_{task_id}')]]
+        await query.message.reply_text(f'📋 اطلاعات مسئول\n\nمسئول فعلی:\n🖼 {current}\n\nعملیات:', reply_markup=InlineKeyboardMarkup(kb))
+        return
+    if data.startswith('asg_history_'):
+        task = await get_task_by_id_async(data.replace('asg_history_', ''))
+        await query.message.reply_text(_history_text(task) if task else 'تسک پیدا نشد.')
+        return
+    if data.startswith('asg_remove_'):
+        task_id = data.replace('asg_remove_', '')
+        task = await get_task_by_id_async(task_id)
+        if not await user_can_modify_task_async(uid, task):
+            await query.message.reply_text('شما مجاز به تغییر مسئول نیستید.')
+            return
+        await assign_task_async(task_id, None, uid, 'removed')
+        await query.message.reply_text('✅ مسئول حذف شد.')
+        return
+    if data.startswith('chg_start_'):
+        task_id = data.replace('chg_start_', '')
+        context.user_data['change_task_id'] = task_id
+        await query.message.reply_text('👤 انتخاب مسئول جدید', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🔎 جستجوی کاربر', callback_data='chg_search')], [InlineKeyboardButton('👥 انتخاب از اعضای تیم', callback_data='chg_teams')]]))
+        return
+    if data == 'chg_search':
+        context.user_data['step'] = 'change_assignment_search'
+        await query.message.reply_text('نام یا نام خانوادگی کاربر را وارد کنید:')
+        return
+    if data == 'chg_teams':
+        kb = [[InlineKeyboardButton(f"📌 {i['team']['name']}", callback_data=f"chg_team_{i['team']['team_id']}")] for i in await aget_user_teams(uid)]
+        await query.message.reply_text('انتخاب گروه مشترک:', reply_markup=InlineKeyboardMarkup(kb))
+        return
+    if data.startswith('chg_team_'):
+        members = await aget_team_members(data.replace('chg_team_', ''))
+        kb = [[InlineKeyboardButton(f'🖼 {member_display(m)}', callback_data=f"chg_member_{m.get('user_id')}")] for m in members]
+        await query.message.reply_text('اعضای این تیم:', reply_markup=InlineKeyboardMarkup(kb))
+        return
+    if data.startswith('chg_member_'):
+        mid = data.replace('chg_member_', '')
+        member = next((m for m in await _visible_assignment_members(uid) if _member_key(m) == mid), None)
+        if not member:
+            await query.message.reply_text('کاربر پیدا نشد.')
+            return
+        context.user_data['change_assignee'] = member
+        await query.message.reply_text(f'مسئول جدید:\n\n🖼 {member_display(member)}\n\nآیا تغییر داده شود؟', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('✅ تایید تغییر', callback_data='chg_confirm')], [InlineKeyboardButton('❌ لغو', callback_data='chg_cancel')]]))
+        return
+    if data == 'chg_cancel':
+        context.user_data.pop('change_task_id', None)
+        context.user_data.pop('change_assignee', None)
+        await query.message.reply_text('لغو شد.')
+        return
+    if data == 'chg_confirm':
+        task_id = context.user_data.pop('change_task_id', '')
+        assignee = context.user_data.pop('change_assignee', None)
+        task = await get_task_by_id_async(task_id)
+        if not await user_can_modify_task_async(uid, task):
+            await query.message.reply_text('شما مجاز به تغییر مسئول نیستید.')
+            return
+        if await assign_task_async(task_id, assignee, uid, 'changed'):
+            saved = await get_task_by_id_async(task_id)
+            await query.message.reply_text('✅ مسئول تغییر کرد.')
+            await _notify_assignment(context, saved, assignee, update.effective_user)
+        else:
+            await query.message.reply_text('❌ خطا در تغییر مسئول.')
+
+async def handle_change_assignment_search_text(update, context):
+    if context.user_data.get('step') != 'change_assignment_search':
+        return False
+    q = (update.message.text or '').strip().lower()
+    matches = [m for m in await _visible_assignment_members(update.effective_user.id) if q in f"{m.get('display_name', '')} {m.get('username', '')}".lower()]
+    if not matches:
+        await update.message.reply_text('نتیجه\u200cای در تیم\u200cهای مشترک پیدا نشد.')
+        return True
+    kb = [[InlineKeyboardButton(f'انتخاب مسئول: {member_display(m)}', callback_data=f"chg_member_{m.get('user_id')}")] for m in matches[:10]]
+    await update.message.reply_text('👤 نتایج جستجو', reply_markup=InlineKeyboardMarkup(kb))
+    return True
