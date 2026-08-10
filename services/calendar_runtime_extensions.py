@@ -1,13 +1,8 @@
 """Small runtime extensions that need the current Telegram viewer context."""
 
 from contextvars import ContextVar
-from datetime import timedelta
 
-from telegram import InlineKeyboardMarkup
-
-from services.date_service import add_gregorian_days, format_date, format_datetime, get_user_date_format_for_display, user_today
-from utils.keyboard import deadline_keyboard
-from utils.date_parse import deadline_input_hint
+from services.date_service import add_gregorian_days, deadline_input_hint, get_user_date_format_for_display
 from services import calendar_runtime
 
 _current_user_id = ContextVar("calendar_current_user_id", default=None)
@@ -28,7 +23,8 @@ def viewer_id(task=None):
         return 0
 
 
-def format_task_card(task):
+async def format_task_card(task):
+    """Async adapter for task.py, which awaits the task-card formatter."""
     return calendar_runtime.format_task_card(task, viewer_id(task))
 
 
