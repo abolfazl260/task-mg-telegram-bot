@@ -1,15 +1,9 @@
-import asyncio
 from collections import defaultdict
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from services.task_service import search_tasks, get_active_tasks
-
-
-async def _db_call(fn, *args, **kwargs):
-    """Run legacy synchronous service APIs off the Telegram event loop."""
-    return await asyncio.to_thread(fn, *args, **kwargs)
+from services.task_service import search_tasks_async, get_active_tasks_async
 
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -35,7 +29,7 @@ async def handle_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def _run_search(update, context, query: str):
-    results = await _db_call(search_tasks, update.effective_user.id, query)
+    results = await search_tasks_async(update.effective_user.id, query)
     if not results:
         await update.message.reply_text(f"نتیجه‌ای برای «{query}» پیدا نشد.")
         return
@@ -64,7 +58,7 @@ async def share_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args and args[0].lower() in ("category", "cat", "دسته"):
         await _share_category_flow(update, context, args[1:])
         return
-    tasks = await _db_call(get_active_tasks, update.effective_user.id)
+    tasks = await get_active_tasks_async(update.effective_user.id)
     if not tasks:
         await update.message.reply_text("تسک فعالی برای اشتراک‌گذاری ندارید.")
         return
@@ -88,7 +82,7 @@ async def share_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _share_category_flow(update, context, args):
-    tasks = await _db_call(get_active_tasks, update.effective_user.id)
+    tasks = await get_active_tasks_async(update.effective_user.id)
     if not tasks:
         await update.message.reply_text("تسک فعالی ندارید.")
         return
@@ -132,7 +126,7 @@ async def share_category_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
     cat_prefix = query.data.replace("share_cat_", "", 1)
-    tasks = await _db_call(get_active_tasks, update.effective_user.id)
+    tasks = await get_active_tasks_async(update.effective_user.id)
     groups = defaultdict(list)
     for t in tasks:
         cat = (t.get("category") or "").strip() or "بدون دسته‌بندی"
