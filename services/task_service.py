@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bot_context import get_current_bot_key
 from services.database import fetch_all, fetch_one, execute, transaction, sync_all, sync_execute
@@ -10,7 +10,7 @@ from services.team_service import aget_user_teams, acan_edit, ais_member, aget_t
 
 VALID_STATUSES = {"pending", "in_progress", "done", "cancelled"}
 
-def _now(): return datetime.now().strftime("%Y-%m-%d %H:%M")
+def _now(): return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
 def _bot(): return get_current_bot_key() or "default"
 
 async def _ensure_user_async(uid):
