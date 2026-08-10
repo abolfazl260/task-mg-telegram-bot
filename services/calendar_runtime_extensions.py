@@ -2,7 +2,8 @@
 
 from contextvars import ContextVar
 
-from services.date_service import add_gregorian_days, deadline_input_hint, get_user_date_format_for_display
+from services.date_service import add_gregorian_days, get_user_date_format_for_display
+from utils.date_parse import deadline_input_hint
 from services import calendar_runtime
 
 _current_user_id = ContextVar("calendar_current_user_id", default=None)
