@@ -1,0 +1,45 @@
+name: Complete Native Async Migration
+
+on:
+  workflow_dispatch:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  asyncify:
+    if: github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request == null && contains(github.event.comment.body, '/native-asyncify'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Asyncify handlers
+        run: python scripts/native_asyncify.py
+
+      - name: Compile source tree
+        run: python -m compileall -q handlers services scripts
+
+      - name: Verify no legacy task/team calls remain in handlers
+        run: |
+          ! grep -R -nE '\b(create_task|get_active_tasks|get_task_by_id|change_task_status|user_can_modify_task|assign_task|get_unassigned_tasks|add_task_comment|get_task_comments|get_user_teams|get_team_members)\s*\(' handlers/task.py handlers/team.py
+
+      - name: Commit changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add handlers/task.py handlers/team.py
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Complete native async task and team handlers'
+          git push origin main
