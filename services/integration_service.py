@@ -3,7 +3,16 @@ from datetime import datetime
 from services.database import sync_all as db_sync_all,sync_one,sync_execute
 from services.task_service import read_tasks
 _pending_states={};_bots={}
+_PENDING_STATE_TTL=900
+_MAX_PENDING_STATES=1000
 MICROSOFT_AUTH='https://login.microsoftonline.com/common/oauth2/v2.0/authorize';MICROSOFT_TOKEN='https://login.microsoftonline.com/common/oauth2/v2.0/token';MICROSOFT_GRAPH='https://graph.microsoft.com/v1.0';GOOGLE_AUTH='https://accounts.google.com/o/oauth2/v2/auth';GOOGLE_TOKEN='https://oauth2.googleapis.com/token';GOOGLE_TASKS='https://tasks.googleapis.com/tasks/v1'
+def _cleanup_pending_states(now=None):
+ now=now if now is not None else time.time()
+ expired=[state for state,pending in _pending_states.items() if now-pending.get('created',0)>_PENDING_STATE_TTL]
+ for state in expired:del _pending_states[state]
+ if len(_pending_states)>_MAX_PENDING_STATES:
+  oldest=sorted(_pending_states.items(),key=lambda item:item[1].get('created',0))[:len(_pending_states)-_MAX_PENDING_STATES]
+  for state,_ in oldest:del _pending_states[state]
 def init_integrations():
  from services.database import sync_all as _sync_all
  _sync_all('external_connections')
@@ -24,7 +33,8 @@ def _redirect_uri(provider):
  return f'{base}/integrations/oauth/{provider}'
 def start_oauth(provider,user_id,bot_key='default'):
  if provider not in ('microsoft','google'):raise ValueError('ارائه‌دهنده نامعتبر است')
- state=secrets.token_urlsafe(32);_pending_states[state]={'provider':provider,'user_id':str(user_id),'bot_key':bot_key,'created':time.time()}
+ now=time.time();_cleanup_pending_states(now)
+ state=secrets.token_urlsafe(32);_pending_states[state]={'provider':provider,'user_id':str(user_id),'bot_key':bot_key,'created':now}
  if provider=='microsoft':params={'client_id':os.getenv('MICROSOFT_CLIENT_ID',''),'response_type':'code','redirect_uri':_redirect_uri(provider),'response_mode':'query','scope':'offline_access User.Read Tasks.ReadWrite','state':state};return MICROSOFT_AUTH+'?'+urllib.parse.urlencode(params)
  params={'client_id':os.getenv('GOOGLE_TASKS_CLIENT_ID',''),'response_type':'code','redirect_uri':_redirect_uri(provider),'scope':'https://www.googleapis.com/auth/tasks','access_type':'offline','prompt':'consent','state':state};return GOOGLE_AUTH+'?'+urllib.parse.urlencode(params)
 def _post_form(url,data):
