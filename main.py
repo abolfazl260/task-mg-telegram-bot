@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from datetime import time as dt_time
@@ -41,6 +42,7 @@ from services import calendar_runtime
 from services import calendar_runtime_extensions
 from services import calendar_reports_v2
 from services import calendar_report_legacy
+from services.database import init_db
 
 task_handler.format_task_card = calendar_runtime_extensions.format_task_card
 task_handler.build_full_report = calendar_runtime_extensions.build_full_report
@@ -60,10 +62,12 @@ deadline_selected = calendar_runtime_extensions.deadline_selected
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+
 async def bind_bot_context(update, context):
     profile = context.bot_data.get("bot_config")
     set_current_bot_key(profile.key if profile else "default")
     calendar_runtime_extensions.set_current_user(update.effective_user.id if update.effective_user else None)
+
 
 async def track_usage(update, context):
     user = update.effective_user
@@ -74,6 +78,7 @@ async def track_usage(update, context):
     if is_new:
         await notify_new_user(context, user)
 
+
 def _parse_report_time():
     try:
         hour, minute = ADMIN_REPORT_TIME.split(":", 1)
@@ -81,6 +86,7 @@ def _parse_report_time():
     except Exception:
         logger.warning("Invalid ADMIN_REPORT_TIME=%s; falling back to 20:00", ADMIN_REPORT_TIME)
         return dt_time(hour=20, minute=0)
+
 
 async def _jira_sync_job(context):
     profile = context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config")
@@ -94,8 +100,9 @@ async def _jira_sync_job(context):
     except Exception:
         logger.exception("Jira sync failed for bot=%s", bot_key)
 
+
 async def _integration_sync_job(context):
-    profile = context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config")
+    profile = context.job.data if context.job.data else context.application.bot_data.get("bot_config")
     bot_key = profile.key if profile else "default"
     try:
         results = await run_external_sync(bot_key)
@@ -103,6 +110,7 @@ async def _integration_sync_job(context):
             logger.info("External task sync bot=%s users=%s", bot_key, len(results))
     except Exception:
         logger.exception("External task sync failed for bot=%s", bot_key)
+
 
 async def _oauth_callback(request):
     from aiohttp import web
@@ -122,6 +130,7 @@ async def _oauth_callback(request):
         logger.exception("OAuth callback failed")
         return web.Response(text=f"<h2>اتصال ناموفق بود.</h2><p>{str(exc)}</p>", status=500, content_type="text/html", charset="utf-8")
 
+
 async def _start_oauth_server(app):
     base = os.getenv("INTEGRATION_REDIRECT_BASE_URL", "").strip()
     if not base:
@@ -139,7 +148,12 @@ async def _start_oauth_server(app):
     app.bot_data["integration_oauth_runner"] = runner
     logger.info("External task OAuth callback listening on %s:%s", host, port)
 
+
 async def post_init(app: Application):
+    # The database is initialized inside PTB's async lifecycle before handlers
+    # and jobs start. This is the canonical startup path; no CSV/JSON storage
+    # initialization is required anymore.
+    await init_db()
     profile = app.bot_data.get("bot_config")
     commands = [BotCommand("start", "شروع ربات و منوی اصلی"), BotCommand("add", "افزودن تسک جدید"), BotCommand("tasks", "منوی تسک‌ها"), BotCommand("unassigned", "وظایف بدون مسئول"), BotCommand("team", "تیم و فضای مشترک"), BotCommand("search", "جستجوی تسک"), BotCommand("templates", "تمپلیت‌های آماده"), BotCommand("reports", "گزارشات و آمار"), BotCommand("habit", "مدیریت عادت‌ها"), BotCommand("donate", "حمایت با Telegram Stars"), BotCommand("ai", "دستیار هوشمند تحلیل تسک‌ها"), BotCommand("jira", "اتصال به Jira"), BotCommand("jira_status", "وضعیت اتصال Jira"), BotCommand("jira_disconnect", "قطع اتصال Jira"), BotCommand("help", "راهنمای کامل استفاده")]
     feature_by_command = {"add": "tasks", "tasks": "tasks", "unassigned": "unassigned", "team": "teams", "search": "search", "templates": "templates", "reports": "reports", "habit": "habits", "donate": "donate", "ai": "ai"}
@@ -160,9 +174,11 @@ async def post_init(app: Application):
     else:
         logging.warning("JobQueue not available — reminders, Jira sync and external task sync disabled.")
 
+
 def _feature(app, name):
     profile = app.bot_data.get("bot_config")
     return profile is None or profile.feature_enabled(name)
+
 
 def build_application(profile):
     app = Application.builder().token(profile.token).post_init(post_init).build()
@@ -239,20 +255,19 @@ def build_application(profile):
     app.add_error_handler(error_handler)
     return app
 
+
 def main():
-    init_csv()
-    init_teams()
-    init_habits()
-    init_users()
-    init_custom_bots()
-    init_integrations()
+    # Initialize the single SQLite database before any application is created.
+    # Legacy init_* functions are intentionally not called here: they are kept
+    # only as compatibility facades and must not create CSV/JSON stores.
+    asyncio.run(init_db())
     apps = [build_application(profile) for profile in BOT_PROFILES]
     logger.info("Starting %s bot application(s): %s", len(apps), ", ".join(p.key for p in BOT_PROFILES))
     if len(apps) == 1:
         apps[0].run_polling(allowed_updates=[*Update.ALL_TYPES, "guest_message"])
     else:
-        import asyncio
         asyncio.run(run_applications(apps))
+
 
 if __name__ == "__main__":
     main()
