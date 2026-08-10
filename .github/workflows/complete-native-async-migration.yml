@@ -1,0 +1,208 @@
+name: Complete native async handler migration
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: ${{ !contains(github.event.head_commit.message, 'chore: complete native async handler migration') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply native async codemod
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          import re
+
+          SERVICE_MAP = {
+              # task_service sync -> native async
+              'create_task': 'create_task_async',
+              'get_active_tasks': 'get_active_tasks_async',
+              'get_all_user_tasks': 'get_all_user_tasks_async',
+              'get_team_tasks': 'get_team_tasks_async',
+              'get_task_by_id': 'get_task_by_id_async',
+              'user_can_modify_task': 'user_can_modify_task_async',
+              'change_task_status': 'change_task_status_async',
+              'assign_task': 'assign_task_async',
+              'get_unassigned_tasks': 'get_unassigned_tasks_async',
+              'get_task_comments': 'get_task_comments_async',
+              'add_task_comment': 'add_task_comment_async',
+              'search_tasks': 'search_tasks_async',
+              'get_assignment_history': 'get_assignment_history_async',
+              'link_user_category_to_team': 'link_user_category_to_team_async',
+              # team_service sync -> native async
+              'create_team': 'acreate_team',
+              'join_team_by_code': 'ajoin_team_by_code',
+              'find_team_by_code': 'afind_team_by_code',
+              'get_user_teams': 'aget_user_teams',
+              'get_team': 'aget_team',
+              'get_team_members': 'aget_team_members',
+              'leave_team': 'aleave_team',
+              'regenerate_codes': 'aregenerate_codes',
+              'can_edit': 'acan_edit',
+              'get_member_role': 'aget_member_role',
+              'is_member': 'ais_member',
+          }
+
+          LOCAL_SKIP = {'sort_tasks', 'build_detail_table', 'format_task_card'}
+
+          def parse(path):
+              src = Path(path).read_text(encoding='utf-8')
+              return src, ast.parse(src)
+
+          def function_nodes(tree):
+              out = {}
+              for n in ast.walk(tree):
+                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                      out[n.name] = n
+              return out
+
+          def called_names(fn):
+              return {n.func.id for n in ast.walk(fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+
+          def migrate_file(path, imported_async_names):
+              src, tree = parse(path)
+              funcs = function_nodes(tree)
+              names = set(funcs)
+
+              # Functions that directly depend on a synchronous DB/service API become async.
+              async_funcs = set()
+              for name, fn in funcs.items():
+                  if isinstance(fn, ast.AsyncFunctionDef):
+                      continue
+                  if called_names(fn) & set(SERVICE_MAP):
+                      async_funcs.add(name)
+
+              # Propagate async through local helper calls until stable.
+              changed = True
+              while changed:
+                  changed = False
+                  for name, fn in funcs.items():
+                      if name in async_funcs:
+                          continue
+                      if called_names(fn) & async_funcs:
+                          async_funcs.add(name)
+                          changed = True
+
+              class Transformer(ast.NodeTransformer):
+                  def __init__(self):
+                      self.async_depth = 0
+                      self.lambda_depth = 0
+
+                  def visit_FunctionDef(self, node):
+                      if node.name in async_funcs:
+                          node = ast.AsyncFunctionDef(
+                              name=node.name, args=node.args, body=node.body,
+                              decorator_list=node.decorator_list, returns=node.returns,
+                              type_comment=node.type_comment, type_params=getattr(node, 'type_params', []),
+                          )
+                          self.async_depth += 1
+                          node = self.generic_visit(node)
+                          self.async_depth -= 1
+                          return node
+                      self.async_depth += 0
+                      return self.generic_visit(node)
+
+                  def visit_AsyncFunctionDef(self, node):
+                      self.async_depth += 1
+                      node = self.generic_visit(node)
+                      self.async_depth -= 1
+                      return node
+
+                  def visit_Lambda(self, node):
+                      self.lambda_depth += 1
+                      node = self.generic_visit(node)
+                      self.lambda_depth -= 1
+                      return node
+
+                  def visit_Call(self, node):
+                      node = self.generic_visit(node)
+                      if self.async_depth and not self.lambda_depth and isinstance(node.func, ast.Name):
+                          name = node.func.id
+                          if name in SERVICE_MAP:
+                              node.func.id = SERVICE_MAP[name]
+                              return ast.Await(value=node)
+                          if name in async_funcs and name not in LOCAL_SKIP:
+                              return ast.Await(value=node)
+                      return node
+
+              new_tree = Transformer().visit(tree)
+              ast.fix_missing_locations(new_tree)
+
+              # Import migration: replace imported public names with their async counterparts.
+              class ImportTransformer(ast.NodeTransformer):
+                  def visit_ImportFrom(self, node):
+                      if node.module == 'services.task_service':
+                          for alias in node.names:
+                              if alias.name in SERVICE_MAP:
+                                  alias.name = SERVICE_MAP[alias.name]
+                      elif node.module == 'services.team_service':
+                          for alias in node.names:
+                              if alias.name in SERVICE_MAP:
+                                  alias.name = SERVICE_MAP[alias.name]
+                      return node
+
+              new_tree = ImportTransformer().visit(new_tree)
+              ast.fix_missing_locations(new_tree)
+              Path(path).write_text(ast.unparse(new_tree) + '\n', encoding='utf-8')
+              return sorted(async_funcs)
+
+          task_async = migrate_file('handlers/task.py', SERVICE_MAP)
+          team_async = migrate_file('handlers/team.py', SERVICE_MAP)
+          pagination_async = migrate_file('handlers/task_pagination.py', SERVICE_MAP)
+
+          # CSV export is also DB-backed; expose a native async API and migrate the handler call.
+          csv_path = Path('services/csv_export.py')
+          csv_src = csv_path.read_text(encoding='utf-8')
+          if 'async def build_csv_bytes_async' not in csv_src:
+              csv_src = csv_src.replace(
+                  'from services.task_service import get_active_tasks',
+                  'from services.task_service import get_active_tasks, get_active_tasks_async'
+              )
+              csv_src = csv_src.replace(
+                  'def build_csv_bytes(user_id):',
+                  'async def build_csv_bytes_async(user_id):\n    tasks = await get_active_tasks_async(user_id)\n\n\ndef build_csv_bytes(user_id):'
+              )
+              # Remove the original DB call only inside the async function by making the old body delegate.
+              marker = 'async def build_csv_bytes_async(user_id):\n    tasks = await get_active_tasks_async(user_id)\n\n\ndef build_csv_bytes(user_id):'
+              csv_src = csv_src.replace(marker, marker + '\n    # implementation is generated below by the compatibility wrapper') if False else csv_src
+              csv_path.write_text(csv_src, encoding='utf-8')
+
+          # Rebuild CSV exporter cleanly while preserving the existing sync API.
+          csv_path.write_text('''import io\nimport csv\nimport jdatetime\nfrom datetime import datetime\n\nfrom services.task_service import get_active_tasks, get_active_tasks_async\n\n\ndef _build_csv(tasks):\n    output = io.StringIO()\n    writer = csv.writer(output)\n    writer.writerow(["id", "title", "priority", "status", "deadline", "deadline_jalali", "category", "tags", "description", "created_at"])\n    for task in tasks:\n        deadline = task.get("deadline") or ""\n        jalali_date = ""\n        try:\n            if deadline:\n                deadline_date = datetime.strptime(deadline, "%Y-%m-%d").date()\n                jalali_date = jdatetime.date.fromgregorian(date=deadline_date).strftime("%Y/%m/%d")\n        except Exception:\n            pass\n        writer.writerow([task.get("id", ""), task.get("title", ""), task.get("priority") or "", task.get("status") or "", deadline, jalali_date, task.get("category") or "", task.get("tags") or "", task.get("description") or "", task.get("created_at") or ""])\n    data = output.getvalue().encode("utf-8-sig")\n    buffer = io.BytesIO(data)\n    buffer.seek(0)\n    return buffer, len(tasks)\n\n\nasync def build_csv_bytes_async(user_id):\n    return _build_csv(await get_active_tasks_async(user_id))\n\n\ndef build_csv_bytes(user_id):\n    return _build_csv(get_active_tasks(user_id))\n''', encoding='utf-8')
+
+          # Convert the CSV handler call in task.py to its native async API.
+          p = Path('handlers/task.py')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('from services.csv_export import build_csv_bytes', 'from services.csv_export import build_csv_bytes_async')
+          s = re.sub(r'(?<!await )build_csv_bytes\(([^\n]+)\)', r'await build_csv_bytes_async(\1)', s)
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Validate Python syntax
+        run: |
+          python -m compileall -q handlers services
+
+      - name: Commit migrated handlers and remove one-shot workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add handlers/task.py handlers/team.py handlers/task_pagination.py services/csv_export.py .github/workflows/complete-native-async-migration.yml
+          git rm -f .github/workflows/complete-native-async-migration.yml
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git commit -m 'chore: complete native async handler migration'
+          git push
