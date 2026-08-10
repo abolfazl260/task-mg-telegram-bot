@@ -1,7 +1,14 @@
+import asyncio
+from functools import partial
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from services.custom_bot_service import FEATURE_OPTIONS, create_custom_bot_request, validate_bot_token
+
+
+async def _custom_bot_call(fn, *args, **kwargs):
+    return await asyncio.to_thread(partial(fn, *args, **kwargs))
 
 
 def _selected(context) -> list[str]:
@@ -60,10 +67,10 @@ async def handle_custom_bot_text(update: Update, context: ContextTypes.DEFAULT_T
     if context.user_data.get("step") != "custom_bot_token":
         return False
     token = (update.message.text or "").strip()
-    if not validate_bot_token(token):
+    if not await _custom_bot_call(validate_bot_token, token):
         await update.message.reply_text("⚠️ فرمت توکن معتبر نیست. لطفاً توکن Bot API دریافتی از @BotFather را دوباره ارسال کنید.")
         return True
-    request = create_custom_bot_request(update.effective_user, token, _selected(context))
+    request = await _custom_bot_call(create_custom_bot_request, update.effective_user, token, _selected(context))
     context.user_data.pop("step", None)
     context.user_data.pop("custom_bot_features", None)
     await update.message.reply_text(
