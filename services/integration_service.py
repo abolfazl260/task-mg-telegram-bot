@@ -1,5 +1,5 @@
 import json,os,secrets,time,urllib.parse,urllib.request
-from datetime import datetime
+from datetime import datetime,timezone
 from services.database import sync_all as db_sync_all,sync_one,sync_execute
 from services.task_service import read_tasks
 _pending_states={};_bots={}
@@ -107,10 +107,10 @@ def sync_user(user_id,bot_key='default',provider=None):
      _create_external(row,t);changed+=1;continue
     done=x.get('status')=='completed'
     if done and t.get('status')!='done':
-     sync_execute('UPDATE tasks SET status=?,completed_at=? WHERE id=? AND bot_key=?',('done',datetime.now().strftime('%Y-%m-%d %H:%M'),t.get('id'),bot_key));t['status']='done';changed+=1
+     sync_execute('UPDATE tasks SET status=?,completed_at=? WHERE id=? AND bot_key=?',('done',datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M'),t.get('id'),bot_key));t['status']='done';changed+=1
     elif not done and t.get('status')=='done':
      sync_execute('UPDATE tasks SET status=?,completed_at=? WHERE id=? AND bot_key=?',('pending','',t.get('id'),bot_key));t['status']='pending';t['completed_at']='';changed+=1
-   sync_execute('UPDATE external_connections SET last_sync=? WHERE user_id=? AND provider=? AND bot_key=?',(datetime.now().strftime('%Y-%m-%d %H:%M:%S'),str(user_id),name,bot_key));results.append((name,changed,None))
+   sync_execute('UPDATE external_connections SET last_sync=? WHERE user_id=? AND provider=? AND bot_key=?',(datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),str(user_id),name,bot_key));results.append((name,changed,None))
   except Exception as exc:results.append((name,0,str(exc)))
  return results
 def sync_all(bot_key='default'):
