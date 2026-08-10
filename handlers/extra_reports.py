@@ -1,14 +1,9 @@
-import asyncio
 from datetime import datetime, date
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from services.task_service import get_all_user_tasks
-
-
-async def _db_call(fn, *args, **kwargs):
-    return await asyncio.to_thread(fn, *args, **kwargs)
+from services.task_service import get_all_user_tasks_async
 
 
 def _parse_dt(s: str):
@@ -38,7 +33,7 @@ def _prev_month(y, m):
 async def report_compare_months(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = await _db_call(get_all_user_tasks, update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     today = date.today()
     months = []
     y, m = today.year, today.month
@@ -88,7 +83,7 @@ async def report_compare_months(update: Update, context: ContextTypes.DEFAULT_TY
 async def report_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = await _db_call(get_all_user_tasks, update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     if not tasks:
         await query.message.reply_text("هنوز تسکی ندارید.")
         return
@@ -119,7 +114,7 @@ def _emoji_bar(pct: int, width: int = 10) -> str:
 async def report_progress_bar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = await _db_call(get_all_user_tasks, update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     if not tasks:
         await query.message.reply_text("هنوز تسکی ندارید.")
         return
