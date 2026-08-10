@@ -58,12 +58,16 @@ def _suggested_tag_keyboard(context, user_id):
 
 
 def install_tag_flow(task_module):
-    """Compatibility hook: keep the legacy multi-message task flow and only add suggestions."""
+    """Compatibility hook for the legacy multi-message task flow; never installs Single Message UI."""
+    if getattr(task_module, "_legacy_suggestions_installed", False):
+        return
+    task_module._legacy_suggestions_installed = True
     original_assignment_callback = task_module.assignment_callback
 
     async def ask_tags(message, context):
         context.user_data["step"] = "tags"
-        user_id = getattr(getattr(message, "chat", None), "id", 0)
+        user = getattr(message, "from_user", None)
+        user_id = getattr(user, "id", 0)
         await message.reply_text(
             "🏷 تگ را انتخاب کنید یا تگ جدید را وارد کنید:",
             reply_markup=_suggested_tag_keyboard(context, user_id),
@@ -157,12 +161,7 @@ async def safe_assignment_confirm(update, context):
         await query.answer("فرایند ایجاد تسک منقضی شده است.", show_alert=True)
         context.user_data.clear()
         return
-    missing = []
-    if not (task.get("title") or "").strip():
-        missing.append("عنوان")
-    if task.get("priority") not in ("high", "medium", "low"):
-        missing.append("اولویت")
-    if missing:
+    if not (task.get("title") or "").strip() or task.get("priority") not in ("high", "medium", "low"):
         await query.answer("اطلاعات تسک ناقص است.", show_alert=True)
         return
     from handlers.task import assignment_callback
