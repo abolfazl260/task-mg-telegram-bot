@@ -5,7 +5,8 @@ from services.task_service import read_tasks
 _pending_states={};_bots={}
 MICROSOFT_AUTH='https://login.microsoftonline.com/common/oauth2/v2.0/authorize';MICROSOFT_TOKEN='https://login.microsoftonline.com/common/oauth2/v2.0/token';MICROSOFT_GRAPH='https://graph.microsoft.com/v1.0';GOOGLE_AUTH='https://accounts.google.com/o/oauth2/v2/auth';GOOGLE_TOKEN='https://oauth2.googleapis.com/token';GOOGLE_TASKS='https://tasks.googleapis.com/tasks/v1'
 def init_integrations():
- from services.database import _run,init_db;_run(init_db())
+ from services.database import sync_all as _sync_all
+ _sync_all('external_connections')
 def _read_integrations():return db_sync_all('external_connections')
 def _write_integrations(rows):
  for r in rows:
