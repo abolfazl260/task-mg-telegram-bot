@@ -13,14 +13,23 @@ TARGETS = {
     "get_unassigned_tasks": "get_unassigned_tasks_async",
     "add_task_comment": "add_task_comment_async",
     "get_task_comments": "get_task_comments_async",
+    "get_team_tasks": "get_team_tasks_async",
+    "get_all_user_tasks": "get_all_user_tasks_async",
+    "link_user_category_to_team": "link_user_category_to_team_async",
     "get_user_teams": "aget_user_teams",
     "get_team_members": "aget_team_members",
+    "create_team": "acreate_team",
+    "join_team_by_code": "ajoin_team_by_code",
+    "find_team_by_code": "afind_team_by_code",
+    "get_team": "aget_team",
+    "leave_team": "aleave_team",
+    "regenerate_codes": "aregenerate_codes",
+    "can_edit": "acan_edit",
 }
 
 
 def is_awaited(node: ast.AST) -> bool:
-    parent = getattr(node, "_parent", None)
-    return isinstance(parent, ast.Await)
+    return isinstance(getattr(node, "_parent", None), ast.Await)
 
 
 def asyncify(path: str) -> None:
@@ -35,7 +44,6 @@ def asyncify(path: str) -> None:
         name for name, node in functions.items() if isinstance(node, ast.AsyncFunctionDef)
     }
 
-    # Propagate async upward through local helper calls and direct service calls.
     changed = True
     while changed:
         changed = False
@@ -43,12 +51,11 @@ def asyncify(path: str) -> None:
             if name in async_names:
                 continue
             for child in ast.walk(node):
-                if not isinstance(child, ast.Call) or not isinstance(child.func, ast.Name):
-                    continue
-                if child.func.id in TARGETS or child.func.id in async_names:
-                    async_names.add(name)
-                    changed = True
-                    break
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+                    if child.func.id in TARGETS or child.func.id in async_names:
+                        async_names.add(name)
+                        changed = True
+                        break
 
     for node in ast.walk(tree):
         for child in ast.iter_child_nodes(node):
@@ -93,15 +100,14 @@ def asyncify(path: str) -> None:
             if not self.function_stack:
                 return node
             fname = node.func.id if isinstance(node.func, ast.Name) else None
-            should_await = fname in set(TARGETS.values()) or fname in async_names
-            if should_await and not is_awaited(node):
-                return ast.copy_location(ast.Await(value=node), node)
+            if fname in set(TARGETS.values()) or fname in async_names:
+                if not is_awaited(node):
+                    return ast.copy_location(ast.Await(value=node), node)
             return node
 
     tree = Transformer().visit(tree)
     ast.fix_missing_locations(tree)
 
-    # Ensure imported public names are replaced with their canonical async names.
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module in {
             "services.task_service",
