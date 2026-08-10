@@ -1,6 +1,7 @@
 name: Complete Native Async Migration
 
 on:
+  push:
   workflow_dispatch:
   issue_comment:
     types: [created]
@@ -11,7 +12,7 @@ permissions:
 
 jobs:
   asyncify:
-    if: github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request == null && contains(github.event.comment.body, '/native-asyncify'))
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit.message == 'Run native async codemod') || (github.event_name == 'issue_comment' && github.event.issue.pull_request == null && contains(github.event.comment.body, '/native-asyncify'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
