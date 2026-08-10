@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import threading
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -128,13 +129,10 @@ CREATE INDEX IF NOT EXISTS idx_jira_links_key ON jira_task_links(jira_key);
 CREATE INDEX IF NOT EXISTS idx_business_messages_connection ON business_messages(business_connection_id);
 '''
 
-class Database:
-    """One async SQLite connection per event loop.
 
-    aiosqlite executes SQLite work in its own worker thread. The asyncio lock
-    serializes application-level writes while SQLite WAL/busy_timeout handles
-    concurrent readers and independent connections used by legacy callers.
-    """
+class Database:
+    """One async SQLite connection per event loop."""
+
     def __init__(self):
         self.conn: aiosqlite.Connection | None = None
         self.lock = asyncio.Lock()
@@ -160,6 +158,7 @@ class Database:
             await self.conn.close()
             self.conn = None
             self.initialized = False
+
 
 _db_by_loop: dict[int, Database] = {}
 
@@ -216,30 +215,71 @@ async def transaction(statements):
             await db.conn.rollback()
             raise
 
-def _run(coro):
-    """Compatibility bridge for legacy synchronous code only.
 
-    Do not use this from new async handlers. New code must await database/service
-    APIs directly so the Telegram event loop never waits on a worker thread.
-    """
+# ---------------------------------------------------------------------------
+# Synchronous database API
+# ---------------------------------------------------------------------------
+# These functions are deliberately implemented with sqlite3. They are used by
+# legacy synchronous integrations (Jira/Microsoft/Google sync jobs) which run
+# in worker threads. They must never create an asyncio event loop or an
+# aiosqlite connection. One sqlite3 connection is kept per worker thread.
+_sync_local = threading.local()
+_sync_init_lock = threading.Lock()
+
+
+def _get_sync_db() -> sqlite3.Connection:
+    conn = getattr(_sync_local, "conn", None)
+    if conn is not None:
+        return conn
+
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=True)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=10000")
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    with _sync_init_lock:
+        conn.executescript(SCHEMA)
+        conn.commit()
+    _sync_local.conn = conn
+    return conn
+
+
+def close_sync_db() -> None:
+    """Close the sqlite3 connection owned by the current worker thread."""
+    conn = getattr(_sync_local, "conn", None)
+    if conn is not None:
+        conn.close()
+        _sync_local.conn = None
+
+
+def sync_all(table: str, where: str = "", params: Iterable[Any] = ()):
+    conn = _get_sync_db()
+    query = f"SELECT * FROM {table}" + (f" WHERE {where}" if where else "")
+    cur = conn.execute(query, tuple(params))
+    return [dict(row) for row in cur.fetchall()]
+
+
+def sync_one(table: str, where: str, params: Iterable[Any] = ()):
+    rows = sync_all(table, where, params)
+    return rows[0] if rows else None
+
+
+def sync_execute(sql: str, params: Iterable[Any] = ()):
+    conn = _get_sync_db()
+    cur = conn.execute(sql, tuple(params))
+    conn.commit()
+    return cur.lastrowid
+
+
+def sync_transaction(statements):
+    conn = _get_sync_db()
     try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-    result, errors = [], []
-    def worker():
-        try:
-            result.append(asyncio.run(coro))
-        except BaseException as exc:
-            errors.append(exc)
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
-    thread.join()
-    if errors:
-        raise errors[0]
-    return result[0] if result else None
-
-def sync_all(table, where="", params=()): return _run(fetch_all(table, where, params))
-def sync_one(table, where, params=()): return _run(fetch_one(table, where, params))
-def sync_execute(sql, params=()): return _run(execute(sql, params))
-def sync_transaction(statements): return _run(transaction(statements))
+        conn.execute("BEGIN IMMEDIATE")
+        for sql, params in statements:
+            conn.execute(sql, tuple(params))
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
