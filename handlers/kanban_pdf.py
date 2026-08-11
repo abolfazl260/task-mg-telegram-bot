@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update
+from telegram.error import TimedOut
 from telegram.ext import ContextTypes
 
 import handlers.menu as menu_handler
@@ -16,6 +20,8 @@ from services.permission_service import (
 )
 from services.task_service import get_all_user_tasks_async
 
+logger = logging.getLogger(__name__)
+
 
 def _with_pdf_button(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
     rows = [
@@ -27,10 +33,18 @@ def _with_pdf_button(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+async def _safe_callback_answer(query, **kwargs):
+    """Answer a Telegram callback without turning a transient timeout into an error."""
+    try:
+        await query.answer(**kwargs)
+    except TimedOut:
+        logger.warning("Telegram callback answer timed out; continuing request")
+
+
 async def show_reports_menu_with_permission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if update.callback_query:
-        await update.callback_query.answer()
+        await _safe_callback_answer(update.callback_query)
         message = update.callback_query.message
     else:
         message = update.message
@@ -66,7 +80,7 @@ def install_access_ui() -> None:
 
 async def _permission_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await _safe_callback_answer(query)
     if not is_admin(update.effective_user.id):
         await query.message.reply_text("⛔ دسترسی مدیریت مجوزها را ندارید.")
         return
@@ -89,7 +103,7 @@ async def _permission_dashboard(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def _toggle_permission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await _safe_callback_answer(query)
     if not is_admin(update.effective_user.id):
         await query.message.reply_text("⛔ دسترسی مدیریت مجوزها را ندارید.")
         return
@@ -100,40 +114,60 @@ async def _toggle_permission(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.message.reply_text("⚠️ کاربر پیدا نشد.")
         return
     if is_admin(target_id):
-        await query.answer("مجوز مدیر اصلی قابل لغو نیست.", show_alert=True)
+        await _safe_callback_answer(query, text="مجوز مدیر اصلی قابل لغو نیست.", show_alert=True)
         return
     new_value = not bool(target.get("has_permission"))
     await set_permission(target_id, PERMISSION_KANBAN_PDF, new_value)
-    await query.answer("مجوز فعال شد." if new_value else "مجوز غیرفعال شد.")
+    await _safe_callback_answer(query, text="مجوز فعال شد." if new_value else "مجوز غیرفعال شد.")
     await _permission_dashboard(update, context)
 
 
 async def kanban_pdf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    # Telegram expects callback queries to be acknowledged quickly. A transient
+    # timeout here must not abort the actual PDF generation/send operation.
+    await _safe_callback_answer(query)
+
     user_id = update.effective_user.id
     if not await has_permission(user_id, PERMISSION_KANBAN_PDF):
         await query.message.reply_text("⛔ شما دسترسی «ایجاد PDF کانبان برد» را ندارید.")
         return
 
-    tasks = await get_all_user_tasks_async(user_id)
+    try:
+        tasks = await get_all_user_tasks_async(user_id)
+    except Exception:
+        logger.exception("Failed to load tasks for Kanban PDF user=%s", user_id)
+        await query.message.reply_text("⚠️ دریافت وظایف برای ساخت PDF ناموفق بود. لطفاً دوباره تلاش کنید.")
+        return
+
     if not tasks:
         await query.message.reply_text("هنوز هیچ تسکی برای ساخت کانبان برد وجود ندارد.")
         return
 
     try:
-        pdf = build_kanban_pdf(tasks)
+        # ReportLab/PDF generation is CPU/file-system work. Keep it off the
+        # Telegram event loop so a large board cannot block other updates.
+        pdf = await asyncio.to_thread(build_kanban_pdf, tasks)
     except ValueError as exc:
         await query.message.reply_text(str(exc))
         return
     except Exception:
+        logger.exception("Kanban PDF generation failed for user=%s", user_id)
         await query.message.reply_text("⚠️ تولید PDF کانبان برد ناموفق بود. لطفاً دوباره تلاش کنید.")
         return
 
-    await query.message.reply_document(
-        document=InputFile(pdf, filename="kanban-board.pdf"),
-        caption="📄 فایل PDF کانبان برد آماده است.",
-    )
+    try:
+        await query.message.reply_document(
+            document=InputFile(pdf, filename="kanban-board.pdf"),
+            caption="📄 فایل PDF کانبان برد آماده است.",
+            read_timeout=60,
+            write_timeout=60,
+            connect_timeout=60,
+            pool_timeout=60,
+        )
+    except TimedOut:
+        logger.exception("Telegram timed out while sending Kanban PDF for user=%s", user_id)
+        await query.message.reply_text("⚠️ ارسال فایل PDF به تلگرام زمان‌بر شد. لطفاً چند لحظه بعد دوباره تلاش کنید.")
 
 
 async def access_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
