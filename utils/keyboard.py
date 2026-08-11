@@ -3,8 +3,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from services.database import get_db
 
 
-async def recent_tag_keyboard(user_id: int, limit: int = 4):
-    """Build the tag-selection keyboard from the user's most recently used tags."""
+async def recent_tag_keyboard(user_id: int, limit: int = 6):
+    """Build the tag-selection keyboard from the user's recently used tags."""
     db = await get_db()
     async with db.conn.execute(
         """
@@ -39,7 +39,10 @@ async def recent_tag_keyboard(user_id: int, limit: int = 4):
     rows = []
     for index in range(0, len(recent_tags), 2):
         rows.append([
-            InlineKeyboardButton(f"🏷 {tag}", callback_data=f"tag_pick_{index + offset}")
+            InlineKeyboardButton(
+                f"🏷 {tag}",
+                callback_data=f"tag_pick_{index + offset}",
+            )
             for offset, tag in enumerate(recent_tags[index:index + 2])
         ])
 
