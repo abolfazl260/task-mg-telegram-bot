@@ -187,14 +187,13 @@ def install_tag_flow(task_module):
         if data in ("tag_none", "tags_skip"):
             task["tags"] = ""
             context.user_data.pop("tag_suggestions", None)
+            context.user_data.pop("awaiting_tag_input", None)
             context.user_data["step"] = "description"
             await _safe_edit(query, "📄 توضیح / یادداشت را وارد کنید یا دکمه «رد کردن» را بزنید:\n(اختیاری)", reply_markup=description_keyboard)
             return
         if data in ("tag_new", "tags_new"):
             context.user_data["step"] = "tags"
             context.user_data["awaiting_tag_input"] = True
-            # Do not depend on edit_message_text here. Send a fresh message so the
-            # user always gets an explicit input prompt even if Telegram rejects an edit.
             await query.message.reply_text("🏷 تگ جدید را وارد کنید:")
             return
         if data == "step_back_description":
@@ -238,6 +237,21 @@ def install_tag_flow(task_module):
     task_module._handle_tag_callback = handle_tag_callback
     task_module._handle_tag_text = _handle_tag_text
     task_module._finalize_task = finalize_task_with_tracking
+
+    # main.py imports save_task directly, so replacing task_module.save_task alone
+    # does not replace the already-resolved global used by build_application().
+    # Patch that module global after install_tag_flow() and wrap the existing
+    # save_task so tag text is handled before the generic text router.
+    main_module = sys.modules.get("main")
+    if main_module is not None:
+        original_save_task = getattr(main_module, "save_task", None)
+        if original_save_task is not None and not getattr(original_save_task, "_tag_text_wrapped", False):
+            async def save_task_with_tag_text(update, context):
+                if await _handle_tag_text(update, context):
+                    return
+                return await original_save_task(update, context)
+            save_task_with_tag_text._tag_text_wrapped = True
+            main_module.save_task = save_task_with_tag_text
 
 
 async def _aget_user_teams(user_id):
