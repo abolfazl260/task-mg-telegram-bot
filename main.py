@@ -53,8 +53,10 @@ reports_handler.report_week = calendar_runtime.report_week
 reports_handler.report_heatmap = calendar_reports_v2.report_heatmap
 reports_handler.report_heatmap_week = calendar_runtime.report_heatmap_week
 reports_handler.report_today = calendar_runtime.report_today
-extra_reports_handler.report_compare_months = calendar_runtime.compare_months
-report_compare_months = calendar_runtime.compare_months
+# calendar_runtime exposes the implementation as report_compare_months.
+# Keep the public handler name unchanged for the existing reports module.
+extra_reports_handler.report_compare_months = calendar_runtime.report_compare_months
+report_compare_months = calendar_runtime.report_compare_months
 deadline_selected = calendar_runtime_extensions.deadline_selected
 
 
@@ -193,7 +195,7 @@ async def post_init(app: Application):
         app.job_queue.run_repeating(_integration_sync_job, interval=300, first=60 + bot_offset, name="external_task_sync", data=profile)
         logging.info("Jobs scheduled: tasks, habit reminders, weekly habit reports, throttled Jira/external sync.")
     else:
-        logging.warning("JobQueue not available — reminders, Jira sync and external task sync disabled.")
+        logging.warning("JobQueue not available — reminders, Jira sync and external sync disabled.")
 
 
 def _feature(app, name):
@@ -282,7 +284,7 @@ def build_application(profile):
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
     app.add_handler(CallbackQueryHandler(button_handler, pattern="^(?!priority_|deadline_|category_pick_|category_skip|tag_|tags_|step_back_description|description_skip|detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|task_details_|task_history_|comment_add_|comment_cancel_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_|custombot_|int_)"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, save_task), group=0)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, save_task, ), group=0)
     app.add_error_handler(error_handler)
     return app
 
