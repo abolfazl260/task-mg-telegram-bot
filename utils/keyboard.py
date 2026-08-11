@@ -81,11 +81,18 @@ def deadline_keyboard():
     ])
 
 
-def assignment_grid_keyboard():
+def assignment_grid_keyboard(user_id: int | None = None):
+    """Keyboard for choosing the task assignee.
+
+    Callback data intentionally matches handlers/task.py.  The previous version
+    emitted assign_self and assign_team, while the assignment callback handled
+    assign_teams and had no assign_self branch, so those buttons appeared dead.
+    """
+    self_callback = f"assign_self_{user_id}" if user_id is not None else "assign_self"
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🙋‍♂️ خودم", callback_data="assign_self"),
-            InlineKeyboardButton("👥 هم‌تیمی‌ها", callback_data="assign_team"),
+            InlineKeyboardButton("🙋‍♂️ خودم", callback_data=self_callback),
+            InlineKeyboardButton("👥 هم‌تیمی‌ها", callback_data="assign_teams"),
         ],
         [
             InlineKeyboardButton("🔎 جستجوی کاربر", callback_data="assign_search"),
