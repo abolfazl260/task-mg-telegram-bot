@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
 
 from bot_context import get_current_bot_key
 from config import ADMIN_IDS
