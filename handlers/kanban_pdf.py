@@ -49,9 +49,13 @@ _ORIGINAL_SETTINGS_KEYBOARD = menu_handler.settings_keyboard
 
 
 def install_access_ui() -> None:
-    """Add the access-management entry to the existing settings menu."""
+    """Expose access management in Settings only to configured admins."""
+    from services.calendar_runtime_extensions import viewer_id
+
     def settings_keyboard_with_access(context=None):
         markup = _ORIGINAL_SETTINGS_KEYBOARD(context)
+        if not is_admin(viewer_id()):
+            return markup
         rows = [list(row) for row in markup.inline_keyboard]
         if not any(button.callback_data == "settings_permissions" for row in rows for button in row):
             rows.append([InlineKeyboardButton("🔐 مدیریت دسترسی‌ها", callback_data="settings_permissions")])
@@ -124,7 +128,7 @@ async def kanban_pdf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     except Exception:
         await query.message.reply_text("⚠️ تولید PDF کانبان برد ناموفق بود. لطفاً دوباره تلاش کنید.")
-        raise
+        return
 
     await query.message.reply_document(
         document=InputFile(pdf, filename="kanban-board.pdf"),
