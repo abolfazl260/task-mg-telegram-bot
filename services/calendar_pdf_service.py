@@ -4,7 +4,6 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
-import re
 
 import arabic_reshaper
 import jdatetime
@@ -33,6 +32,7 @@ JALALI_MONTHS = (
     "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
     "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند",
 )
+ACTIVE_STATUSES = {"pending", "in_progress"}
 
 
 def _font_path() -> Path:
@@ -84,7 +84,6 @@ def _parse_deadline(value: object) -> date | None:
 
 
 def _truncate_to_width(c: canvas.Canvas, text: str, font: str, size: float, max_width: float) -> str:
-    """Ellipsize by measured PDF width so badges never overflow their cell."""
     text = _clean_title(text)
     if pdfmetrics.stringWidth(_rtl(text), font, size) <= max_width:
         return text
@@ -97,10 +96,7 @@ def _truncate_to_width(c: canvas.Canvas, text: str, font: str, size: float, max_
 
 def _month_grid(year: int, month: int) -> list[list[jdatetime.date | None]]:
     first = jdatetime.date(year, month, 1)
-    if month == 12:
-        next_month = jdatetime.date(year + 1, 1, 1)
-    else:
-        next_month = jdatetime.date(year, month + 1, 1)
+    next_month = jdatetime.date(year + 1, 1, 1) if month == 12 else jdatetime.date(year, month + 1, 1)
     days = (next_month - timedelta(days=1)).day
     leading = (first.weekday() - 5) % 7
     cells: list[jdatetime.date | None] = [None] * leading
@@ -110,8 +106,16 @@ def _month_grid(year: int, month: int) -> list[list[jdatetime.date | None]]:
 
 
 def _task_map(tasks: list[dict], year: int, month: int) -> dict[int, list[str]]:
+    """Map only active tasks whose deadline belongs to the requested Jalali month.
+
+    The handler already supplies active tasks, but the service enforces the
+    rule again so this renderer cannot accidentally show done/cancelled tasks
+    when called from another code path.
+    """
     result: dict[int, list[str]] = defaultdict(list)
     for task in tasks:
+        if str(task.get("status") or "").strip().lower() not in ACTIVE_STATUSES:
+            continue
         deadline = _parse_deadline(task.get("deadline"))
         if deadline is None:
             continue
@@ -149,10 +153,13 @@ def _draw_badge(c: canvas.Canvas, title: str, x: float, y: float, w: float, h: f
 
 
 def build_calendar_pdf(tasks: list[dict], user_id: int) -> BytesIO:
-    """Build one A3 landscape page containing the user's current Jalali month."""
+    """Build exactly one A3 landscape calendar for the user's current Jalali month."""
     today_gregorian = user_today(user_id)
     today_jalali = jdatetime.date.fromgregorian(date=today_gregorian)
     year, month = today_jalali.year, today_jalali.month
+
+    # Never infer the calendar year from user_id. user_id is only used to
+    # resolve the user's local current date through user_today().
     weeks = _month_grid(year, month)
     tasks_by_day = _task_map(tasks, year, month)
     font = _register_font()
@@ -183,7 +190,7 @@ def build_calendar_pdf(tasks: list[dict], user_id: int) -> BytesIO:
     cell_h = (grid_h - header_gap - header_h - row_gap * (rows - 1)) / rows
 
     _draw_rtl(c, f"{JALALI_MONTHS[month - 1]} {year}", PAGE_W - margin_x, PAGE_H - margin_top - 6 * mm, font, 16)
-    _draw_rtl(c, f"{sum(len(v) for v in tasks_by_day.values())} تسک دارای موعد", margin_x, PAGE_H - margin_top - 6 * mm, font, 7.2, align="left")
+    _draw_rtl(c, f"{sum(len(v) for v in tasks_by_day.values())} تسک فعال", margin_x, PAGE_H - margin_top - 6 * mm, font, 7.2, align="left")
 
     for index, weekday in enumerate(WEEKDAYS):
         x = margin_x + (6 - index) * (col_w + col_gap)
