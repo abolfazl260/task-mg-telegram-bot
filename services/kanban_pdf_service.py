@@ -20,10 +20,37 @@ PRIORITY_COLORS = {"high": "#DC2626", "medium": "#D97706", "low": "#16A34A", "ب
 VALID_STATUSES = ("pending", "in_progress", "done", "cancelled")
 STATUS_LABELS = {"pending": "شروع‌نشده", "in_progress": "در حال انجام", "done": "انجام‌شده", "cancelled": "لغو شده"}
 STATUS_COLORS = {"pending": "#64748B", "in_progress": "#2563EB", "done": "#16A34A", "cancelled": "#DC2626"}
+TERMINAL_OR_INACTIVE = {"done", "completed", "complete", "closed", "close", "cancelled", "canceled", "rejected", "reject", "archived", "archive", "inactive", "disabled", "draft", "preparation", "preparing", "finished"}
 
 
 def _normalise_status(value: object) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def is_active_status(value: object) -> bool:
+    raw = str(value or "").strip()
+    key = _normalise_status(raw)
+    if not key or key in TERMINAL_OR_INACTIVE:
+        return False
+    if key in {"انجام‌شده", "انجام شده", "تکمیل‌شده", "تکمیل شده", "بسته", "لغو شده", "رد شده", "آماده‌سازی", "آماده سازی"}:
+        return False
+    if any(token in key for token in ("inactive", "disabled", "archived", "preparation", "preparing")):
+        return False
+    if any(token in raw for token in ("غیرفعال", "آماده‌سازی", "آماده سازی")):
+        return False
+    return True
+
+
+def active_statuses(tasks: Iterable[dict]) -> list[str]:
+    """Legacy helper retained for existing tests/callers; PDF columns use VALID_STATUSES."""
+    statuses: list[str] = []
+    seen: set[str] = set()
+    for task in tasks:
+        status = str(task.get("status") or "").strip()
+        if status and status not in seen and is_active_status(status):
+            seen.add(status)
+            statuses.append(status)
+    return statuses
 
 
 def _font_path() -> Path:
@@ -58,6 +85,11 @@ def _clean(value: object, fallback: str = "") -> str:
 def _short(value: object, limit: int) -> str:
     text = _clean(value)
     return text if len(text) <= limit else text[:max(1, limit - 1)].rstrip() + "…"
+
+
+def _short_title(value: object, limit: int = 52) -> str:
+    """Legacy title helper used by the existing test suite."""
+    return _short(value, limit)
 
 
 def _priority_label(value: object) -> str:
