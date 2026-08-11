@@ -1,3 +1,6 @@
+from datetime import datetime, timedelta
+
+import jdatetime
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from services.database import get_db
@@ -65,20 +68,48 @@ def priority_keyboard():
 
 
 def deadline_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("📅 امروز", callback_data="deadline_0"),
-            InlineKeyboardButton("📅 فردا", callback_data="deadline_1"),
-        ],
-        [
-            InlineKeyboardButton("📅 ۱ هفته", callback_data="deadline_7"),
-            InlineKeyboardButton("📅 ۲ هفته", callback_data="deadline_14"),
-        ],
-        [
-            InlineKeyboardButton("♾️ بدون زمان‌بندی", callback_data="deadline_none"),
-            InlineKeyboardButton("✍️ تاریخ دقیق", callback_data="deadline_custom"),
-        ],
+    """Show quick deadline choices for today and the next seven days.
+
+    Each button keeps the relative-day callback so the handler can calculate
+    the deadline at click time.  The Jalali date is shown to make the exact
+    selected date clear to Persian-speaking users.
+    """
+    today = datetime.now().date()
+    rows = []
+
+    def date_label(days: int) -> str:
+        target = today + timedelta(days=days)
+        jalali = jdatetime.date.fromgregorian(date=target).strftime("%m/%d")
+        if days == 0:
+            prefix = "☀️ امروز"
+        elif days == 1:
+            prefix = "🌤 فردا"
+        else:
+            prefix = f"📅 +{days} روز"
+        return f"{prefix} — {jalali}"
+
+    rows.append([
+        InlineKeyboardButton(date_label(0), callback_data="deadline_0"),
+        InlineKeyboardButton(date_label(1), callback_data="deadline_1"),
     ])
+
+    for start in (2, 4, 6):
+        rows.append([
+            InlineKeyboardButton(date_label(start), callback_data=f"deadline_{start}"),
+            InlineKeyboardButton(date_label(start + 1), callback_data=f"deadline_{start + 1}"),
+        ])
+
+    rows.append([
+        InlineKeyboardButton("🕐 انتخاب تاریخ و زمان", callback_data="deadline_custom"),
+    ])
+    rows.append([
+        InlineKeyboardButton("⏭ بدون زمان‌بندی", callback_data="deadline_none"),
+    ])
+    rows.append([
+        InlineKeyboardButton("🔙 مرحله قبل", callback_data="step_back_priority"),
+    ])
+
+    return InlineKeyboardMarkup(rows)
 
 
 def assignment_grid_keyboard(user_id: int | None = None):
