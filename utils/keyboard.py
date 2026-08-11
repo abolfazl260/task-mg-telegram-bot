@@ -70,9 +70,8 @@ def priority_keyboard():
 def deadline_keyboard():
     """Show quick deadline choices for today and the next seven days.
 
-    Each button keeps the relative-day callback so the handler can calculate
-    the deadline at click time.  The Jalali date is shown to make the exact
-    selected date clear to Persian-speaking users.
+    Quick-select date buttons intentionally have no emojis. Only the three
+    action buttons below retain their emojis.
     """
     today = datetime.now().date()
     rows = []
@@ -81,11 +80,11 @@ def deadline_keyboard():
         target = today + timedelta(days=days)
         jalali = jdatetime.date.fromgregorian(date=target).strftime("%m/%d")
         if days == 0:
-            prefix = "☀️ امروز"
+            prefix = "امروز"
         elif days == 1:
-            prefix = "🌤 فردا"
+            prefix = "فردا"
         else:
-            prefix = f"📅 +{days} روز"
+            prefix = f"+{days} روز"
         return f"{prefix} — {jalali}"
 
     rows.append([
@@ -113,12 +112,7 @@ def deadline_keyboard():
 
 
 def assignment_grid_keyboard(user_id: int | None = None):
-    """Keyboard for choosing the task assignee.
-
-    Callback data intentionally matches handlers/task.py.  The previous version
-    emitted assign_self and assign_team, while the assignment callback handled
-    assign_teams and had no assign_self branch, so those buttons appeared dead.
-    """
+    """Keyboard for choosing the task assignee."""
     self_callback = f"assign_self_{user_id}" if user_id is not None else "assign_self"
     return InlineKeyboardMarkup([
         [
