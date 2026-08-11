@@ -10,6 +10,7 @@ from telegram.ext import ContextTypes
 import handlers.menu as menu_handler
 import handlers.reports as reports_handler
 from services.kanban_pdf_service import build_kanban_pdf
+from services.pdf_runtime import PDF_RENDER_TIMEOUT_SECONDS, render_pdf_in_worker, warm_pdf_fonts
 from services.permission_service import (
     PERMISSION_KANBAN_PDF,
     PERMISSION_KANBAN_PDF_LABEL,
@@ -21,6 +22,7 @@ from services.permission_service import (
 from services.task_service import get_all_user_tasks_async
 
 logger = logging.getLogger(__name__)
+warm_pdf_fonts()
 
 
 def _with_pdf_button(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
@@ -30,11 +32,17 @@ def _with_pdf_button(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
 
 
 async def _safe_callback_answer(query, **kwargs):
-    """Best-effort callback acknowledgement; stale callback IDs must not abort handlers."""
     try:
         await query.answer(**kwargs, read_timeout=2, write_timeout=2, connect_timeout=2, pool_timeout=2)
     except (TimedOut, BadRequest) as exc:
         logger.warning("Ignoring callback acknowledgement failure: %s", exc)
+
+
+async def _edit_status(message, text: str) -> None:
+    try:
+        await message.edit_text(text)
+    except (BadRequest, TimedOut):
+        logger.debug("Could not edit PDF status message", exc_info=True)
 
 
 async def show_reports_menu_with_permission(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -111,26 +119,39 @@ async def kanban_pdf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await _safe_callback_answer(query)
     user_id = update.effective_user.id
+
     if not await has_permission(user_id, PERMISSION_KANBAN_PDF):
         await query.message.reply_text("⛔ شما دسترسی «ایجاد PDF کانبان برد» را ندارید.")
         return
+
+    status_message = await query.message.reply_text("⏳ در حال تولید فایل PDF کانبان برد، لطفاً شکیبا باشید...")
+    pdf = None
     try:
         tasks = await get_all_user_tasks_async(user_id)
-    except Exception:
-        logger.exception("Failed to load tasks for Kanban PDF user=%s", user_id)
-        await query.message.reply_text("⚠️ دریافت وظایف برای ساخت PDF ناموفق بود. لطفاً دوباره تلاش کنید.")
-        return
-    try:
-        pdf = await asyncio.to_thread(build_kanban_pdf, tasks)
-    except Exception as exc:
-        logger.exception("Kanban PDF generation failed for user=%s", user_id)
-        await query.message.reply_text(str(exc) if isinstance(exc, ValueError) else "⚠️ تولید PDF کانبان برد ناموفق بود. لطفاً دوباره تلاش کنید.")
-        return
-    try:
-        await query.message.reply_document(document=InputFile(pdf, filename="kanban-board.pdf"), caption="📄 فایل PDF کانبان برد آماده است.", read_timeout=60, write_timeout=60, connect_timeout=60, pool_timeout=60)
+        pdf = await render_pdf_in_worker(build_kanban_pdf, tasks)
+
+        await query.message.reply_document(
+            document=InputFile(pdf, filename="kanban-board.pdf"),
+            caption="📄 فایل PDF کانبان برد آماده است.",
+            read_timeout=60,
+            write_timeout=60,
+            connect_timeout=60,
+            pool_timeout=60,
+        )
+        await _edit_status(status_message, "✅ فایل PDF کانبان برد با موفقیت تولید و ارسال شد.")
+    except asyncio.TimeoutError:
+        logger.exception("Kanban PDF render timed out for user=%s", user_id)
+        await _edit_status(status_message, "❌ تولید فایل PDF کانبان برد بیش از حد طول کشید. لطفاً دوباره تلاش کنید.")
     except TimedOut:
         logger.exception("Telegram timed out while sending Kanban PDF for user=%s", user_id)
-        await query.message.reply_text("⚠️ ارسال فایل PDF به تلگرام زمان‌بر شد. لطفاً چند لحظه بعد دوباره تلاش کنید.")
+        await _edit_status(status_message, "❌ ارسال فایل PDF به تلگرام با مشکل مواجه شد. لطفاً دوباره تلاش کنید.")
+    except Exception as exc:
+        logger.exception("Kanban PDF generation failed for user=%s", user_id)
+        message = str(exc) if isinstance(exc, ValueError) else "❌ خطایی در ساخت فایل PDF کانبان برد رخ داد."
+        await _edit_status(status_message, message)
+    finally:
+        if pdf is not None:
+            pdf.close()
 
 
 async def access_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
