@@ -17,7 +17,7 @@ PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 TERMINAL_OR_INACTIVE = {
     "done", "completed", "complete", "closed", "close", "cancelled", "canceled",
     "rejected", "reject", "archived", "archive", "inactive", "disabled", "draft",
-    "preparation", "preparing", "ready", "blocked", "finished",
+    "preparation", "preparing", "finished",
 }
 
 
@@ -32,9 +32,11 @@ def is_active_status(value: object) -> bool:
     key = _normalise_status(raw)
     if key in TERMINAL_OR_INACTIVE:
         return False
+    if key in {"انجام‌شده", "انجام شده", "تکمیل‌شده", "تکمیل شده", "بسته", "لغو شده", "رد شده", "آماده‌سازی", "آماده سازی"}:
+        return False
     if any(token in key for token in ("inactive", "disabled", "archived", "preparation", "preparing")):
         return False
-    if any(token in raw for token in ("غیرفعال", "بسته", "آماده‌سازی", "آماده سازی", "لغو شده", "رد شده")):
+    if any(token in raw for token in ("غیرفعال", "آماده‌سازی", "آماده سازی")):
         return False
     return True
 
