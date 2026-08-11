@@ -20,18 +20,12 @@ async def _ensure_user_async(uid):
 async def read_tasks_async(): return await fetch_all("tasks","bot_key=?",(_bot(),))
 
 async def get_task_dashboard_counts_async(user_id: int) -> dict[str, int]:
-    """Return the user's mini-dashboard counts using one lightweight COUNT query.
-
-    No task rows are loaded into Python. Dates are compared by their YYYY-MM-DD
-    prefix so an optional time component in the deadline does not affect the result.
-    """
+    """Return lightweight /tasks dashboard counts without loading task objects."""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     row = await fetch_one(
         """
         SELECT
-            COUNT(CASE
-                WHEN status IN ('pending', 'in_progress') THEN 1
-            END) AS count_active,
+            COUNT(CASE WHEN status IN ('pending', 'in_progress') THEN 1 END) AS count_active,
             COUNT(CASE
                 WHEN substr(COALESCE(deadline, ''), 1, 10) = ?
                  AND status NOT IN ('done', 'cancelled') THEN 1
@@ -41,7 +35,7 @@ async def get_task_dashboard_counts_async(user_id: int) -> dict[str, int]:
                  AND status NOT IN ('done', 'cancelled') THEN 1
             END) AS count_overdue
         FROM tasks
-        WHERE bot_key=? AND user_id=?
+        WHERE bot_key = ? AND user_id = ?
         """,
         (today, today, _bot(), str(user_id)),
     )
@@ -93,7 +87,6 @@ async def search_tasks_async(user_id,query):
     if not q: return []
     return [t for t in await get_all_user_tasks_async(user_id) if q in " ".join(str(t.get(k) or "") for k in ("title","category","tags","description")).lower()]
 async def get_all_user_ids_async(): return sorted({str(t.get("user_id")) for t in await read_tasks_async() if t.get("user_id")})
-
 async def assign_task_async(task_id,assignee,actor_id,action="assigned"):
     t=await get_task_by_id_async(task_id)
     if not t: return False
@@ -123,7 +116,6 @@ async def link_team_name_category_for_owner_async(team_id):
     team=await aget_team(team_id); return await link_user_category_to_team_async(team["owner_id"],team["name"],team_id) if team else 0
 async def get_assignment_history_async(task_id): return await fetch_all("task_assignment_history","task_id=? ORDER BY id",(task_id,))
 
-# Legacy compatibility. Native async handlers must use *_async APIs.
 def _run(coro):
     import asyncio,threading
     try: asyncio.get_running_loop()
