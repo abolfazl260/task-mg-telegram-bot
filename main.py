@@ -3,6 +3,7 @@ import logging
 import os
 from datetime import time as dt_time
 from telegram import BotCommand, Update, InlineKeyboardButton
+from telegram.request import HTTPXRequest
 from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, MessageHandler, PreCheckoutQueryHandler, TypeHandler, ConversationHandler, filters)
 from config import ADMIN_REPORT_TIME, BOT_PROFILES
 from bot_platform import run_applications
@@ -191,7 +192,16 @@ def _feature(app, name):
 
 
 def build_application(profile):
-    app = Application.builder().token(profile.token).post_init(post_init).build()
+    request = HTTPXRequest(
+        connection_pool_size=16,
+        read_timeout=30.0,
+        write_timeout=120.0,
+        connect_timeout=30.0,
+        pool_timeout=30.0,
+        media_write_timeout=120.0,
+        http_version="1.1",
+    )
+    app = Application.builder().token(profile.token).request(request).post_init(post_init).build()
     app.bot_data["bot_config"] = profile
     install_tag_flow(task_handler)
     app.add_handler(TypeHandler(Update, bind_bot_context), group=-100)
@@ -242,7 +252,6 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(paginated_detail_page, pattern="^detail_page_"))
     app.add_handler(CallbackQueryHandler(download_csv, pattern="^download_csv"))
     app.add_handler(CallbackQueryHandler(paginated_sort_callback, pattern="^sort_"))
-    # Register the PDF callback before the broad report_* handler.
     app.add_handler(CallbackQueryHandler(calendar_pdf_callback, pattern="^report_calendar_pdf$"))
     app.add_handler(CallbackQueryHandler(reports_callback, pattern="^report_"))
     app.add_handler(CallbackQueryHandler(report_compare_months, pattern="^report_compare$"))
