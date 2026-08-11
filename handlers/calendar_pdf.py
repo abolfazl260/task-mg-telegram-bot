@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes
 
 from services.calendar_pdf_service import build_calendar_pdf
 from services.pdf_runtime import render_pdf_in_worker, warm_pdf_fonts
-from services.task_service import get_all_user_tasks_async
+from services.task_service import get_active_tasks_async
 
 logger = logging.getLogger(__name__)
 warm_pdf_fonts()
@@ -75,7 +75,10 @@ async def calendar_pdf_callback(update: Update, context: ContextTypes.DEFAULT_TY
     )
     pdf = None
     try:
-        tasks = await get_all_user_tasks_async(user_id)
+        # The monthly calendar is intentionally limited to active tasks only:
+        # pending + in_progress. The PDF service then restricts those tasks to
+        # the current Jalali month determined from the user's local date.
+        tasks = await get_active_tasks_async(user_id)
         pdf = await render_pdf_in_worker(build_calendar_pdf, tasks, user_id)
         await _send_calendar_pdf(query.message, pdf)
         await _edit_status(
