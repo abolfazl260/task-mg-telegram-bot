@@ -205,7 +205,7 @@ async def priority_selected(update, context):
     if 'new_task' not in context.user_data:
         context.user_data['new_task'] = {}
     context.user_data['new_task']['priority'] = priority
-    await query.message.reply_text('📅 زمان انجام را انتخاب کنید:\n(می\u200cتوانید بدون زمان\u200cبندی ثبت کنید)', reply_markup=deadline_keyboard())
+    await query.edit_message_text('📅 زمان انجام را انتخاب کنید:\n(می\u200cتوانید بدون زمان\u200cبندی ثبت کنید)', reply_markup=deadline_keyboard())
 
 async def deadline_selected(update, context):
     query = update.callback_query
@@ -478,10 +478,7 @@ async def comment_callback(update, context):
         return
     context.user_data['comment_task_id'] = task_id
     context.user_data['step'] = 'task_comment'
-    await query.message.reply_text(
-        '💬 کامنت خود را ارسال کنید؛ متن، عکس، صدا، فایل یا هر پیام تلگرامی پشتیبانی\u200cشده قابل ثبت است.',
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('❌ انصراف از ارسال کامنت', callback_data=f'comment_cancel_{task_id}')]])
-    )
+    await query.message.reply_text('💬 کامنت خود را ارسال کنید؛ متن، عکس، صدا، فایل یا هر پیام تلگرامی پشتیبانی\u200cشده قابل ثبت است.', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('❌ انصراف از ارسال کامنت', callback_data=f'comment_cancel_{task_id}')]]))
 
 async def comment_cancel_callback(update, context):
     query = update.callback_query
@@ -490,7 +487,6 @@ async def comment_cancel_callback(update, context):
     if context.user_data.get('step') == 'task_comment':
         context.user_data.pop('step', None)
     await query.message.edit_text('❌ ارسال کامنت لغو شد.')
-
 
 async def handle_comment_input(update, context):
     if context.user_data.get('step') != 'task_comment':
