@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from io import BytesIO
-
 from services.calendar_pdf_service import build_calendar_pdf
 from services.task_service import get_all_user_tasks
 
