@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 import re
@@ -97,9 +97,11 @@ def _truncate_to_width(c: canvas.Canvas, text: str, font: str, size: float, max_
 
 def _month_grid(year: int, month: int) -> list[list[jdatetime.date | None]]:
     first = jdatetime.date(year, month, 1)
-    days = first.month_length()
-    # jdatetime weekday follows Python's Monday=0 ... Sunday=6.
-    # Saturday is 5, therefore Saturday is the first visual column on the right.
+    if month == 12:
+        next_month = jdatetime.date(year + 1, 1, 1)
+    else:
+        next_month = jdatetime.date(year, month + 1, 1)
+    days = (next_month - timedelta(days=1)).day
     leading = (first.weekday() - 5) % 7
     cells: list[jdatetime.date | None] = [None] * leading
     cells.extend(jdatetime.date(year, month, day) for day in range(1, days + 1))
@@ -168,7 +170,6 @@ def build_calendar_pdf(tasks: list[dict], user_id: int) -> BytesIO:
     margin_bottom = 12 * mm
     title_h = 17 * mm
     header_h = 12 * mm
-    gap = 4 * mm
     grid_top = PAGE_H - margin_top - title_h
     grid_bottom = margin_bottom
     grid_h = grid_top - grid_bottom
@@ -181,11 +182,9 @@ def build_calendar_pdf(tasks: list[dict], user_id: int) -> BytesIO:
     col_w = (grid_w - col_gap * 6) / 7
     cell_h = (grid_h - header_gap - header_h - row_gap * (rows - 1)) / rows
 
-    # Header: month title on the right and a small task count on the left.
     _draw_rtl(c, f"{JALALI_MONTHS[month - 1]} {year}", PAGE_W - margin_x, PAGE_H - margin_top - 6 * mm, font, 16)
     _draw_rtl(c, f"{sum(len(v) for v in tasks_by_day.values())} تسک دارای موعد", margin_x, PAGE_H - margin_top - 6 * mm, font, 7.2, align="left")
 
-    # Weekday pills are visually RTL: Saturday is far right, Friday far left.
     for index, weekday in enumerate(WEEKDAYS):
         x = margin_x + (6 - index) * (col_w + col_gap)
         y = grid_top - header_h
@@ -212,8 +211,6 @@ def build_calendar_pdf(tasks: list[dict], user_id: int) -> BytesIO:
             border = BLUE if is_today else CELL_BORDER
             line_width = 1.35 if is_today else 0.55
             _round_rect(c, x, y, col_w, cell_h, 3 * mm, WHITE, border, line_width)
-
-            # Day number is intentionally top-right in the physical page.
             _draw_rtl(c, str(day.day), x + col_w - cell_pad_x, y + cell_h - cell_pad_top - day_font_size * 0.3528 * mm, font, day_font_size)
 
             titles = tasks_by_day.get(day.day, [])
