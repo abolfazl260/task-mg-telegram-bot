@@ -166,6 +166,12 @@ async def button_handler(update, context):
         await query.message.reply_text("⚠️ این قابلیت برای این ربات فعال نیست.")
         return
 
+    if data.startswith("view_tasks_") or data.startswith("tasks_filter_"):
+        from handlers.task_pagination import tasks_view_callback
+        # tasks_view_callback answers the callback itself for filter navigation.
+        # The initial answer above is harmless and keeps the UI responsive.
+        await tasks_view_callback(update, context)
+        return
     if data == "start_menu":
         await query.message.reply_text("منوی اصلی:", reply_markup=main_menu(context))
     elif data == "add_task":
