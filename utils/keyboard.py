@@ -4,20 +4,25 @@ import jdatetime
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from services.database import get_db
+from bot_context import get_current_bot_key
 
 
-async def recent_tag_keyboard(user_id: int, limit: int = 6):
-    """Build the tag-selection keyboard from the user's recently used tags."""
+async def recent_tag_keyboard(user_id: int, limit: int = 3):
+    """Build up to three unique tags from the user's latest tagged tasks."""
     db = await get_db()
+    bot_key = get_current_bot_key() or "default"
     async with db.conn.execute(
         """
         SELECT tags
         FROM tasks
-        WHERE user_id = ? AND tags IS NOT NULL AND TRIM(tags) <> ''
+        WHERE bot_key = ?
+          AND user_id = ?
+          AND tags IS NOT NULL
+          AND TRIM(tags) <> ''
         ORDER BY created_at DESC
-        LIMIT 100
+        LIMIT 20
         """,
-        (str(user_id),),
+        (bot_key, str(user_id)),
     ) as cursor:
         rows = await cursor.fetchall()
 
@@ -41,13 +46,15 @@ async def recent_tag_keyboard(user_id: int, limit: int = 6):
 
     rows = []
     for index in range(0, len(recent_tags), 2):
-        rows.append([
-            InlineKeyboardButton(
-                f"🏷 {tag}",
-                callback_data=f"tag_pick_{index + offset}",
+        row_buttons = []
+        for offset, tag in enumerate(recent_tags[index:index + 2]):
+            row_buttons.append(
+                InlineKeyboardButton(
+                    f"🏷 {tag}",
+                    callback_data=f"tag_pick_{index + offset}",
+                )
             )
-            for offset, tag in enumerate(recent_tags[index:index + 2])
-        ])
+        rows.append(row_buttons)
 
     rows.append([
         InlineKeyboardButton("➕ تایپ تگ جدید", callback_data="tag_new"),
@@ -68,11 +75,7 @@ def priority_keyboard():
 
 
 def deadline_keyboard():
-    """Show quick deadline choices for today and the next seven days.
-
-    Quick-select date buttons intentionally have no emojis. Only the three
-    action buttons below retain their emojis.
-    """
+    """Show quick deadline choices for today and the next seven days."""
     today = datetime.now().date()
     rows = []
 
@@ -91,23 +94,14 @@ def deadline_keyboard():
         InlineKeyboardButton(date_label(0), callback_data="deadline_0"),
         InlineKeyboardButton(date_label(1), callback_data="deadline_1"),
     ])
-
     for start in (2, 4, 6):
         rows.append([
             InlineKeyboardButton(date_label(start), callback_data=f"deadline_{start}"),
             InlineKeyboardButton(date_label(start + 1), callback_data=f"deadline_{start + 1}"),
         ])
-
-    rows.append([
-        InlineKeyboardButton("🕐 انتخاب تاریخ و زمان", callback_data="deadline_custom"),
-    ])
-    rows.append([
-        InlineKeyboardButton("⏭ بدون زمان‌بندی", callback_data="deadline_none"),
-    ])
-    rows.append([
-        InlineKeyboardButton("🔙 مرحله قبل", callback_data="step_back_priority"),
-    ])
-
+    rows.append([InlineKeyboardButton("🕐 انتخاب تاریخ و زمان", callback_data="deadline_custom")])
+    rows.append([InlineKeyboardButton("⏭ بدون زمان‌بندی", callback_data="deadline_none")])
+    rows.append([InlineKeyboardButton("🔙 مرحله قبل", callback_data="step_back_priority")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -123,9 +117,7 @@ def assignment_grid_keyboard(user_id: int | None = None):
             InlineKeyboardButton("🔎 جستجوی کاربر", callback_data="assign_search"),
             InlineKeyboardButton("⏭ بدون مسئول", callback_data="assign_none"),
         ],
-        [
-            InlineKeyboardButton("🔙 بازگشت", callback_data="step_back_tags"),
-        ],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="step_back_tags")],
     ])
 
 
@@ -136,7 +128,6 @@ def task_action_keyboard(task_id: str, current_status: str = "pending", bot_prof
         labels = bot_profile.workflow.get("actions", {})
 
     buttons = []
-
     status_row = []
     if current_status == "pending":
         status_row.append(InlineKeyboardButton(labels.get("start", "🚀 شروع"), callback_data=f"start_{task_id}"))
@@ -156,5 +147,4 @@ def task_action_keyboard(task_id: str, current_status: str = "pending", bot_prof
         InlineKeyboardButton(labels.get("owner", "👤 تغییر مسئول"), callback_data=f"owner_{task_id}"),
         InlineKeyboardButton(labels.get("take", "🙋‍♂️ برعهده گرفتن"), callback_data=f"take_{task_id}"),
     ])
-
     return InlineKeyboardMarkup(buttons)
