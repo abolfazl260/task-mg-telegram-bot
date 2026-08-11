@@ -4,7 +4,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest
 
 from services.team_service import get_user_teams, get_team_members, member_display
-from utils.keyboard import recent_tag_keyboard, assignment_grid_keyboard
+from services.database import get_db
+from utils.keyboard import recent_tag_keyboard, assignment_grid_keyboard, task_action_keyboard
 
 
 def _split_tags(raw):
@@ -44,14 +45,50 @@ async def handle_tag_text(update, context):
     return await callback(update, context)
 
 
-async def _safe_edit(query, text, reply_markup=None):
-    """Edit a callback message without crashing on Telegram's no-op error."""
+async def _safe_edit(query, text, reply_markup=None, parse_mode=None):
+    """Edit a callback message without crashing on Telegram no-op errors."""
     try:
-        return await query.edit_message_text(text, reply_markup=reply_markup)
+        return await query.edit_message_text(
+            text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
     except BadRequest as exc:
         if "Message is not modified" in str(exc):
             return None
         raise
+
+
+async def _quick_stats(user_id):
+    """Return a compact personal task summary."""
+    db = await get_db()
+    async with db.conn.execute(
+        "SELECT COUNT(*) FROM tasks WHERE user_id = ?",
+        (str(user_id),),
+    ) as cursor:
+        created = int((await cursor.fetchone())[0] or 0)
+    async with db.conn.execute(
+        "SELECT COUNT(*) FROM tasks WHERE user_id = ? AND status = 'done'",
+        (str(user_id),),
+    ) as cursor:
+        done = int((await cursor.fetchone())[0] or 0)
+    async with db.conn.execute(
+        "SELECT COUNT(*) FROM tasks WHERE user_id = ? AND status = 'in_progress'",
+        (str(user_id),),
+    ) as cursor:
+        in_progress = int((await cursor.fetchone())[0] or 0)
+    async with db.conn.execute(
+        "SELECT COUNT(*) FROM tasks WHERE user_id = ? AND status = 'pending'",
+        (str(user_id),),
+    ) as cursor:
+        pending = int((await cursor.fetchone())[0] or 0)
+    return (
+        "📊 آمار کوتاه شما\n"
+        f"📝 ایجاد شده: {created}\n"
+        f"✅ انجام شده: {done}\n"
+        f"🚀 در حال انجام: {in_progress}\n"
+        f"⏳ در انتظار: {pending}"
+    )
 
 
 def install_tag_flow(task_module):
@@ -61,6 +98,7 @@ def install_tag_flow(task_module):
     task_module._smart_tag_flow_installed = True
     original_assignment_callback = task_module.assignment_callback
     original_save_task = task_module.save_task
+    original_finalize_task = task_module._finalize_task
 
     async def ask_tags(message, context):
         context.user_data["step"] = "tags"
@@ -110,13 +148,41 @@ def install_tag_flow(task_module):
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
 
+    async def _show_created_task(query, context, task_id):
+        """Replace the short success message with the complete created task card."""
+        if not task_id:
+            return
+        try:
+            task = await task_module.get_task_by_id_async(task_id)
+            if not task:
+                return
+            card = await task_module.format_task_card(task)
+            stats = await _quick_stats(update_user_id := query.from_user.id)
+            keyboard = task_action_keyboard(
+                task.get("id", task_id),
+                task.get("status", "pending"),
+                context.bot_data.get("bot_config"),
+            )
+            await _safe_edit(query, f"{card}\n\n{stats}", reply_markup=keyboard, parse_mode="Markdown")
+        except Exception:
+            # Task creation has already succeeded; never turn a display problem into
+            # a failed task creation flow.
+            logger = getattr(task_module, "logger", None)
+            if logger:
+                logger.exception("Failed to render created task card")
+
+    async def finalize_task_with_tracking(user_id, task):
+        task_id = await original_finalize_task(user_id, task)
+        task["created_task_id"] = task_id
+        return task_id
+
     async def assignment_callback(update, context):
         query = update.callback_query
         data = query.data or ""
         uid = update.effective_user.id
         await query.answer()
 
-        if data == "assign_self":
+        if data in ("assign_self",) or data.startswith("assign_self_"):
             user = update.effective_user
             task = context.user_data.setdefault("new_task", {})
             task["assignee"] = {
@@ -127,7 +193,7 @@ def install_tag_flow(task_module):
             await _show_assignment_summary(query, context)
             return
 
-        if data == "assign_team":
+        if data in ("assign_team", "assign_teams"):
             await _show_team_picker(query, uid)
             return
 
@@ -170,7 +236,7 @@ def install_tag_flow(task_module):
                 [InlineKeyboardButton(f"🖼 {member_display(member)}", callback_data=f"assign_member_{member.get('user_id')}")]
                 for member in members
             ]
-            keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="assign_team")])
+            keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="assign_team" )])
             await _safe_edit(
                 query,
                 "👥 عضو تیم را انتخاب کنید:",
@@ -200,6 +266,15 @@ def install_tag_flow(task_module):
         if data == "assign_cancel_create":
             context.user_data.clear()
             await _safe_edit(query, "❌ ایجاد تسک لغو شد.")
+            return
+
+        if data == "assign_confirm_create":
+            # The original callback performs validation and creation. We only add
+            # the post-create rendering after it has completed successfully.
+            await original_assignment_callback(update, context)
+            task = context.user_data.get("new_task") or {}
+            await _show_created_task(query, context, task.get("created_task_id"))
+            context.user_data.pop("created_task_id", None)
             return
 
         return await original_assignment_callback(update, context)
@@ -267,6 +342,7 @@ def install_tag_flow(task_module):
                 )
 
     async def _handle_tag_text(update, context):
+        """Handle the text immediately after pressing «تایپ تگ جدید»."""
         if context.user_data.get("step") != "tags":
             return False
         task = context.user_data.get("new_task")
@@ -292,6 +368,7 @@ def install_tag_flow(task_module):
     task_module._handle_tag_callback = handle_tag_callback
     task_module._handle_tag_text = _handle_tag_text
     task_module.save_task = save_task_with_tag_text
+    task_module._finalize_task = finalize_task_with_tracking
 
     main_module = sys.modules.get("main")
     if main_module is not None:
