@@ -30,7 +30,7 @@ from handlers.guest import handle_guest_task
 from handlers.ai import ai_command
 from handlers.business import handle_business_connection, handle_business_message, handle_deleted_business_messages, handle_edited_business_message
 from handlers.jira import jira_start, jira_type, jira_url, jira_identity, jira_credential, jira_project, jira_cancel, jira_disconnect_command, jira_status_command, JIRA_TYPE, JIRA_URL, JIRA_IDENTITY, JIRA_CREDENTIAL, JIRA_PROJECT
-from handlers.tag_suggestions import handle_tag_callback, handle_tag_text, safe_assignment_confirm, install_tag_flow
+from handlers.tag_suggestions import handle_tag_text, safe_assignment_confirm, install_tag_flow
 from handlers.calendar_pdf import calendar_pdf_callback
 import handlers.task as task_handler
 import handlers.reports as reports_handler
@@ -40,6 +40,7 @@ from services import calendar_runtime_extensions
 from services import calendar_reports_v2
 from services import calendar_report_legacy
 from services.database import init_db
+
 
 task_handler.format_task_card = calendar_runtime_extensions.format_task_card
 task_handler.build_full_report = calendar_runtime_extensions.build_full_report
@@ -52,9 +53,18 @@ reports_handler.report_week = calendar_runtime.report_week
 reports_handler.report_heatmap = calendar_reports_v2.report_heatmap
 reports_handler.report_heatmap_week = calendar_runtime.report_heatmap_week
 reports_handler.report_today = calendar_runtime.report_today
-extra_reports_handler.report_compare_months = calendar_runtime.report_compare_months
-report_compare_months = calendar_runtime.report_compare_months
+extra_reports_handler.report_compare_months = calendar_runtime.compare_months
+report_compare_months = calendar_runtime.compare_months
 deadline_selected = calendar_runtime_extensions.deadline_selected
+
+
+async def handle_tag_callback(update, context):
+    """Dispatch tag callbacks after install_tag_flow has installed the async handler."""
+    callback = getattr(task_handler, "_handle_tag_callback", None)
+    if callback is None:
+        await update.callback_query.answer("بخش تگ‌ها آماده نیست.", show_alert=True)
+        return
+    return await callback(update, context)
 
 
 def _add_calendar_pdf_button(markup):
@@ -260,7 +270,7 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(templates_callback, pattern="^tpl_"))
     app.add_handler(CallbackQueryHandler(priority_selected, pattern="^priority_"))
     app.add_handler(CallbackQueryHandler(deadline_selected, pattern="^deadline_"))
-    app.add_handler(CallbackQueryHandler(handle_tag_callback, pattern="^tags_"))
+    app.add_handler(CallbackQueryHandler(handle_tag_callback, pattern="^(tag_|tags_|step_back_description)$"))
     app.add_handler(CallbackQueryHandler(optional_field_callback, pattern="^(category_pick_|category_skip|description_skip)"))
     app.add_handler(CallbackQueryHandler(share_category_callback, pattern="^share_cat_"))
     app.add_handler(CallbackQueryHandler(import_callback, pattern="^import_"))
@@ -271,7 +281,7 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(integration_callback, pattern="^int_"))
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
-    app.add_handler(CallbackQueryHandler(button_handler, pattern="^(?!priority_|deadline_|category_pick_|category_skip|tags_|description_skip|detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|task_details_|task_history_|comment_add_|comment_cancel_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_|custombot_|int_)"))
+    app.add_handler(CallbackQueryHandler(button_handler, pattern="^(?!priority_|deadline_|category_pick_|category_skip|tag_|tags_|step_back_description|description_skip|detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|task_details_|task_history_|comment_add_|comment_cancel_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_|custombot_|int_)"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, save_task), group=0)
     app.add_error_handler(error_handler)
     return app
