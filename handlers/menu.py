@@ -38,22 +38,30 @@ def main_menu(context=None):
 
 
 def tasks_options_keyboard(context=None):
-    """Sub-menu when user taps Tasks — choose what to do first."""
+    """Compact Tasks submenu: one full-width row, then paired rows, then back."""
     profile = _bot_profile(context)
     rows = [
         [InlineKeyboardButton("📋 لیست تسک‌های فعال", callback_data="tasks_list")],
-        [InlineKeyboardButton("📅 مرتب‌سازی بر اساس ددلاین", callback_data="sort_deadline")],
-        [InlineKeyboardButton("🎯 مرتب‌سازی بر اساس اولویت", callback_data="sort_priority")],
-        [InlineKeyboardButton("🕐 مرتب‌سازی بر اساس تاریخ ایجاد", callback_data="sort_created")],
-        [InlineKeyboardButton("🏷 بر اساس تگ", callback_data="report_tags")],
-        [InlineKeyboardButton("📂 بر اساس دسته‌بندی", callback_data="report_category")],
-        [InlineKeyboardButton("👤 بر اساس مسئول", callback_data="report_assignee")],
-        [InlineKeyboardButton("📆 بر اساس هفته جاری", callback_data="report_week")],
-        [InlineKeyboardButton("📥 خروجی Excel", callback_data="download_csv")],
+        [
+            InlineKeyboardButton("📅 بر اساس ددلاین", callback_data="sort_deadline"),
+            InlineKeyboardButton("🎯 بر اساس اولویت", callback_data="sort_priority"),
+        ],
+        [
+            InlineKeyboardButton("🕒 تاریخ ایجاد", callback_data="sort_created"),
+            InlineKeyboardButton("📅 هفته جاری", callback_data="report_week"),
+        ],
+        [
+            InlineKeyboardButton("🏷 بر اساس تگ", callback_data="report_tags"),
+            InlineKeyboardButton("📁 دسته‌بندی", callback_data="report_category"),
+        ],
+        [
+            InlineKeyboardButton("👤 بر اساس مسئول", callback_data="report_assignee"),
+            InlineKeyboardButton("📥 خروجی Excel", callback_data="download_csv"),
+        ],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="tasks_back")],
     ]
     if profile is not None and not profile.feature_enabled("unassigned"):
-        rows = [row for row in rows if "مسئول" not in row[0].text]
-    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="tasks_back")])
+        rows[4] = [rows[4][1]]
     return InlineKeyboardMarkup(rows)
 
 
@@ -179,7 +187,10 @@ async def button_handler(update, context):
         from handlers.help import help_command
         await help_command(update, context)
     elif data == "tasks":
-        await query.message.reply_text("📋 بخش تسک‌ها\n\nچه کاری می‌خواهید انجام دهید؟", reply_markup=tasks_options_keyboard(context))
+        await query.message.reply_text(
+            "📋 بخش مدیریت تسک‌ها\n\nجهت مشاهده، مرتب‌سازی یا دریافت خروجی، یکی از گزینه‌های زیر را انتخاب کنید:",
+            reply_markup=tasks_options_keyboard(context),
+        )
     elif data == "tasks_list":
         from handlers.task import list_tasks
         await list_tasks(update, context)
