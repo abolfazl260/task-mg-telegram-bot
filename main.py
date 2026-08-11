@@ -284,7 +284,10 @@ def build_application(profile):
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
     app.add_handler(CallbackQueryHandler(button_handler, pattern="^(?!priority_|deadline_|category_pick_|category_skip|tag_|tags_|step_back_description|description_skip|detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|task_details_|task_history_|comment_add_|comment_cancel_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_|custombot_|int_)"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, save_task, ), group=0)
+    # Use the same unified text-entry flow as the category step. The tag
+    # handler consumes tag text when step == tags and delegates every other
+    # step to the normal save_task handler.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_tag_text), group=0)
     app.add_error_handler(error_handler)
     return app
 
