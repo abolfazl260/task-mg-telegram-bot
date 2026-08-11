@@ -24,12 +24,17 @@ def _top_assignees(user_id, limit=3):
 
 
 async def handle_tag_text(update, context):
-    """Public dispatcher kept for main.py startup compatibility."""
+    """Unified text entry point: tags first, then the normal task text flow."""
     from handlers import task as task_module
-    callback = getattr(task_module, "_handle_tag_text", None)
-    if callback is None:
-        return False
-    return await callback(update, context)
+
+    if context.user_data.get("step") == "tags":
+        callback = getattr(task_module, "_handle_tag_text", None)
+        if callback is not None and await callback(update, context):
+            return True
+
+    # Category, title, deadline, description, assignment search, etc. keep
+    # using the exact same save_task flow as before.
+    return await task_module.save_task(update, context)
 
 
 async def _safe_edit(query, text, reply_markup=None, parse_mode=None):
@@ -56,7 +61,7 @@ async def _quick_stats(user_id):
 
 
 def install_tag_flow(task_module):
-    """Install the tag/assignment flow without replacing the message router."""
+    """Install the tag/assignment flow while keeping the normal text router."""
     if getattr(task_module, "_smart_tag_flow_installed", False):
         return
     task_module._smart_tag_flow_installed = True
@@ -192,9 +197,12 @@ def install_tag_flow(task_module):
             await _safe_edit(query, "📄 توضیح / یادداشت را وارد کنید یا دکمه «رد کردن» را بزنید:\n(اختیاری)", reply_markup=description_keyboard)
             return
         if data in ("tag_new", "tags_new"):
+            # Same pattern as category: keep the step at `tags` and let the
+            # normal text handler receive the next message. No special second
+            # text handler or hidden state is required.
             context.user_data["step"] = "tags"
             context.user_data["awaiting_tag_input"] = True
-            await query.message.reply_text("🏷 تگ جدید را وارد کنید:")
+            await _safe_edit(query, "🏷 تگ جدید را وارد کنید:")
             return
         if data == "step_back_description":
             context.user_data["step"] = "description"
@@ -238,10 +246,9 @@ def install_tag_flow(task_module):
     task_module._handle_tag_text = _handle_tag_text
     task_module._finalize_task = finalize_task_with_tracking
 
-    # main.py imports save_task directly, so replacing task_module.save_task alone
-    # does not replace the already-resolved global used by build_application().
-    # Patch that module global after install_tag_flow() and wrap the existing
-    # save_task so tag text is handled before the generic text router.
+    # Keep the compatibility patch for code that still imports save_task from
+    # main.py. The actual application now registers handle_tag_text as the
+    # unified text entry point, so this is only a safe fallback.
     main_module = sys.modules.get("main")
     if main_module is not None:
         original_save_task = getattr(main_module, "save_task", None)
