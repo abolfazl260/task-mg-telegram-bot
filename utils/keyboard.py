@@ -1,5 +1,57 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from services.database import get_db
+
+
+async def recent_tag_keyboard(user_id: int, limit: int = 4):
+    """Build the tag-selection keyboard from the user's most recently used tags."""
+    db = await get_db()
+    async with db.conn.execute(
+        """
+        SELECT tags
+        FROM tasks
+        WHERE user_id = ? AND tags IS NOT NULL AND TRIM(tags) <> ''
+        ORDER BY created_at DESC
+        LIMIT 100
+        """,
+        (str(user_id),),
+    ) as cursor:
+        rows = await cursor.fetchall()
+
+    recent_tags = []
+    seen = set()
+    for row in rows:
+        raw = row[0] or ""
+        for tag in str(raw).replace("\n", ",").replace("،", ",").split(","):
+            tag = tag.strip().lstrip("#")
+            if not tag:
+                continue
+            key = tag.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            recent_tags.append(tag)
+            if len(recent_tags) >= limit:
+                break
+        if len(recent_tags) >= limit:
+            break
+
+    rows = []
+    for index in range(0, len(recent_tags), 2):
+        rows.append([
+            InlineKeyboardButton(f"🏷 {tag}", callback_data=f"tag_pick_{index + offset}")
+            for offset, tag in enumerate(recent_tags[index:index + 2])
+        ])
+
+    rows.append([
+        InlineKeyboardButton("➕ تایپ تگ جدید", callback_data="tag_new"),
+    ])
+    rows.append([
+        InlineKeyboardButton("⏭ بدون تگ (رد شدن)", callback_data="tag_none"),
+        InlineKeyboardButton("🔙 مرحله قبل", callback_data="step_back_description"),
+    ])
+    return InlineKeyboardMarkup(rows), recent_tags
+
 
 def priority_keyboard():
     return InlineKeyboardMarkup([
@@ -22,6 +74,22 @@ def deadline_keyboard():
         [
             InlineKeyboardButton("♾️ بدون زمان‌بندی", callback_data="deadline_none"),
             InlineKeyboardButton("✍️ تاریخ دقیق", callback_data="deadline_custom"),
+        ],
+    ])
+
+
+def assignment_grid_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🙋‍♂️ خودم", callback_data="assign_self"),
+            InlineKeyboardButton("👥 هم‌تیمی‌ها", callback_data="assign_team"),
+        ],
+        [
+            InlineKeyboardButton("🔎 جستجوی کاربر", callback_data="assign_search"),
+            InlineKeyboardButton("⏭ بدون مسئول", callback_data="assign_none"),
+        ],
+        [
+            InlineKeyboardButton("🔙 بازگشت", callback_data="step_back_tags"),
         ],
     ])
 
