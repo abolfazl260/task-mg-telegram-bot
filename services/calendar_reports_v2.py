@@ -55,7 +55,6 @@ async def report_calendar(update, context):
     text = f"# 📅 تقویم تسک‌ها — {_month_title(user_id)}\n\n"
     text += "| شنبه | یکشنبه | دوشنبه | سه‌شنبه | چهارشنبه | پنجشنبه | جمعه |\n|---|---|---|---|---|---|---|\n"
     weeks = [[]]
-    # Python weekday: Monday=0. Telegram table starts Saturday=5.
     first = month_days[0]
     leading = (first.weekday() - 5) % 7
     weeks[0] = [None] * leading
@@ -136,3 +135,37 @@ async def report_heatmap(update, context):
         text += "| " + " | ".join(cells) + " |\n"
     text += "\n\n📌 مرز ماه و شماره روزها بر اساس تقویم انتخاب‌شده محاسبه شده و تاریخ‌های داخلی همچنان Gregorian هستند."
     await context.bot._post("sendRichMessage", data={"chat_id": update.effective_chat.id, "rich_message": {"markdown": text}})
+
+
+
+def _install_calendar_pdf_routes() -> None:
+    """Add the PDF export to the existing reports UI without changing its dispatcher contract."""
+    from handlers import reports as reports_handler
+    from handlers.calendar_pdf import calendar_pdf_callback
+
+    if getattr(reports_handler, "_calendar_pdf_routes_installed", False):
+        return
+
+    original_menu = reports_handler.reports_menu_keyboard
+
+    def reports_menu_with_calendar_pdf():
+        markup = original_menu()
+        rows = [list(row) for row in markup.inline_keyboard]
+        if not any(button.callback_data == "report_calendar_pdf" for row in rows for button in row):
+            rows.append([reports_handler.InlineKeyboardButton("📄 خروجی PDF تقویم ماهانه", callback_data="report_calendar_pdf")])
+        return reports_handler.InlineKeyboardMarkup(rows)
+
+    original_callback = reports_handler.reports_callback
+
+    async def reports_callback_with_calendar_pdf(update, context):
+        if update.callback_query and update.callback_query.data == "report_calendar_pdf":
+            await calendar_pdf_callback(update, context)
+            return
+        await original_callback(update, context)
+
+    reports_handler.reports_menu_keyboard = reports_menu_with_calendar_pdf
+    reports_handler.reports_callback = reports_callback_with_calendar_pdf
+    reports_handler._calendar_pdf_routes_installed = True
+
+
+_install_calendar_pdf_routes()
