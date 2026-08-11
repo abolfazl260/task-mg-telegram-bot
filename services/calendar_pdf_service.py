@@ -23,8 +23,6 @@ NAVY = "#1E293B"
 BLUE = "#2563EB"
 CELL_BORDER = "#CBD5E1"
 WHITE = "#FFFFFF"
-TEXT = "#0F172A"
-MUTED = "#64748B"
 BADGE_BG = "#F1F5F9"
 BADGE_BORDER = "#E2E8F0"
 WEEKDAYS = ("شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه")
@@ -36,11 +34,15 @@ ACTIVE_STATUSES = {"pending", "in_progress"}
 
 
 def _font_path() -> Path:
+    """Prefer the bundled Persian font, then use common system fallbacks."""
+    project_root = Path(__file__).resolve().parent.parent
     candidates = (
+        project_root / "fonts" / "Vazirmatn.ttf",
         Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
         Path("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
         Path("/Library/Fonts/Arial Unicode.ttf"),
         Path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
+        Path("/Library/Fonts/Supplemental/Arial.ttf"),
     )
     for path in candidates:
         if path.exists():
@@ -106,12 +108,7 @@ def _month_grid(year: int, month: int) -> list[list[jdatetime.date | None]]:
 
 
 def _task_map(tasks: list[dict], year: int, month: int) -> dict[int, list[str]]:
-    """Map only active tasks whose deadline belongs to the requested Jalali month.
-
-    The handler already supplies active tasks, but the service enforces the
-    rule again so this renderer cannot accidentally show done/cancelled tasks
-    when called from another code path.
-    """
+    """Keep only active tasks whose Gregorian deadline maps to this Jalali month."""
     result: dict[int, list[str]] = defaultdict(list)
     for task in tasks:
         if str(task.get("status") or "").strip().lower() not in ACTIVE_STATUSES:
@@ -153,13 +150,11 @@ def _draw_badge(c: canvas.Canvas, title: str, x: float, y: float, w: float, h: f
 
 
 def build_calendar_pdf(tasks: list[dict], user_id: int) -> BytesIO:
-    """Build exactly one A3 landscape calendar for the user's current Jalali month."""
+    """Build the single canonical A3 landscape PDF for the user's current month."""
     today_gregorian = user_today(user_id)
     today_jalali = jdatetime.date.fromgregorian(date=today_gregorian)
     year, month = today_jalali.year, today_jalali.month
 
-    # Never infer the calendar year from user_id. user_id is only used to
-    # resolve the user's local current date through user_today().
     weeks = _month_grid(year, month)
     tasks_by_day = _task_map(tasks, year, month)
     font = _register_font()
@@ -177,17 +172,17 @@ def build_calendar_pdf(tasks: list[dict], user_id: int) -> BytesIO:
     margin_bottom = 12 * mm
     title_h = 17 * mm
     header_h = 12 * mm
+    header_gap = 4 * mm
     grid_top = PAGE_H - margin_top - title_h
     grid_bottom = margin_bottom
-    grid_h = grid_top - grid_bottom
-    header_gap = 4 * mm
     cells_top = grid_top - header_h - header_gap
     rows = len(weeks)
     row_gap = 3 * mm
     col_gap = 3 * mm
     grid_w = PAGE_W - 2 * margin_x
     col_w = (grid_w - col_gap * 6) / 7
-    cell_h = (grid_h - header_gap - header_h - row_gap * (rows - 1)) / rows
+    cells_h = cells_top - grid_bottom
+    cell_h = (cells_h - row_gap * (rows - 1)) / rows
 
     _draw_rtl(c, f"{JALALI_MONTHS[month - 1]} {year}", PAGE_W - margin_x, PAGE_H - margin_top - 6 * mm, font, 16)
     _draw_rtl(c, f"{sum(len(v) for v in tasks_by_day.values())} تسک فعال", margin_x, PAGE_H - margin_top - 6 * mm, font, 7.2, align="left")
@@ -204,7 +199,8 @@ def build_calendar_pdf(tasks: list[dict], user_id: int) -> BytesIO:
     cell_pad_top = 4 * mm
     cell_pad_bottom = 3.5 * mm
     day_font_size = 9.5
-    max_badges = max(0, int((cell_h - cell_pad_top - cell_pad_bottom - day_font_size * 0.3528 * mm - 4 * mm) // (badge_h + badge_gap)))
+    day_height = day_font_size * 0.3528 * mm
+    max_badges = max(0, int((cell_h - cell_pad_top - cell_pad_bottom - day_height - 4 * mm) // (badge_h + badge_gap)))
 
     for row_index, week in enumerate(weeks):
         y = cells_top - row_index * (cell_h + row_gap) - cell_h
@@ -215,15 +211,13 @@ def build_calendar_pdf(tasks: list[dict], user_id: int) -> BytesIO:
                 continue
 
             is_today = day.year == today_jalali.year and day.month == today_jalali.month and day.day == today_jalali.day
-            border = BLUE if is_today else CELL_BORDER
-            line_width = 1.35 if is_today else 0.55
-            _round_rect(c, x, y, col_w, cell_h, 3 * mm, WHITE, border, line_width)
-            _draw_rtl(c, str(day.day), x + col_w - cell_pad_x, y + cell_h - cell_pad_top - day_font_size * 0.3528 * mm, font, day_font_size)
+            _round_rect(c, x, y, col_w, cell_h, 3 * mm, WHITE, BLUE if is_today else CELL_BORDER, 1.35 if is_today else 0.55)
+            _draw_rtl(c, str(day.day), x + col_w - cell_pad_x, y + cell_h - cell_pad_top - day_height, font, day_font_size)
 
             titles = tasks_by_day.get(day.day, [])
             visible = min(len(titles), max_badges)
             badge_w = col_w - 2 * cell_pad_x
-            badge_y = y + cell_h - cell_pad_top - day_font_size * 0.3528 * mm - 6 * mm - badge_h
+            badge_y = y + cell_h - cell_pad_top - day_height - 6 * mm - badge_h
             for title in titles[:visible]:
                 _draw_badge(c, title, x + cell_pad_x, badge_y, badge_w, badge_h, font)
                 badge_y -= badge_h + badge_gap
