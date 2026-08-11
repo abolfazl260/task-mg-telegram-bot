@@ -3,6 +3,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from services.task_service import (
     get_active_tasks_async,
     get_unassigned_tasks_async,
+    get_task_dashboard_counts_async,
     user_can_modify_task_async,
 )
 from handlers.task import (
@@ -15,7 +16,7 @@ from handlers.task import (
 
 
 def tasks_view_menu_keyboard():
-    """First screen for /tasks: never fetch or render task cards here."""
+    """First screen for /tasks: filter menu only; task cards are never dumped here."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 فهرست کل وظایف", callback_data="view_tasks_all")],
         [
@@ -34,12 +35,21 @@ def tasks_view_menu_keyboard():
 
 
 async def paginated_list_tasks(update, context):
-    """Handle /tasks by showing only the filter-selection menu."""
+    """Handle /tasks by showing the dynamic mini dashboard and filter menu only."""
     context.user_data.pop("tasks_filter", None)
+    stats = await get_task_dashboard_counts_async(update.effective_user.id)
+
+    text = (
+        "📊 خلاصه وضعیت شما\n"
+        f"🔹 تسک‌های در جریان: {stats['count_active']}\n"
+        f"☀️ برنامه امروز: {stats['count_today']} تسک\n"
+        f"🔥 عقب‌افتاده: {stats['count_overdue']} وظیفه (نیاز به پیگیری!)\n\n"
+        "👇 برای مشاهده لیست و مدیریت کارها، یک گزینه را انتخاب کنید:"
+    )
+
     await update.effective_message.reply_text(
-        "📋 **نحوه نمایش وظایف را انتخاب کنید:**",
+        text,
         reply_markup=tasks_view_menu_keyboard(),
-        parse_mode="Markdown",
     )
 
 
@@ -118,7 +128,6 @@ async def _show_filter_choices(update, context, kind):
     for index in range(0, len(options), 2):
         row = []
         for label, value in options[index:index + 2]:
-            # Keep callback data within Telegram's 64-byte limit.
             safe_value = str(value)[:35]
             row.append(InlineKeyboardButton(label[:30], callback_data=f"{callback_prefix}{safe_value}"))
         rows.append(row)
