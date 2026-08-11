@@ -1,12 +1,15 @@
 """Handler bootstrap hooks kept isolated from the application entry point."""
 
+from weakref import WeakKeyDictionary
+
 from telegram.ext import Application, CallbackQueryHandler
 
 _original_add_handler = Application.add_handler
+_bootstrapped_applications = WeakKeyDictionary()
 
 
 def _bootstrap_application(application: Application) -> None:
-    if getattr(application, "_kanban_pdf_bootstrapped", False):
+    if application in _bootstrapped_applications:
         return
 
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -39,7 +42,7 @@ def _bootstrap_application(application: Application) -> None:
         CallbackQueryHandler(access_settings_callback, pattern="^(settings_permissions|perm_toggle_[0-9]+)$"),
         group=-50,
     )
-    application._kanban_pdf_bootstrapped = True
+    _bootstrapped_applications[application] = True
 
 
 def _add_handler_with_bootstrap(self, handler, group=0):
