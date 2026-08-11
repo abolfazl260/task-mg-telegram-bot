@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 
 from bot_context import get_current_bot_key
-from services.database import fetch_all, fetch_one, execute, transaction, sync_all, sync_execute
+from services.database import fetch_all, fetch_one, execute, transaction, sync_all, sync_execute, get_db
 from services.team_service import aget_user_teams, acan_edit, ais_member, aget_team
 
 VALID_STATUSES = {"pending", "in_progress", "done", "cancelled"}
@@ -22,27 +22,23 @@ async def read_tasks_async(): return await fetch_all("tasks","bot_key=?",(_bot()
 async def get_task_dashboard_counts_async(user_id: int) -> dict[str, int]:
     """Return lightweight /tasks dashboard counts without loading task objects."""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    row = await fetch_one(
-        """
+    db = await get_db()
+    query = """
         SELECT
-            COUNT(CASE WHEN status IN ('pending', 'in_progress') THEN 1 END) AS count_active,
-            COUNT(CASE
-                WHEN substr(COALESCE(deadline, ''), 1, 10) = ?
-                 AND status NOT IN ('done', 'cancelled') THEN 1
-            END) AS count_today,
-            COUNT(CASE
-                WHEN substr(COALESCE(deadline, ''), 1, 10) < ?
-                 AND status NOT IN ('done', 'cancelled') THEN 1
-            END) AS count_overdue
+            SUM(CASE WHEN status IN ('pending', 'in_progress') THEN 1 ELSE 0 END) AS count_active,
+            SUM(CASE WHEN substr(COALESCE(deadline, ''), 1, 10) = ?
+                      AND status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END) AS count_today,
+            SUM(CASE WHEN substr(COALESCE(deadline, ''), 1, 10) < ?
+                      AND status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END) AS count_overdue
         FROM tasks
         WHERE bot_key = ? AND user_id = ?
-        """,
-        (today, today, _bot(), str(user_id)),
-    )
+    """
+    async with db.conn.execute(query, (today, today, _bot(), str(user_id))) as cursor:
+        row = await cursor.fetchone()
     return {
-        "count_active": int((row or {}).get("count_active") or 0),
-        "count_today": int((row or {}).get("count_today") or 0),
-        "count_overdue": int((row or {}).get("count_overdue") or 0),
+        "count_active": int((row[0] if row else 0) or 0),
+        "count_today": int((row[1] if row else 0) or 0),
+        "count_overdue": int((row[2] if row else 0) or 0),
     }
 
 async def save_task_async(data):
