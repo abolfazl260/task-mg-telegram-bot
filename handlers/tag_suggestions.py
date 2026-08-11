@@ -8,23 +8,10 @@ from services.database import get_db
 from utils.keyboard import recent_tag_keyboard, assignment_grid_keyboard, task_action_keyboard
 
 
-def _split_tags(raw):
-    if not raw:
-        return []
-    return [
-        item.strip().lstrip("#")
-        for item in str(raw).replace("\n", ",").replace("،", ",").split(",")
-        if item.strip()
-    ]
-
-
 def _visible_members(user_id):
     members = {}
-    for item in get_user_teams(user_id):
-        team_id = (item.get("team") or {}).get("team_id")
-        if not team_id:
-            continue
-        for member in get_team_members(team_id):
+    for team in get_user_teams(user_id):
+        for member in get_team_members(team.get("team_id")):
             uid = str(member.get("user_id") or "")
             if uid:
                 members[uid] = member
@@ -56,7 +43,6 @@ async def _safe_edit(query, text, reply_markup=None, parse_mode=None):
 
 
 async def _quick_stats(user_id):
-    """Return a compact personal task summary."""
     db = await get_db()
     async with db.conn.execute("SELECT COUNT(*) FROM tasks WHERE user_id = ?", (str(user_id),)) as cursor:
         created = int((await cursor.fetchone())[0] or 0)
@@ -66,22 +52,15 @@ async def _quick_stats(user_id):
         in_progress = int((await cursor.fetchone())[0] or 0)
     async with db.conn.execute("SELECT COUNT(*) FROM tasks WHERE user_id = ? AND status = 'pending'", (str(user_id),)) as cursor:
         pending = int((await cursor.fetchone())[0] or 0)
-    return (
-        "📊 آمار کوتاه شما\n"
-        f"📝 ایجاد شده: {created}\n"
-        f"✅ انجام شده: {done}\n"
-        f"🚀 در حال انجام: {in_progress}\n"
-        f"⏳ در انتظار: {pending}"
-    )
+    return f"📊 آمار کوتاه شما\n📝 ایجاد شده: {created}\n✅ انجام شده: {done}\n🚀 در حال انجام: {in_progress}\n⏳ در انتظار: {pending}"
 
 
 def install_tag_flow(task_module):
-    """Install the async tag and compact assignment flow used by task creation."""
+    """Install the tag/assignment flow without replacing the message router."""
     if getattr(task_module, "_smart_tag_flow_installed", False):
         return
     task_module._smart_tag_flow_installed = True
     original_assignment_callback = task_module.assignment_callback
-    original_save_task = task_module.save_task
     original_finalize_task = task_module._finalize_task
 
     async def ask_tags(message, context):
@@ -90,7 +69,10 @@ def install_tag_flow(task_module):
         user_id = getattr(user, "id", 0)
         keyboard, tags = await recent_tag_keyboard(user_id, limit=3)
         context.user_data["tag_suggestions"] = tags
-        await message.reply_text("🏷 تگ را انتخاب کنید یا تگ جدید را وارد کنید:", reply_markup=keyboard)
+        await message.reply_text(
+            "🏷 تگ را انتخاب کنید یا تگ جدید را وارد کنید:",
+            reply_markup=keyboard,
+        )
 
     async def ask_assignment(update, context):
         context.user_data["step"] = "assignment_method"
@@ -102,8 +84,6 @@ def install_tag_flow(task_module):
 
     async def _show_team_picker(query, user_id):
         teams = await task_module.aget_user_teams(user_id) if hasattr(task_module, "aget_user_teams") else []
-        if not teams:
-            teams = await _aget_user_teams(user_id)
         if not teams:
             await _safe_edit(query, "تیم مشترکی برای انتخاب مسئول ندارید.", reply_markup=assignment_grid_keyboard())
             return
@@ -137,7 +117,6 @@ def install_tag_flow(task_module):
         data = query.data or ""
         uid = update.effective_user.id
         await query.answer()
-
         if data == "assign_self" or data.startswith("assign_self_"):
             user = update.effective_user
             task = context.user_data.setdefault("new_task", {})
@@ -163,7 +142,7 @@ def install_tag_flow(task_module):
             return
         if data.startswith("assign_team_"):
             team_id = data.replace("assign_team_", "", 1)
-            members = await _aget_team_members(team_id)
+            members = await __import__("services.team_service", fromlist=["aget_team_members"]).aget_team_members(team_id)
             if not members:
                 await _safe_edit(query, "اعضای قابل انتخابی در این تیم پیدا نشد.", reply_markup=assignment_grid_keyboard())
                 return
@@ -173,12 +152,10 @@ def install_tag_flow(task_module):
             return
         if data.startswith("assign_member_"):
             mid = data.replace("assign_member_", "", 1)
-            member = next((m for m in await _aget_visible_assignment_members(uid) if str(m.get("user_id")) == mid), None)
-            if not member:
-                await _safe_edit(query, "کاربر انتخاب‌شده در تیم مشترک پیدا نشد.", reply_markup=assignment_grid_keyboard())
-                return
-            context.user_data.setdefault("new_task", {})["assignee"] = member
-            await _show_assignment_summary(query, context)
+            member = next((m for m in await __import__("services.team_service", fromlist=["aget_team_members"]).aget_team_members(mid) if str(m.get("user_id")) == mid), None)
+            if member:
+                context.user_data.setdefault("new_task", {})["assignee"] = member
+                await _show_assignment_summary(query, context)
             return
         if data == "assign_change_create":
             context.user_data["step"] = "assignment_method"
@@ -201,47 +178,47 @@ def install_tag_flow(task_module):
         data = query.data or ""
         if not (data.startswith("tag_") or data.startswith("tags_")) and data != "step_back_description":
             return
-        await query.answer()
         task = context.user_data.get("new_task")
         if not isinstance(task, dict):
+            await query.answer("فرایند ایجاد تسک فعال نیست.", show_alert=True)
             return
+        await query.answer()
         description_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⏭ رد کردن", callback_data="description_skip")]])
-
         if data in ("tag_none", "tags_skip"):
             task["tags"] = ""
             context.user_data.pop("tag_suggestions", None)
             context.user_data["step"] = "description"
             await _safe_edit(query, "📄 توضیح / یادداشت را وارد کنید یا دکمه «رد کردن» را بزنید:\n(اختیاری)", reply_markup=description_keyboard)
             return
-
         if data in ("tag_new", "tags_new"):
-            context.user_data["step"] = "tag_new"
-            await _safe_edit(query, "🏷 تگ جدید را وارد کنید:", reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⏭ بدون تگ (رد شدن)", callback_data="tag_none")],
-                [InlineKeyboardButton("🔙 مرحله قبل", callback_data="step_back_description")],
-            ]))
+            context.user_data["step"] = "tags"
+            context.user_data["awaiting_tag_input"] = True
+            # Do not depend on edit_message_text here. Send a fresh message so the
+            # user always gets an explicit input prompt even if Telegram rejects an edit.
+            await query.message.reply_text("🏷 تگ جدید را وارد کنید:")
             return
-
         if data == "step_back_description":
             context.user_data["step"] = "description"
             await _safe_edit(query, "📄 توضیح / یادداشت را وارد کنید یا دکمه «رد کردن» را بزنید:\n(اختیاری)", reply_markup=description_keyboard)
             return
-
         if data.startswith("tag_pick_"):
             try:
                 index = int(data.replace("tag_pick_", "", 1))
             except ValueError:
+                await query.answer("تگ انتخاب‌شده معتبر نیست.", show_alert=True)
                 return
             tags = context.user_data.get("tag_suggestions") or []
             if 0 <= index < len(tags):
                 task["tags"] = tags[index]
                 context.user_data.pop("tag_suggestions", None)
+                context.user_data.pop("awaiting_tag_input", None)
                 context.user_data["step"] = "description"
                 await _safe_edit(query, "📄 توضیح / یادداشت را وارد کنید یا دکمه «رد کردن» را بزنید:\n(اختیاری)", reply_markup=description_keyboard)
+                return
+            await query.answer("تگ انتخاب‌شده دیگر در دسترس نیست.", show_alert=True)
 
     async def _handle_tag_text(update, context):
-        """Handle text after explicitly choosing «تایپ تگ جدید»."""
-        if context.user_data.get("step") not in ("tags", "tag_new"):
+        if context.user_data.get("step") != "tags":
             return False
         task = context.user_data.get("new_task")
         if not isinstance(task, dict):
@@ -249,32 +226,18 @@ def install_tag_flow(task_module):
         text = (update.effective_message.text or "").strip()
         if not text:
             return False
-        task["tags"] = "" if text in ("بدون تگ", "بدون", "ندارم", "هیچ") else text[:120]
+        task["tags"] = text[:120]
         context.user_data.pop("tag_suggestions", None)
-        context.user_data["step"] = "description"
-        from handlers.task import _ask_description
-        await _ask_description(update.effective_message, context)
+        context.user_data.pop("awaiting_tag_input", None)
+        await task_module._ask_description(update.effective_message, context)
         return True
-
-    async def save_task_with_tag_text(update, context):
-        if await _handle_tag_text(update, context):
-            return
-        return await original_save_task(update, context)
 
     task_module._ask_tags = ask_tags
     task_module._ask_assignment = ask_assignment
     task_module.assignment_callback = assignment_callback
     task_module._handle_tag_callback = handle_tag_callback
     task_module._handle_tag_text = _handle_tag_text
-    task_module.save_task = save_task_with_tag_text
     task_module._finalize_task = finalize_task_with_tracking
-
-    main_module = sys.modules.get("main")
-    if main_module is not None:
-        main_module.assignment_callback = assignment_callback
-        main_module.handle_tag_callback = handle_tag_callback
-        main_module.handle_tag_text = _handle_tag_text
-        main_module.save_task = save_task_with_tag_text
 
 
 async def _aget_user_teams(user_id):
