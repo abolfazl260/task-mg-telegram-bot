@@ -30,8 +30,6 @@ def _visible_members(user_id):
 
 
 def _top_assignees(user_id, limit=3):
-    # Kept for compatibility with older integrations. The new assignment UI
-    # intentionally uses the compact grid instead of usage-ranked members.
     members = _visible_members(user_id)
     return [(member, 0) for member in members[:limit]]
 
@@ -79,17 +77,10 @@ def install_tag_flow(task_module):
             )
             return
         keyboard = [
-            [
-                InlineKeyboardButton(
-                    f"📌 {item['team']['name']}",
-                    callback_data=f"assign_team_{item['team']['team_id']}",
-                )
-            ]
+            [InlineKeyboardButton(f"📌 {item['team']['name']}", callback_data=f"assign_team_{item['team']['team_id']}")]
             for item in teams
         ]
-        keyboard.append([
-            InlineKeyboardButton("🔙 بازگشت", callback_data="step_back_tags")
-        ])
+        keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="step_back_tags")])
         await query.edit_message_text(
             "👥 هم‌تیمی‌ها را انتخاب کنید:",
             reply_markup=InlineKeyboardMarkup(keyboard),
@@ -120,9 +111,7 @@ def install_tag_flow(task_module):
             context.user_data["step"] = "assignment_search"
             await query.edit_message_text(
                 "🔎 نام یا نام خانوادگی کاربر را وارد کنید:",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 بازگشت", callback_data="step_back_tags")]
-                ]),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="step_back_tags")]]),
             )
             return
 
@@ -151,17 +140,10 @@ def install_tag_flow(task_module):
                 )
                 return
             keyboard = [
-                [
-                    InlineKeyboardButton(
-                        f"🖼 {member_display(member)}",
-                        callback_data=f"assign_member_{member.get('user_id')}",
-                    )
-                ]
+                [InlineKeyboardButton(f"🖼 {member_display(member)}", callback_data=f"assign_member_{member.get('user_id')}")]
                 for member in members
             ]
-            keyboard.append([
-                InlineKeyboardButton("🔙 بازگشت", callback_data="assign_team")
-            ])
+            keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="assign_team")])
             await query.edit_message_text(
                 "👥 عضو تیم را انتخاب کنید:",
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -170,10 +152,7 @@ def install_tag_flow(task_module):
 
         if data.startswith("assign_member_"):
             mid = data.replace("assign_member_", "", 1)
-            member = next(
-                (m for m in await _aget_visible_assignment_members(uid) if str(m.get("user_id")) == mid),
-                None,
-            )
+            member = next((m for m in await _aget_visible_assignment_members(uid) if str(m.get("user_id")) == mid), None)
             if not member:
                 await query.edit_message_text(
                     "کاربر انتخاب‌شده در تیم مشترک پیدا نشد.",
@@ -186,10 +165,7 @@ def install_tag_flow(task_module):
 
         if data == "assign_change_create":
             context.user_data["step"] = "assignment_method"
-            await query.edit_message_text(
-                "👤 انتخاب مسئول وظیفه",
-                reply_markup=assignment_grid_keyboard(),
-            )
+            await query.edit_message_text("👤 انتخاب مسئول وظیفه", reply_markup=assignment_grid_keyboard())
             return
 
         if data == "assign_cancel_create":
@@ -202,7 +178,7 @@ def install_tag_flow(task_module):
     async def handle_tag_callback(update, context):
         query = update.callback_query
         data = query.data or ""
-        if not (data.startswith("tag_") or data.startswith("tags_")):
+        if not (data.startswith("tag_") or data.startswith("tags_")) and data != "step_back_description":
             return
         await query.answer()
         task = context.user_data.get("new_task")
@@ -212,14 +188,11 @@ def install_tag_flow(task_module):
         if data in ("tag_none", "tags_skip"):
             task["tags"] = ""
             context.user_data.pop("tag_suggestions", None)
-            from handlers.task import _ask_description
+            context.user_data["step"] = "description"
             await query.edit_message_text(
                 "📄 توضیح / یادداشت را وارد کنید یا دکمه «رد کردن» را بزنید:\n(اختیاری)",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⏭ رد کردن", callback_data="description_skip")]
-                ]),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭ رد کردن", callback_data="description_skip")]]),
             )
-            context.user_data["step"] = "description"
             return
 
         if data in ("tag_new", "tags_new"):
@@ -237,9 +210,7 @@ def install_tag_flow(task_module):
             context.user_data["step"] = "description"
             await query.edit_message_text(
                 "📄 توضیح / یادداشت را وارد کنید یا دکمه «رد کردن» را بزنید:\n(اختیاری)",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⏭ رد کردن", callback_data="description_skip")]
-                ]),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭ رد کردن", callback_data="description_skip")]]),
             )
             return
 
@@ -255,9 +226,7 @@ def install_tag_flow(task_module):
                 context.user_data["step"] = "description"
                 await query.edit_message_text(
                     "📄 توضیح / یادداشت را وارد کنید یا دکمه «رد کردن» را بزنید:\n(اختیاری)",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⏭ رد کردن", callback_data="description_skip")]
-                    ]),
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭ رد کردن", callback_data="description_skip")]]),
                 )
 
     async def handle_tag_text(update, context):
@@ -278,15 +247,17 @@ def install_tag_flow(task_module):
     task_module._ask_tags = ask_tags
     task_module._ask_assignment = ask_assignment
     task_module.assignment_callback = assignment_callback
+    task_module._handle_tag_callback = handle_tag_callback
+    task_module._handle_tag_text = handle_tag_text
 
     main_module = sys.modules.get("main")
     if main_module is not None:
         main_module.assignment_callback = assignment_callback
         main_module.handle_tag_callback = handle_tag_callback
+        main_module.handle_tag_text = handle_tag_text
 
 
 async def _aget_user_teams(user_id):
-    """Async-compatible adapter for the existing team service."""
     return await __import__("services.team_service", fromlist=["aget_user_teams"]).aget_user_teams(user_id)
 
 
