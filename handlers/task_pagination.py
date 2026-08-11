@@ -14,9 +14,212 @@ from handlers.task import (
 )
 
 
+def tasks_view_menu_keyboard():
+    """First screen for /tasks: never fetch or render task cards here."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 فهرست کل وظایف", callback_data="view_tasks_all")],
+        [
+            InlineKeyboardButton("🎯 بر اساس اولویت", callback_data="view_tasks_priority"),
+            InlineKeyboardButton("📊 وضعیت تسک‌ها", callback_data="view_tasks_status"),
+        ],
+        [
+            InlineKeyboardButton("📂 بر اساس دسته‌بندی", callback_data="view_tasks_category"),
+            InlineKeyboardButton("🏷 بر اساس تگ", callback_data="view_tasks_tag"),
+        ],
+        [
+            InlineKeyboardButton("👤 بر اساس مسئول", callback_data="view_tasks_assignee"),
+            InlineKeyboardButton("☀️ برنامه امروز", callback_data="view_tasks_today"),
+        ],
+    ])
+
+
 async def paginated_list_tasks(update, context):
-    sort_key = context.user_data.get("tasks_sort", "deadline")
-    await _render_page(update, context, page=1, sort_key=sort_key, edit=False)
+    """Handle /tasks by showing only the filter-selection menu."""
+    context.user_data.pop("tasks_filter", None)
+    await update.effective_message.reply_text(
+        "📋 **نحوه نمایش وظایف را انتخاب کنید:**",
+        reply_markup=tasks_view_menu_keyboard(),
+        parse_mode="Markdown",
+    )
+
+
+def _unique_values(tasks, field):
+    values = []
+    seen = set()
+    for task in tasks:
+        raw = task.get(field)
+        if isinstance(raw, str):
+            parts = [p.strip().lstrip("#") for p in raw.replace("،", ",").replace("\n", ",").split(",")]
+        else:
+            parts = [str(raw).strip()] if raw else []
+        for value in parts:
+            if not value:
+                continue
+            key = value.casefold()
+            if key not in seen:
+                seen.add(key)
+                values.append(value)
+    return values
+
+
+async def _show_filter_choices(update, context, kind):
+    """Show a second-level selector; task cards are still not fetched/rendered until a choice is made."""
+    query = update.callback_query
+    await query.answer()
+    tasks = await get_active_tasks_async(update.effective_user.id)
+    if not tasks:
+        await query.edit_message_text("🎉 تسک فعالی ندارید.")
+        return
+
+    if kind == "priority":
+        options = [("🔴 بالا", "high"), ("🟠 متوسط", "medium"), ("🟢 پایین", "low")]
+        title = "🎯 اولویت موردنظر را انتخاب کنید:"
+        callback_prefix = "tasks_filter_priority_"
+    elif kind == "status":
+        options = [
+            ("⏳ در انتظار", "pending"),
+            ("🚀 در حال انجام", "in_progress"),
+            ("✅ انجام شده", "done"),
+            ("❌ لغو شده", "cancelled"),
+        ]
+        title = "📊 وضعیت موردنظر را انتخاب کنید:"
+        callback_prefix = "tasks_filter_status_"
+    elif kind == "category":
+        values = _unique_values(tasks, "category")[:20]
+        options = [(f"📂 {value}", value) for value in values]
+        title = "📂 دسته‌بندی موردنظر را انتخاب کنید:"
+        callback_prefix = "tasks_filter_category_"
+    elif kind == "tag":
+        values = _unique_values(tasks, "tags")[:20]
+        options = [(f"🏷 {value}", value) for value in values]
+        title = "🏷 تگ موردنظر را انتخاب کنید:"
+        callback_prefix = "tasks_filter_tag_"
+    elif kind == "assignee":
+        assignees = []
+        seen = set()
+        for task in tasks:
+            value = (task.get("assignee") or "").strip()
+            if not value:
+                value = "none"
+            if value not in seen:
+                seen.add(value)
+                assignees.append(value)
+        options = [("⏭ بدون مسئول" if value == "none" else f"👤 {value}", value) for value in assignees[:20]]
+        title = "👤 مسئول موردنظر را انتخاب کنید:"
+        callback_prefix = "tasks_filter_assignee_"
+    else:
+        return
+
+    if not options:
+        await query.edit_message_text("موردی برای این فیلتر پیدا نشد.")
+        return
+
+    rows = []
+    for index in range(0, len(options), 2):
+        row = []
+        for label, value in options[index:index + 2]:
+            # Keep callback data within Telegram's 64-byte limit.
+            safe_value = str(value)[:35]
+            row.append(InlineKeyboardButton(label[:30], callback_data=f"{callback_prefix}{safe_value}"))
+        rows.append(row)
+    rows.append([InlineKeyboardButton("🔙 بازگشت به فیلترها", callback_data="view_tasks_menu")])
+    await query.edit_message_text(title, reply_markup=InlineKeyboardMarkup(rows))
+
+
+async def tasks_view_callback(update, context):
+    """Dispatch the initial /tasks menu and its filter choices."""
+    query = update.callback_query
+    data = query.data or ""
+
+    if data == "view_tasks_menu":
+        await query.answer()
+        await query.edit_message_text(
+            "📋 **نحوه نمایش وظایف را انتخاب کنید:**",
+            reply_markup=tasks_view_menu_keyboard(),
+            parse_mode="Markdown",
+        )
+        return
+
+    if data == "view_tasks_all":
+        await query.answer()
+        context.user_data["tasks_filter"] = {"type": "all"}
+        await _render_page(update, context, page=1, sort_key="deadline", edit=False)
+        return
+
+    if data == "view_tasks_today":
+        await query.answer()
+        context.user_data["tasks_filter"] = {"type": "today"}
+        await _render_filtered(update, context, "today", None)
+        return
+
+    for kind in ("priority", "status", "category", "tag", "assignee"):
+        if data == f"view_tasks_{kind}":
+            await _show_filter_choices(update, context, kind)
+            return
+
+    prefixes = {
+        "tasks_filter_priority_": "priority",
+        "tasks_filter_status_": "status",
+        "tasks_filter_category_": "category",
+        "tasks_filter_tag_": "tag",
+        "tasks_filter_assignee_": "assignee",
+    }
+    for prefix, kind in prefixes.items():
+        if data.startswith(prefix):
+            await query.answer()
+            value = data[len(prefix):]
+            context.user_data["tasks_filter"] = {"type": kind, "value": value}
+            await _render_filtered(update, context, kind, value)
+            return
+
+
+async def _render_filtered(update, context, kind, value):
+    tasks = await get_active_tasks_async(update.effective_user.id)
+    if kind == "today":
+        import datetime as _dt
+        today = _dt.datetime.now().strftime("%Y-%m-%d")
+        tasks = [t for t in tasks if str(t.get("deadline") or "")[:10] == today]
+    elif kind == "priority":
+        tasks = [t for t in tasks if t.get("priority") == value]
+    elif kind == "status":
+        tasks = [t for t in tasks if t.get("status", "pending") == value]
+    elif kind == "category":
+        tasks = [t for t in tasks if (t.get("category") or "").strip()[:35] == value]
+    elif kind == "tag":
+        tasks = [t for t in tasks if value.casefold() in {
+            p.strip().lstrip("#").casefold()
+            for p in str(t.get("tags") or "").replace("،", ",").replace("\n", ",").split(",")
+            if p.strip()
+        }]
+    elif kind == "assignee":
+        tasks = [t for t in tasks if ((t.get("assignee") or "").strip() or "none") == value]
+
+    if not tasks:
+        await update.effective_message.reply_text("🔎 برای این فیلتر تسکی پیدا نشد.")
+        return
+
+    tasks = sort_tasks(tasks, "deadline")
+    total = len(tasks)
+    total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    page_tasks = tasks[:PAGE_SIZE]
+    text = build_detail_table(page_tasks, start_index=1) + f"\n\n📄 صفحه 1 از {total_pages}"
+    await update.effective_message.reply_text(text, reply_markup=InlineKeyboardMarkup([
+        [InlineKeyboardButton("📥 خروجی Excel", callback_data="download_csv")],
+        [InlineKeyboardButton("🔙 انتخاب فیلتر دیگر", callback_data="view_tasks_menu")],
+    ]))
+    profile = context.bot_data.get("bot_config")
+    for task in page_tasks:
+        can_mod = await user_can_modify_task_async(update.effective_user.id, task)
+        reply_markup = (
+            __import__("utils.keyboard", fromlist=["task_action_keyboard"]).task_action_keyboard(
+                task.get("id", ""), task.get("status", "pending"), profile
+            ) if can_mod else _task_details_keyboard(task.get("id", ""))
+        )
+        await update.effective_message.reply_text(
+            await format_task_card(task),
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+        )
 
 
 async def paginated_sort_callback(update, context):
@@ -77,8 +280,6 @@ async def _render_page(update, context, page, sort_key, edit):
                 task.get("id", ""), task.get("status", "pending"), context.bot_data.get("bot_config")
             ) if can_mod else _task_details_keyboard(task.get("id", ""))
         )
-        # format_task_card is an async adapter after the calendar runtime patch
-        # in main.py; await it before passing the rendered text to Telegram.
         card_text = await format_task_card(task)
         await message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
 
