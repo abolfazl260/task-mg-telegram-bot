@@ -34,6 +34,15 @@ def _top_assignees(user_id, limit=3):
     return [(member, 0) for member in members[:limit]]
 
 
+async def handle_tag_text(update, context):
+    """Public dispatcher kept for main.py startup compatibility."""
+    from handlers import task as task_module
+    callback = getattr(task_module, "_handle_tag_text", None)
+    if callback is None:
+        return False
+    return await callback(update, context)
+
+
 def install_tag_flow(task_module):
     """Install the async tag and compact assignment flow used by task creation."""
     if getattr(task_module, "_smart_tag_flow_installed", False):
@@ -229,7 +238,7 @@ def install_tag_flow(task_module):
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭ رد کردن", callback_data="description_skip")]]),
                 )
 
-    async def handle_tag_text(update, context):
+    async def _handle_tag_text(update, context):
         if context.user_data.get("step") != "tags":
             return False
         task = context.user_data.get("new_task")
@@ -248,13 +257,13 @@ def install_tag_flow(task_module):
     task_module._ask_assignment = ask_assignment
     task_module.assignment_callback = assignment_callback
     task_module._handle_tag_callback = handle_tag_callback
-    task_module._handle_tag_text = handle_tag_text
+    task_module._handle_tag_text = _handle_tag_text
 
     main_module = sys.modules.get("main")
     if main_module is not None:
         main_module.assignment_callback = assignment_callback
         main_module.handle_tag_callback = handle_tag_callback
-        main_module.handle_tag_text = handle_tag_text
+        main_module.handle_tag_text = _handle_tag_text
 
 
 async def _aget_user_teams(user_id):
