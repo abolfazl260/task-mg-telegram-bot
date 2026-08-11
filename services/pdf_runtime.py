@@ -43,7 +43,11 @@ async def _render_guarded(renderer, args: tuple) -> object:
         return await asyncio.to_thread(renderer, *args)
 
 
-def _discard_render_task(task: asyncio.Task) -> None:
+def _forget_render_task(task: asyncio.Task) -> None:
+    _BACKGROUND_RENDER_TASKS.discard(task)
+
+
+def _cleanup_render_task(task: asyncio.Task) -> None:
     _BACKGROUND_RENDER_TASKS.discard(task)
     if task.cancelled():
         return
@@ -66,16 +70,15 @@ async def render_pdf_in_worker(renderer, *args):
     task = asyncio.create_task(_render_guarded(renderer, args))
     _BACKGROUND_RENDER_TASKS.add(task)
     try:
-        return await asyncio.wait_for(
+        result = await asyncio.wait_for(
             asyncio.shield(task),
             timeout=PDF_RENDER_TIMEOUT_SECONDS,
         )
+        _forget_render_task(task)
+        return result
     except asyncio.TimeoutError:
-        task.add_done_callback(_discard_render_task)
+        task.add_done_callback(_cleanup_render_task)
         raise
     except asyncio.CancelledError:
-        task.add_done_callback(_discard_render_task)
+        task.add_done_callback(_cleanup_render_task)
         raise
-    finally:
-        if task.done():
-            _discard_render_task(task)
