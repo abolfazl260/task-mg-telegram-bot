@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 from datetime import time as dt_time
-from telegram import BotCommand, Update
+from telegram import BotCommand, Update, InlineKeyboardButton
 from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, MessageHandler, PreCheckoutQueryHandler, TypeHandler, ConversationHandler, filters)
 from config import ADMIN_REPORT_TIME, BOT_PROFILES
 from bot_platform import run_applications
@@ -30,6 +30,7 @@ from handlers.ai import ai_command
 from handlers.business import handle_business_connection, handle_business_message, handle_deleted_business_messages, handle_edited_business_message
 from handlers.jira import jira_start, jira_type, jira_url, jira_identity, jira_credential, jira_project, jira_cancel, jira_disconnect_command, jira_status_command, JIRA_TYPE, JIRA_URL, JIRA_IDENTITY, JIRA_CREDENTIAL, JIRA_PROJECT
 from handlers.tag_suggestions import handle_tag_callback, handle_tag_text, safe_assignment_confirm, install_tag_flow
+from handlers.calendar_pdf import calendar_pdf_callback
 import handlers.task as task_handler
 import handlers.reports as reports_handler
 import handlers.extra_reports as extra_reports_handler
@@ -53,6 +54,23 @@ reports_handler.report_today = calendar_runtime.report_today
 extra_reports_handler.report_compare_months = calendar_runtime.report_compare_months
 report_compare_months = calendar_runtime.report_compare_months
 deadline_selected = calendar_runtime_extensions.deadline_selected
+
+
+def _add_calendar_pdf_button(markup):
+    """Add the dedicated monthly PDF export without changing the existing reports module."""
+    rows = [list(row) for row in markup.inline_keyboard]
+    if not any(button.callback_data == "report_calendar_pdf" for row in rows for button in row):
+        rows.insert(-1, [InlineKeyboardButton("📄 خروجی PDF تقویم ماهانه", callback_data="report_calendar_pdf")])
+    from telegram import InlineKeyboardMarkup
+    return InlineKeyboardMarkup(rows)
+
+
+reports_handler.reports_menu_keyboard = _add_calendar_pdf_button(reports_handler.reports_menu_keyboard()) if hasattr(reports_handler, "reports_menu_keyboard") else None
+if reports_handler.reports_menu_keyboard is not None:
+    _original_reports_menu_keyboard = reports_handler.reports_menu_keyboard
+    def _reports_menu_keyboard_with_pdf():
+        return _original_reports_menu_keyboard
+    reports_handler.reports_menu_keyboard = _reports_menu_keyboard_with_pdf
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -224,6 +242,8 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(paginated_detail_page, pattern="^detail_page_"))
     app.add_handler(CallbackQueryHandler(download_csv, pattern="^download_csv"))
     app.add_handler(CallbackQueryHandler(paginated_sort_callback, pattern="^sort_"))
+    # Register the PDF callback before the broad report_* handler.
+    app.add_handler(CallbackQueryHandler(calendar_pdf_callback, pattern="^report_calendar_pdf$"))
     app.add_handler(CallbackQueryHandler(reports_callback, pattern="^report_"))
     app.add_handler(CallbackQueryHandler(report_compare_months, pattern="^report_compare$"))
     app.add_handler(CallbackQueryHandler(report_performance, pattern="^report_perf$"))
