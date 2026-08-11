@@ -3,22 +3,17 @@
 from telegram.ext import Application, CallbackQueryHandler
 
 _original_add_handler = Application.add_handler
-_bootstrapped = False
 
 
 def _bootstrap_application(application: Application) -> None:
-    global _bootstrapped
-    if _bootstrapped:
+    if getattr(application, "_kanban_pdf_bootstrapped", False):
         return
 
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     from services.calendar_runtime_extensions import viewer_id
     from services.permission_service import PERMISSION_KANBAN_PDF, has_permission_sync
     import handlers.reports as reports_handler
-    from handlers.kanban_pdf import (
-        access_settings_callback,
-        install_access_ui,
-        kanban_pdf_callback,
-    )
+    from handlers.kanban_pdf import access_settings_callback, install_access_ui, kanban_pdf_callback
 
     original_reports_keyboard = reports_handler.reports_menu_keyboard
 
@@ -28,8 +23,8 @@ def _bootstrap_application(application: Application) -> None:
             return markup
         rows = [list(row) for row in markup.inline_keyboard]
         if not any(button.callback_data == "report_kanban_pdf" for row in rows for button in row):
-            rows.append([__import__("telegram").InlineKeyboardButton("📄 ایجاد PDF کانبان برد", callback_data="report_kanban_pdf")])
-        return __import__("telegram").InlineKeyboardMarkup(rows)
+            rows.append([InlineKeyboardButton("📄 ایجاد PDF کانبان برد", callback_data="report_kanban_pdf")])
+        return InlineKeyboardMarkup(rows)
 
     reports_handler.reports_menu_keyboard = reports_menu_keyboard_with_permission
     install_access_ui()
@@ -44,7 +39,7 @@ def _bootstrap_application(application: Application) -> None:
         CallbackQueryHandler(access_settings_callback, pattern="^(settings_permissions|perm_toggle_[0-9]+)$"),
         group=-50,
     )
-    _bootstrapped = True
+    application._kanban_pdf_bootstrapped = True
 
 
 def _add_handler_with_bootstrap(self, handler, group=0):
