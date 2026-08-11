@@ -19,6 +19,38 @@ async def _ensure_user_async(uid):
 
 async def read_tasks_async(): return await fetch_all("tasks","bot_key=?",(_bot(),))
 
+async def get_task_dashboard_counts_async(user_id: int) -> dict[str, int]:
+    """Return the user's mini-dashboard counts using one lightweight COUNT query.
+
+    No task rows are loaded into Python. Dates are compared by their YYYY-MM-DD
+    prefix so an optional time component in the deadline does not affect the result.
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    row = await fetch_one(
+        """
+        SELECT
+            COUNT(CASE
+                WHEN status IN ('pending', 'in_progress') THEN 1
+            END) AS count_active,
+            COUNT(CASE
+                WHEN substr(COALESCE(deadline, ''), 1, 10) = ?
+                 AND status NOT IN ('done', 'cancelled') THEN 1
+            END) AS count_today,
+            COUNT(CASE
+                WHEN substr(COALESCE(deadline, ''), 1, 10) < ?
+                 AND status NOT IN ('done', 'cancelled') THEN 1
+            END) AS count_overdue
+        FROM tasks
+        WHERE bot_key=? AND user_id=?
+        """,
+        (today, today, _bot(), str(user_id)),
+    )
+    return {
+        "count_active": int((row or {}).get("count_active") or 0),
+        "count_today": int((row or {}).get("count_today") or 0),
+        "count_overdue": int((row or {}).get("count_overdue") or 0),
+    }
+
 async def save_task_async(data):
     v=list(data)+[""]*20; task_id=str(v[0] or uuid.uuid4().hex[:8]); user_id=str(v[1] or "")
     if not user_id: raise ValueError("task user_id is required")
