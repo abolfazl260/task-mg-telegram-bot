@@ -11,13 +11,18 @@ def priority_keyboard():
 
 def deadline_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 فردا", callback_data="deadline_1")],
-        [InlineKeyboardButton("📅 ۳ روز دیگر", callback_data="deadline_3")],
-        [InlineKeyboardButton("📅 ۱ هفته دیگر", callback_data="deadline_7")],
-        [InlineKeyboardButton("📅 ۲ هفته دیگر", callback_data="deadline_14")],
-        [InlineKeyboardButton("📅 ۳ هفته دیگر", callback_data="deadline_21")],
-        [InlineKeyboardButton("✍️ تاریخ دقیق", callback_data="deadline_custom")],
-        [InlineKeyboardButton("⏳ بدون زمان‌بندی", callback_data="deadline_none")],
+        [
+            InlineKeyboardButton("📅 امروز", callback_data="deadline_0"),
+            InlineKeyboardButton("📅 فردا", callback_data="deadline_1"),
+        ],
+        [
+            InlineKeyboardButton("📅 ۱ هفته", callback_data="deadline_7"),
+            InlineKeyboardButton("📅 ۲ هفته", callback_data="deadline_14"),
+        ],
+        [
+            InlineKeyboardButton("♾️ بدون زمان‌بندی", callback_data="deadline_none"),
+            InlineKeyboardButton("✍️ تاریخ دقیق", callback_data="deadline_custom"),
+        ],
     ])
 
 
@@ -36,7 +41,6 @@ def task_action_keyboard(task_id: str, current_status: str = "pending", bot_prof
         status_row.append(InlineKeyboardButton(labels.get("done", "✅ انجام شد"), callback_data=f"done_{task_id}"))
         status_row.append(InlineKeyboardButton(labels.get("cancel", "❌ لغو"), callback_data=f"cancel_{task_id}"))
     if current_status == "in_progress":
-        # Keep the return-to-pending action available without making the card tall.
         buttons.append([InlineKeyboardButton(labels.get("pending", "⏸ بازگشت به انتظار"), callback_data=f"pending_{task_id}")])
     if status_row:
         buttons.append(status_row)
