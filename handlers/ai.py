@@ -2,7 +2,8 @@
 
 import asyncio
 
-from telegram import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode, Update
+from telegram import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from services.groq_service import (
@@ -151,7 +152,6 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ {exc}")
         return
 
-    # پاسخ بدون داده مرتبط نباید برای کاربر ارسال شود.
     if not answer:
         return
     await update.message.reply_text(f"🤖 {answer}", parse_mode=ParseMode.HTML)
