@@ -2,8 +2,20 @@ from .tag_suggestions_legacy import *
 from .tag_suggestions_legacy import install_tag_flow as _legacy_install_tag_flow
 
 
+def _patched_add_task(update, context):
+    return _ADD_MODE_ENTRY(update, context)
+
+
+def _patched_save_task(update, context):
+    return _AI_SAVE_INTERCEPTOR(update, context)
+
+
+def _patched_ai_task_callback(update, context):
+    return _AI_ADD_CALLBACK(update, context)
+
+
 def install_tag_flow(task_module):
-    """Install the legacy tag flow plus the three-mode /add entry flow."""
+    """Install the existing tag flow plus the three-mode /add entry flow."""
     _legacy_install_tag_flow(task_module)
 
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -12,7 +24,7 @@ def install_tag_flow(task_module):
     import asyncio
     import types
 
-    async def _add_mode_entry(update, context):
+    async def add_mode_entry(update, context):
         context.user_data["new_task"] = {}
         context.user_data["step"] = "add_mode"
         keyboard = InlineKeyboardMarkup([
@@ -25,14 +37,9 @@ def install_tag_flow(task_module):
             reply_markup=keyboard,
         )
 
-    # main.py imports add_task by object reference before install_tag_flow runs.
-    # Replace the function code in-place so that the already-imported handler uses the new flow.
-    task_module._add_mode_entry = _add_mode_entry
-    def _patched_add_task(update, context):
-        return _add_mode_entry(update, context)
+    task_module._ADD_MODE_ENTRY = add_mode_entry
     task_module.add_task.__code__ = _patched_add_task.__code__
 
-    # Preserve the original save_task as a separate function object, then intercept only the AI mode.
     original_save = types.FunctionType(
         task_module.save_task.__code__,
         task_module.save_task.__globals__,
@@ -42,7 +49,7 @@ def install_tag_flow(task_module):
     )
     task_module._original_save_task = original_save
 
-    async def _ai_save_interceptor(update, context):
+    async def ai_save_interceptor(update, context):
         if context.user_data.get("step") != "ai_add":
             return await task_module._original_save_task(update, context)
 
@@ -80,7 +87,6 @@ def install_tag_flow(task_module):
 
         context.user_data["ai_request_draft"] = draft
         context.user_data["step"] = "ai_add_confirm"
-
         priority_labels = {"high": "🔴 بالا", "medium": "🟠 متوسط", "low": "🟢 پایین"}
         lines = ["🤖 تسک پیشنهادی هوش مصنوعی", "", f"📌 عنوان: {draft['title']}"]
         if draft.get("deadline"):
@@ -99,10 +105,9 @@ def install_tag_flow(task_module):
         ])
         await update.effective_message.reply_text("\n".join(lines), reply_markup=keyboard)
 
-    task_module.save_task.__code__ = _ai_save_interceptor.__code__
+    task_module._AI_SAVE_INTERCEPTOR = ai_save_interceptor
+    task_module.save_task.__code__ = _patched_save_task.__code__
 
-    # Reuse the existing AI callback/service. The first click enters AI-input mode;
-    # a later click with a populated draft is delegated to the existing callback.
     original_ai_callback = types.FunctionType(
         ai_module.ai_task_callback.__code__,
         ai_module.ai_task_callback.__globals__,
@@ -112,7 +117,7 @@ def install_tag_flow(task_module):
     )
     ai_module._original_ai_task_callback = original_ai_callback
 
-    async def _ai_add_callback(update, context):
+    async def ai_add_callback(update, context):
         query = update.callback_query
         if (query.data or "") == "ai_task_create" and not context.user_data.get("ai_request_draft"):
             await query.answer()
@@ -121,13 +126,12 @@ def install_tag_flow(task_module):
             await query.message.reply_text(
                 "🤖 ثبت تسک با هوش مصنوعی\n\n"
                 "در پیام بعدی، تسک را به زبان طبیعی توضیح دهید.\n\n"
-                "💡 هرچه اطلاعات کامل‌تر باشد، پیشنهاد دقیق‌تری دریافت می‌کنید. "
-                "می‌توانید عنوان یا موضوع، دسته‌بندی، تگ‌ها، اولویت، زمان یا مهلت و توضیحات را بنویسید.\n\n"
+                "💡 برای پیشنهاد دقیق‌تر، موضوع یا عنوان، دسته‌بندی، تگ‌ها، اولویت، زمان یا مهلت و توضیحات را بنویسید.\n\n"
                 "مثال:\n"
-                "«فردا ساعت ۱۰ گزارش فروش را برای مدیر ارسال کنم؛ مالی، اولویت بالا، تگ گزارش و توضیح: نسخه نهایی باشد»"
+                "«فردا ساعت ۱۰ گزارش فروش را برای مدیر ارسال کنم؛ دسته مالی، اولویت بالا، تگ گزارش و توضیح: نسخه نهایی باشد»"
             )
             return
         return await ai_module._original_ai_task_callback(update, context)
 
-    ai_module._add_ai_callback = _ai_add_callback
-    ai_module.ai_task_callback.__code__ = _ai_add_callback.__code__
+    ai_module._AI_ADD_CALLBACK = ai_add_callback
+    ai_module.ai_task_callback.__code__ = _patched_ai_task_callback.__code__
