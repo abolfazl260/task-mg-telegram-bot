@@ -1,9 +1,12 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest
+import logging
 
 from services.team_service import get_user_teams, get_team_members, member_display
 from services.database import get_db
 from utils.keyboard import recent_tag_keyboard, assignment_grid_keyboard, task_action_keyboard
+
+logger = logging.getLogger(__name__)
 
 
 def _visible_members(user_id):
@@ -25,9 +28,18 @@ async def handle_tag_text(update, context):
     """Unified text/media entry point: tags first, then the normal task flow."""
     from handlers import task as task_module
 
-    if context.user_data.get("step") == "tags":
+    step = context.user_data.get("step")
+    logger.debug(
+        "tag_text entry user_id=%s step=%s awaiting=%s text=%r",
+        getattr(update.effective_user, "id", None),
+        step,
+        context.user_data.get("awaiting_tag_input"),
+        getattr(update.effective_message, "text", None),
+    )
+    if step == "tags":
         callback = getattr(task_module, "_handle_tag_text", None)
         if callback is not None and await callback(update, context):
+            logger.debug("tag_text handled by _handle_tag_text user_id=%s", getattr(update.effective_user, "id", None))
             return True
 
     return await task_module.save_task(update, context)
@@ -67,8 +79,10 @@ def install_tag_flow(task_module):
         context.user_data["step"] = "tags"
         user = getattr(message, "from_user", None)
         user_id = getattr(user, "id", 0)
+        logger.debug("tag_step entered user_id=%s bot_key_pending", user_id)
         keyboard, tags = await recent_tag_keyboard(user_id, limit=3)
         context.user_data["tag_suggestions"] = tags
+        logger.debug("tag_step keyboard ready user_id=%s tag_count=%s tags=%s", user_id, len(tags), tags)
         await message.reply_text("🏷 تگ را انتخاب کنید یا تگ جدید را وارد کنید:", reply_markup=keyboard)
 
     async def ask_assignment(update, context):
@@ -174,6 +188,13 @@ def install_tag_flow(task_module):
     async def handle_tag_callback(update, context):
         query = update.callback_query
         data = query.data or ""
+        logger.debug(
+            "tag_callback received user_id=%s data=%s step_before=%s task=%s",
+            getattr(update.effective_user, "id", None),
+            data,
+            context.user_data.get("step"),
+            bool(context.user_data.get("new_task")),
+        )
         if not (data.startswith("tag_") or data.startswith("tags_")) and data not in {"step_back_description", "step_back_category"}:
             return
         task = context.user_data.get("new_task")
@@ -188,22 +209,26 @@ def install_tag_flow(task_module):
             context.user_data.pop("tag_suggestions", None)
             context.user_data.pop("awaiting_tag_input", None)
             await task_module._ask_description(query.message, context)
+            logger.debug("tag_callback skip complete user_id=%s step_after=%s", update.effective_user.id, context.user_data.get("step"))
             return
 
         if data in ("tag_new", "tags_new"):
             context.user_data["step"] = "tags"
             context.user_data["awaiting_tag_input"] = True
+            logger.debug("tag_callback new complete user_id=%s step_after=%s", update.effective_user.id, context.user_data.get("step"))
             await _safe_edit(query, "🏷 تگ جدید را وارد کنید:")
             return
 
         if data == "step_back_category":
             context.user_data["step"] = "category"
             await _safe_edit(query, "📂 دسته‌بندی را انتخاب کنید یا نام دسته‌بندی جدید را ارسال کنید.", reply_markup=await task_module._category_keyboard(update.effective_user.id))
+            logger.debug("tag_callback back-category complete user_id=%s step_after=%s", update.effective_user.id, context.user_data.get("step"))
             return
 
         if data == "step_back_description":
             context.user_data["step"] = "description"
             await _safe_edit(query, "📄 توضیح / یادداشت را وارد کنید یا دکمه «رد کردن» را بزنید:\n(اختیاری)", reply_markup=description_keyboard)
+            logger.debug("tag_callback back-description complete user_id=%s step_after=%s", update.effective_user.id, context.user_data.get("step"))
             return
 
         if data.startswith("tag_pick_"):
@@ -218,6 +243,7 @@ def install_tag_flow(task_module):
                 context.user_data.pop("tag_suggestions", None)
                 context.user_data.pop("awaiting_tag_input", None)
                 await task_module._ask_description(query.message, context)
+                logger.debug("tag_callback pick complete user_id=%s tag=%s step_after=%s", update.effective_user.id, task["tags"], context.user_data.get("step"))
                 return
             await query.answer("تگ انتخاب‌شده دیگر در دسترس نیست.", show_alert=True)
 
@@ -234,6 +260,7 @@ def install_tag_flow(task_module):
         context.user_data.pop("tag_suggestions", None)
         context.user_data.pop("awaiting_tag_input", None)
         await task_module._ask_description(update.effective_message, context)
+        logger.debug("tag_text saved user_id=%s tag=%s step_after=%s", getattr(update.effective_user, "id", None), task["tags"], context.user_data.get("step"))
         return True
 
     task_module._ask_tags = ask_tags
