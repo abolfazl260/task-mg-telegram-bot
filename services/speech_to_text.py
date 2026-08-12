@@ -5,13 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
-import os
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from config import GROQ_API_KEY
+from config import STT_API_KEY, STT_API_URL, STT_LANGUAGE, STT_MODEL, STT_PROVIDER
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +45,10 @@ class GroqSpeechToTextService(SpeechToTextService):
         model: str | None = None,
         language: str | None = None,
     ) -> None:
-        self.api_key = api_key or os.getenv("STT_API_KEY") or GROQ_API_KEY
-        self.api_url = api_url or os.getenv(
-            "STT_API_URL", "https://api.groq.com/openai/v1/audio/transcriptions"
-        )
-        self.model = model or os.getenv("STT_MODEL", "whisper-large-v3-turbo")
-        self.language = language if language is not None else os.getenv("STT_LANGUAGE", "").strip()
+        self.api_key = api_key or STT_API_KEY
+        self.api_url = api_url or STT_API_URL
+        self.model = model or STT_MODEL
+        self.language = STT_LANGUAGE if language is None else language.strip()
 
     def transcribe(self, audio_path: str | Path) -> str:
         if not self.api_key:
@@ -130,7 +127,7 @@ def _build_multipart_body(
 
 def get_speech_to_text_service() -> SpeechToTextService:
     """Return the configured provider behind the provider-neutral interface."""
-    provider = os.getenv("STT_PROVIDER", "groq").strip().lower()
+    provider = STT_PROVIDER.strip().lower()
     if provider == "groq":
         return GroqSpeechToTextService()
     raise SpeechToTextConfigurationError(f"ارائه‌دهنده STT ناشناخته است: {provider}")
