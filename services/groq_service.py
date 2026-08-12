@@ -90,14 +90,21 @@ def _groq_request(prompt: str) -> str:
 
 
 def ask_task_assistant(user_id: int, question: str) -> str:
-    """Ask Groq for a concise Persian answer based on the user's tasks."""
+    """Answer only from the user's stored task data, briefly and without speculation."""
+    context = _task_context(user_id)
     prompt = (
-        "تو دستیار فارسی مدیریت کارها هستی. فقط بر اساس تسک‌های زیر پاسخ بده؛ "
-        "اگر داده کافی نیست شفاف بگو. پاسخ را کوتاه، عملیاتی و بولت‌دار بنویس.\n\n"
-        f"تسک‌ها:\n{_task_context(user_id)}\n\n"
-        f"سؤال کاربر:\n{question}"
+        "تو دستیار مدیریت کارها هستی. فقط و فقط بر اساس داده‌های تسک زیر پاسخ بده. "
+        "از دانش عمومی، حدس، پیشنهاد، تحلیل خارج از داده‌ها یا ساختن اطلاعات جدید استفاده نکن. "
+        "اگر پاسخ دقیق سؤال در داده‌ها وجود ندارد، دقیقاً NO_DATA برگردان. "
+        "پاسخ باید بسیار کوتاه باشد؛ حداکثر ۳ بولت یا ۲ جمله. "
+        "هیچ مقدمه، توضیح درباره روند فکر کردن، استدلال، تحلیل داخلی یا عبارت‌هایی مثل «در حال بررسی» ننویس.\n\n"
+        f"داده‌های ثبت‌شده کاربر:\n{context}\n\n"
+        f"درخواست کاربر:\n{question}"
     )
-    return _groq_request(prompt)[:3500]
+    answer = _groq_request(prompt).strip()
+    if answer.upper() == "NO_DATA":
+        return ""
+    return answer[:1000]
 
 
 def _extract_json(text: str) -> dict:
@@ -117,112 +124,97 @@ def _extract_json(text: str) -> dict:
     return value
 
 
+def _normalize_ai_result(request_text: str, result: dict) -> dict:
+    """Apply deterministic safeguards for common Persian intents after the LLM parse."""
+    text = request_text.strip()
+    lower = text.lower()
+
+    # Explicit repetition must win over the model's default CREATE_TASK.
+    weekly_match = re.search(r"(?:هفته(?:‌|\s*)ای|هفتگی|weekly|every\s+week)\s*(\d+)\s*(?:بار|times?)?", lower)
+    daily_repeat = bool(re.search(r"(?:هر\s*روز|روزانه|daily|every\s+day|روزی\s*\d+\s*بار|چند\s*بار\s*در\s*روز)", lower))
+    monthly_repeat = bool(re.search(r"(?:هر\s*ماه|ماهانه|monthly|every\s+month)\s+(?:انجام|بررسی|بخوان|بخور|ورزش|تمرین|یادآوری|تکرار)", lower))
+
+    if weekly_match or daily_repeat or monthly_repeat or re.search(r"(?:همیشه|مرتب|به\s*صورت\s*منظم)\s+(?:یادم\s*بنداز|انجام|تکرار)", lower):
+        result["action"] = "CREATE_HABIT"
+        if weekly_match:
+            result["repeat_type"] = "weekly"
+            count = weekly_match.group(1)
+            if count and not result.get("target"):
+                result["target"] = f"{count} بار در هفته"
+        elif daily_repeat:
+            result["repeat_type"] = "daily"
+        elif monthly_repeat:
+            result["repeat_type"] = "monthly"
+
+    # "ماهانه" as an adjective (e.g. گزارش فروش ماهانه) is not repetition.
+    if re.search(r"گزارش\s+فروش\s+ماهانه|monthly\s+sales\s+report", lower):
+        result["action"] = "CREATE_TASK"
+        result["repeat_type"] = ""
+
+    # Explicit priority is deterministic and must not be lost by the model.
+    if re.search(r"(?:اولویت\s*بالا|خیلی\s*مهم|فوری|ضروری|با\s*اولویت\s*زیاد|urgent|asap|high\s*priority)", lower):
+        result["priority"] = "high"
+    elif re.search(r"(?:اولویت\s*متوسط|نسبتاً\s*مهم|medium\s*priority)", lower):
+        result["priority"] = "medium"
+
+    # Common one-shot task forms should never become CHAT.
+    if result.get("action") == "CHAT" and re.search(
+        r"(?:ثبت\s*کن|اضافه\s*کن|آماده\s*کنم|ارسال\s*کنم|بخرم|خرید|پرداخت|انجام\s*بدهم|جلسه|دارم)",
+        lower,
+    ):
+        result["action"] = "CREATE_TASK"
+
+    return result
+
+
 def parse_task_request(user_id: int, request_text: str) -> dict:
     """Convert natural Persian/English task or habit text into a validated draft."""
     today = datetime.now(timezone.utc).date().isoformat()
     prompt = f"""
-تو یک موتور هوشمند استخراج درخواست برای ربات مدیریت کار و عادت هستی.
-پیام کاربر را تحلیل کن و فقط یک JSON معتبر برگردان؛ هیچ Markdown یا توضیح اضافه‌ای ننویس.
+تو موتور استخراج درخواست ربات مدیریت کار و عادت هستی.
+پیام کاربر را فقط به یک JSON معتبر تبدیل کن. هیچ توضیح، Markdown یا استدلالی خارج از JSON ننویس.
 
 تاریخ امروز میلادی: {today}
 
-━━━━━━━━━━━━━━━━━━━━
-۱) تشخیص عملیات
-━━━━━━━━━━━━━━━━━━━━
+عملیات:
+- CREATE_TASK: کار یک‌باره، خرید، پرداخت، جلسه، ارسال، آماده‌سازی یا هر کار غیرتکراری.
+- CREATE_HABIT: رفتار واقعاً تکرارشونده یا دارای یادآوری تکراری.
+- CHAT: فقط سؤال صریح، احوال‌پرسی، مشاوره یا درخواست اطلاعات درباره داده‌های قبلی.
 
-CREATE_TASK:
-کار یک‌باره، جلسه، قرار، پروژه یا کاری که قرار نیست منظم تکرار شود.
+قانون مهم تشخیص:
+- «هر هفته سه بار ورزش کنم» = CREATE_HABIT, repeat_type=weekly, target="۳ بار در هفته".
+- «هر روز ساعت ۸ ورزش کنم» = CREATE_HABIT, repeat_type=daily, reminder_time="08:00".
+- «هر ماه گزارش مالی را بررسی کنم» = CREATE_HABIT, repeat_type=monthly.
+- اما «گزارش فروش ماهانه را آماده کنم» = CREATE_TASK؛ «ماهانه» اینجا صفت گزارش است، نه دستور تکرار.
+- «پرداخت فاکتور شرکت را برای امروز با اولویت بالا ثبت کن» = CREATE_TASK, priority=high.
+- «فردا گزارش پروژه را برای مدیرم ارسال کنم» = CREATE_TASK با موعد فردا.
+- «خرید تخم مرغ» = CREATE_TASK.
+- هر دستور یا جمله خبری عملیاتی که سؤال نباشد، CREATE_TASK است.
 
-CREATE_HABIT:
-رفتار یا کاری که کاربر می‌خواهد به شکل منظم و تکرارشونده انجام دهد یا برای آن یادآوری تکراری داشته باشد.
-نشانه‌ها شامل «هر روز»، «روزانه»، «هر صبح»، «هر شب»، «هر هفته»، «هفتگی»، «هر ماه»، «ماهانه»،
-«هفته‌ای چند بار»، «روزی چند بار»، «چند بار در روز»، «مرتب»، «به صورت منظم»، «همیشه یادم بنداز»
-و معادل‌های انگلیسی مانند daily, weekly, monthly, every day, every week, regularly هستند.
+قوانین زمان:
+- امروز، فردا و پس‌فردا را بر اساس {today} به YYYY-MM-DD تبدیل کن.
+- ساعت را HH:MM و در صورت نیاز ۲۴ ساعته بنویس.
+- ساعت ۲ بعدازظهر = 14:00.
+- برای CREATE_TASK اگر تاریخ/ساعت گفته نشده، deadline خالی باشد؛ حدس نزن.
+- برای CREATE_HABIT deadline همیشه خالی است.
 
-CHAT:
-فقط سؤال صریح، احوال‌پرسی، مشاوره یا درخواست توضیح غیرعملیاتی.
+قوانین عادت:
+- daily: هر روز، روزانه، هر صبح، هر شب، every day, daily.
+- weekly: هر هفته، هفتگی، هفته‌ای چند بار، every week, weekly.
+- monthly: هر ماه، ماهانه، every month, monthly فقط وقتی نقش تکرار دارد.
+- چند بار در روز → daily.
+- زمان‌های صریح یادآوری در reminder_time با کاما و بدون فاصله.
+- هدف تعداد/مقدار/مدت در target.
+- اگر زمان یادآوری گفته نشده، reminder_time خالی باشد.
 
-اگر پیام خبری یا دستوری است و سؤال نیست، پیش‌فرض CREATE_TASK است.
-اگر نشانه روشن تکرار وجود دارد، CREATE_HABIT بر CREATE_TASK اولویت دارد.
+قوانین اولویت:
+- پیش‌فرض low.
+- فقط با اشاره صریح به اهمیت/فوریت high یا medium.
+- «اولویت بالا»، «فوری»، «ضروری»، «خیلی مهم»، urgent، ASAP → high.
 
-━━━━━━━━━━━━━━━━━━━━
-۲) قوانین زبان
-━━━━━━━━━━━━━━━━━━━━
-
-مقادیر متنی title، description، category و tags را به همان زبان پیام کاربر تولید کن.
-نام شرکت، شخص و مکان را در title حفظ کن.
-
-━━━━━━━━━━━━━━━━━━━━
-۳) تاریخ و ساعت
-━━━━━━━━━━━━━━━━━━━━
-
-امروز = {today}
-
-امروز، فردا و پس‌فردا را دقیقاً بر اساس این تاریخ به YYYY-MM-DD تبدیل کن.
-ساعت همیشه HH:MM باشد.
-«ساعت ۲» یا «۲ بعدازظهر» = 14:00 مگر اینکه متن صراحتاً صبح را بگوید.
-«ساعت ۱۴» = 14:00.
-برای CREATE_TASK اگر تاریخ یا ساعت گفته نشده، deadline خالی باشد و هرگز حدس نزن.
-برای CREATE_HABIT، deadline همیشه خالی است.
-
-━━━━━━━━━━━━━━━━━━━━
-۴) قوانین عادت و تکرار
-━━━━━━━━━━━━━━━━━━━━
-
-daily: هر روز، روزانه، هر صبح، هر شب، every day, daily
-weekly: هر هفته، هفتگی، every week, weekly
-monthly: هر ماه، ماهانه، every month, monthly
-
-اگر کاربر چند بار در روز را بیان کرد، عادت روزانه است.
-مثال: «هر روز ساعت ۸ و ۱۴ آب بخورم» → daily + reminder_time="08:00,14:00"
-
-اگر گفت «هفته‌ای سه بار ورزش کنم» → weekly و target باید مفهوم «سه بار در هفته» را حفظ کند.
-اگر گفت «هر ماه گزارش مالی را بررسی کنم» → monthly.
-
-ساختار فعلی فقط daily/weekly/monthly را پشتیبانی می‌کند؛ Schema جدید پیشنهاد یا اختراع نکن.
-
-اگر تکرار مشخص است ولی ساعت مشخص نشده، عادت ایجاد شود و reminder_time خالی بماند.
-اگر کاربر ساعت دقیق برای رفتار تکرارشونده داد، آن را در reminder_time قرار بده.
-اگر چند ساعت داده شد، همه ساعت‌های معتبر را با کاما و بدون فاصله برگردان.
-
-━━━━━━━━━━━━━━━━━━━━
-۵) هدف عادت
-━━━━━━━━━━━━━━━━━━━━
-
-تعداد، مقدار یا مدت هدف را در target قرار بده.
-
-«هر روز ۵ لیوان آب بخورم» → target="۵ لیوان در روز"
-«هفته‌ای سه بار ورزش کنم» → target="۳ بار در هفته"
-«هر روز ۳۰ دقیقه مطالعه کنم» → target="۳۰ دقیقه در روز"
-
-اگر هدف مشخص نشده، target خالی باشد.
-
-━━━━━━━━━━━━━━━━━━━━
-۶) یادآوری
-━━━━━━━━━━━━━━━━━━━━
-
-reminder_time فقط بر اساس زمان صریح کاربر پر شود.
-هرگز ساعت یادآوری را حدس نزن.
-
-━━━━━━━━━━━━━━━━━━━━
-۷) اولویت
-━━━━━━━━━━━━━━━━━━━━
-
-priority پیش‌فرض low است.
-فقط وقتی کاربر صریحاً فوریت یا اهمیت را بیان کند high یا medium انتخاب کن؛ مانند «فوری»، «خیلی مهم»، «ضروری»، «ASAP»، «urgent».
-از متن کاربر درباره اهمیت حدس نزن.
-
-━━━━━━━━━━━━━━━━━━━━
-۸) عنوان و توضیحات
-━━━━━━━━━━━━━━━━━━━━
-
-title کوتاه و واضح و مبتنی بر نیت اصلی باشد.
-مثال: «امروز ساعت ۲ جلسه با شرکت مدیران خودرو دارم» → «جلسه با شرکت مدیران خودرو».
-اطلاعات تکمیلی در description قرار بگیرد.
-
-━━━━━━━━━━━━━━━━━━━━
-۹) خروجی
-━━━━━━━━━━━━━━━━━━━━
+قوانین زبان:
+- title، description، category و tags به زبان خود کاربر باشند.
+- عنوان کوتاه و واضح باشد.
 
 فقط این JSON را برگردان:
 {{
@@ -230,11 +222,11 @@ title کوتاه و واضح و مبتنی بر نیت اصلی باشد.
   "title": "عنوان کوتاه",
   "deadline": "YYYY-MM-DD HH:MM" یا "",
   "priority": "high" یا "medium" یا "low",
-  "category": "" یا دسته صریح پیام,
-  "tags": "" یا تگ صریح پیام,
-  "description": "اطلاعات تکمیلی",
+  "category": "",
+  "tags": "",
+  "description": "",
   "repeat_type": "daily" یا "weekly" یا "monthly" یا "",
-  "target": "هدف/مقدار عادت یا خالی",
+  "target": "",
   "reminder_time": "HH:MM,HH:MM" یا ""
 }}
 
@@ -242,12 +234,11 @@ title کوتاه و واضح و مبتنی بر نیت اصلی باشد.
 {request_text}
 """
 
-    result = _extract_json(_groq_request(prompt))
+    result = _normalize_ai_result(request_text, _extract_json(_groq_request(prompt)))
 
     action = str(result.get("action") or "CREATE_TASK").upper().strip()
     if action not in {"CREATE_TASK", "CREATE_HABIT", "CHAT"}:
         action = "CREATE_TASK"
-
     if action == "CHAT":
         return {"action": "CHAT"}
 
@@ -268,19 +259,14 @@ title کوتاه و واضح و مبتنی بر نیت اصلی باشد.
     repeat_type = str(result.get("repeat_type") or "").lower().strip()
     if action == "CREATE_HABIT":
         if repeat_type not in {"daily", "weekly", "monthly"}:
-            raise GroqRequestError(
-                "نوع تکرار عادت مشخص نیست. لطفاً روزانه، هفتگی یا ماهانه بودن آن را مشخص کنید."
-            )
+            raise GroqRequestError("نوع تکرار عادت مشخص نیست. لطفاً روزانه، هفتگی یا ماهانه بودن آن را مشخص کنید.")
     else:
         repeat_type = ""
 
     reminder_time = str(result.get("reminder_time") or "").strip()
     if reminder_time:
         times = [item.strip() for item in reminder_time.split(",") if item.strip()]
-        valid_times = [
-            item for item in times
-            if re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", item)
-        ]
+        valid_times = [item for item in times if re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", item)]
         reminder_time = ",".join(dict.fromkeys(valid_times))
     if action != "CREATE_HABIT":
         reminder_time = ""
