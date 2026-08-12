@@ -42,22 +42,10 @@ def tasks_options_keyboard(context=None):
     profile = _bot_profile(context)
     rows = [
         [InlineKeyboardButton("📋 لیست تسک‌های فعال", callback_data="tasks_list")],
-        [
-            InlineKeyboardButton("📅 بر اساس ددلاین", callback_data="sort_deadline"),
-            InlineKeyboardButton("🎯 بر اساس اولویت", callback_data="sort_priority"),
-        ],
-        [
-            InlineKeyboardButton("🕒 تاریخ ایجاد", callback_data="sort_created"),
-            InlineKeyboardButton("📅 هفته جاری", callback_data="report_week"),
-        ],
-        [
-            InlineKeyboardButton("🏷 بر اساس تگ", callback_data="report_tags"),
-            InlineKeyboardButton("📁 دسته‌بندی", callback_data="report_category"),
-        ],
-        [
-            InlineKeyboardButton("👤 بر اساس مسئول", callback_data="report_assignee"),
-            InlineKeyboardButton("📥 خروجی Excel", callback_data="download_csv"),
-        ],
+        [InlineKeyboardButton("📅 بر اساس ددلاین", callback_data="sort_deadline"), InlineKeyboardButton("🎯 بر اساس اولویت", callback_data="sort_priority")],
+        [InlineKeyboardButton("🕒 تاریخ ایجاد", callback_data="sort_created"), InlineKeyboardButton("📅 هفته جاری", callback_data="report_week")],
+        [InlineKeyboardButton("🏷 بر اساس تگ", callback_data="report_tags"), InlineKeyboardButton("📁 دسته‌بندی", callback_data="report_category")],
+        [InlineKeyboardButton("👤 بر اساس مسئول", callback_data="report_assignee"), InlineKeyboardButton("📥 خروجی Excel", callback_data="download_csv")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="tasks_back")],
     ]
     if profile is not None and not profile.feature_enabled("unassigned"):
@@ -104,11 +92,7 @@ def date_format_keyboard(user_id):
 def date_format_text(user_id):
     current = get_user_date_format(user_id)
     label = "شمسی 🇮🇷" if current == "jalali" else "میلادی 🌐"
-    return (
-        "🗓 **تنظیمات تقویم**\n\n"
-        f"تقویم فعال: **{label}**\n\n"
-        "لطفا تقویم مورد نظر خود را برای نمایش تاریخ تسک‌ها و گزارش‌ها انتخاب کنید."
-    )
+    return f"🗓 **تنظیمات تقویم**\n\nتقویم فعال: **{label}**\n\nلطفا تقویم مورد نظر خود را برای نمایش تاریخ تسک‌ها و گزارش‌ها انتخاب کنید."
 
 
 def language_keyboard():
@@ -142,10 +126,7 @@ def contact_text():
 
 
 def contact_keyboard():
-    rows = [
-        [InlineKeyboardButton(f"⭐️ دونیت {amount} استارز", callback_data=f"donate_{amount}")]
-        for amount in DONATION_AMOUNTS
-    ]
+    rows = [[InlineKeyboardButton(f"⭐️ دونیت {amount} استارز", callback_data=f"donate_{amount}")] for amount in DONATION_AMOUNTS]
     rows.append([InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="tasks_back")])
     return InlineKeyboardMarkup(rows)
 
@@ -153,8 +134,12 @@ def contact_keyboard():
 async def button_handler(update, context):
     query = update.callback_query
     await query.answer()
-
     data = query.data
+
+    if data.startswith("ai_task_"):
+        from handlers.ai import ai_task_callback
+        return await ai_task_callback(update, context)
+
     profile = _bot_profile(context)
     feature_by_callback = {
         "add_task": "tasks", "tasks": "tasks", "teams": "teams",
@@ -168,20 +153,12 @@ async def button_handler(update, context):
 
     if data.startswith("view_tasks_") or data.startswith("tasks_filter_"):
         from handlers.task_pagination import tasks_view_callback
-        # tasks_view_callback answers the callback itself for filter navigation.
-        # The initial answer above is harmless and keeps the UI responsive.
         await tasks_view_callback(update, context)
         return
     if data == "start_menu":
         await query.message.reply_text("منوی اصلی:", reply_markup=main_menu(context))
     elif data == "add_task":
-        await query.message.reply_text(
-            "➕ افزودن تسک\n\nروش ثبت را انتخاب کنید:",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("📝 ثبت تکی", callback_data="add_task_single")]]
-                + ([[InlineKeyboardButton("📥 آپلود گروهی", callback_data="import_bulk")]] if _feature_enabled(profile, "bulk_import") else [])
-            ),
-        )
+        await query.message.reply_text("➕ افزودن تسک\n\nروش ثبت را انتخاب کنید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📝 ثبت تکی", callback_data="add_task_single")]] + ([[InlineKeyboardButton("📥 آپلود گروهی", callback_data="import_bulk")]] if _feature_enabled(profile, "bulk_import") else [])))
     elif data == "add_task_single":
         context.user_data["new_task"] = {}
         context.user_data["step"] = "title"
@@ -193,10 +170,7 @@ async def button_handler(update, context):
         from handlers.help import help_command
         await help_command(update, context)
     elif data == "tasks":
-        await query.message.reply_text(
-            "📋 بخش مدیریت تسک‌ها\n\nجهت مشاهده، مرتب‌سازی یا دریافت خروجی، یکی از گزینه‌های زیر را انتخاب کنید:",
-            reply_markup=tasks_options_keyboard(context),
-        )
+        await query.message.reply_text("📋 بخش مدیریت تسک‌ها\n\nجهت مشاهده، مرتب‌سازی یا دریافت خروجی، یکی از گزینه‌های زیر را انتخاب کنید:", reply_markup=tasks_options_keyboard(context))
     elif data == "tasks_list":
         from handlers.task import list_tasks
         await list_tasks(update, context)
@@ -216,38 +190,19 @@ async def button_handler(update, context):
         from handlers.import_bulk import start_import_flow
         await start_import_flow(update, context)
     elif data == "settings":
-        await query.message.reply_text(
-            "⚙️ **تنظیمات**\n\nبخش موردنظر خود را انتخاب کنید:",
-            parse_mode="Markdown",
-            reply_markup=settings_keyboard(context),
-        )
+        await query.message.reply_text("⚙️ **تنظیمات**\n\nبخش موردنظر خود را انتخاب کنید:", parse_mode="Markdown", reply_markup=settings_keyboard(context))
     elif data == "settings_timezone":
-        await query.message.reply_text(
-            timezone_text(update.effective_user.id),
-            parse_mode="Markdown",
-            reply_markup=timezone_keyboard(update.effective_user.id),
-        )
+        await query.message.reply_text(timezone_text(update.effective_user.id), parse_mode="Markdown", reply_markup=timezone_keyboard(update.effective_user.id))
     elif data == "settings_date_format":
-        await query.message.reply_text(
-            date_format_text(update.effective_user.id),
-            parse_mode="Markdown",
-            reply_markup=date_format_keyboard(update.effective_user.id),
-        )
+        await query.message.reply_text(date_format_text(update.effective_user.id), parse_mode="Markdown", reply_markup=date_format_keyboard(update.effective_user.id))
     elif data in {"date_format_jalali", "date_format_gregorian"}:
         selected = data.replace("date_format_", "", 1)
         if set_user_date_format(update.effective_user.id, selected):
-            await query.message.reply_text(
-                "✅ تقویم نمایش تاریخ تغییر کرد.",
-                reply_markup=date_format_keyboard(update.effective_user.id),
-            )
+            await query.message.reply_text("✅ تقویم نمایش تاریخ تغییر کرد.", reply_markup=date_format_keyboard(update.effective_user.id))
         else:
             await query.message.reply_text("⚠️ ذخیره نوع تاریخ ناموفق بود.")
     elif data == "settings_language":
-        await query.message.reply_text(
-            "🌐 **تغییر زبان**\n\nانتخاب زبان در نسخه بعدی فعال خواهد شد.",
-            parse_mode="Markdown",
-            reply_markup=language_keyboard(),
-        )
+        await query.message.reply_text("🌐 **تغییر زبان**\n\nانتخاب زبان در نسخه بعدی فعال خواهد شد.", parse_mode="Markdown", reply_markup=language_keyboard())
     elif data in {"language_fa", "language_en"}:
         await query.answer("این قابلیت در نسخه بعدی فعال می‌شود.", show_alert=True)
     elif data == "integrations":
@@ -258,10 +213,7 @@ async def button_handler(update, context):
             await query.message.reply_text("⚠️ منطقه زمانی نامعتبر است.")
             return
         if set_user_timezone(update.effective_user.id, tz_name):
-            await query.message.reply_text(
-                f"✅ زمان محلی شما روی {tz_name} تنظیم شد. از این پس یادآوری‌ها با ساعت محلی شما ارسال می‌شوند.",
-                reply_markup=timezone_keyboard(update.effective_user.id),
-            )
+            await query.message.reply_text(f"✅ زمان محلی شما روی {tz_name} تنظیم شد. از این پس یادآوری‌ها با ساعت محلی شما ارسال می‌شوند.", reply_markup=timezone_keyboard(update.effective_user.id))
         else:
             await query.message.reply_text("⚠️ ذخیره منطقه زمانی ناموفق بود.")
     elif data == "contact_us":
