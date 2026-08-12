@@ -78,6 +78,29 @@ async def test_voice_message_is_received_and_transcribed(monkeypatch, update_and
 
 
 @pytest.mark.asyncio
+async def test_voice_download_failure_is_user_friendly(monkeypatch, update_and_context):
+    update, context, message = update_and_context
+
+    class BrokenTelegramFile:
+        async def download_to_drive(self, custom_path):
+            raise OSError("network failure")
+
+    async def broken_get_file():
+        return BrokenTelegramFile()
+
+    update.message.voice.get_file = broken_get_file
+    monkeypatch.setattr(
+        voice_handler,
+        "get_speech_to_text_service",
+        lambda: pytest.fail("STT must not be called after download failure"),
+    )
+
+    await voice_handler.handle_voice_message(update, context)
+
+    assert message.status.edits == ["⚠️ دانلود فایل صوتی ناموفق بود."]
+
+
+@pytest.mark.asyncio
 async def test_transcription_error_is_user_friendly(monkeypatch, update_and_context):
     update, context, message = update_and_context
 
