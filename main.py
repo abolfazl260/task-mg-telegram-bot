@@ -28,6 +28,7 @@ from handlers.habits import handle_habit_callback, show_habit_menu
 from handlers.donate import donate_callback, donate_command, precheckout_callback, successful_payment_callback
 from handlers.guest import handle_guest_task
 from handlers.ai import ai_command
+from handlers.voice import handle_voice_message
 from handlers.business import handle_business_connection, handle_business_message, handle_deleted_business_messages, handle_edited_business_message
 from handlers.jira import jira_start, jira_type, jira_url, jira_identity, jira_credential, jira_project, jira_cancel, jira_disconnect_command, jira_status_command, JIRA_TYPE, JIRA_URL, JIRA_IDENTITY, JIRA_CREDENTIAL, JIRA_PROJECT
 from handlers.tag_suggestions import handle_tag_text, safe_assignment_confirm, install_tag_flow
@@ -291,6 +292,7 @@ def build_application(profile):
         | filters.CONTACT
         | filters.LOCATION
     ) & ~filters.COMMAND
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice_message), group=0)
     app.add_handler(MessageHandler(comment_message_filter, handle_tag_text), group=0)
     app.add_error_handler(error_handler)
     return app
