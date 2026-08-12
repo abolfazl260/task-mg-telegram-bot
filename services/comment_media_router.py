@@ -1,10 +1,7 @@
-"""Route Telegram media messages into the active task-comment flow.
-
-This is installed early from config.py so it works when main.py is executed
-as __main__ as well as when imported as a module.
-"""
+"""Route Telegram media messages into the active task-comment flow."""
 
 import logging
+from weakref import WeakKeyDictionary
 
 from telegram.ext import Application, MessageHandler, filters
 
@@ -36,6 +33,7 @@ async def _handle_comment_media(update, context):
 
         content = task_module._extract_comment_content(message)
         if not content:
+            await message.reply_text("❌ این نوع فایل پشتیبانی نمی‌شود.")
             return
 
         user = update.effective_user
@@ -74,13 +72,20 @@ _MEDIA_FILTER = (
 
 
 _original_add_handler = Application.add_handler
+_installed_applications = WeakKeyDictionary()
 
 
 def _patched_add_handler(self, handler, group=0):
-    if not getattr(self, "_task_comment_media_router_installed", False) and isinstance(handler, MessageHandler):
-        self._task_comment_media_router_installed = True
-        _original_add_handler(self, MessageHandler(_MEDIA_FILTER, _handle_comment_media), group=group)
-    return _original_add_handler(self, handler, group=group)
+    # Application uses __slots__, so never attach arbitrary attributes to it.
+    # WeakKeyDictionary lets us track installation without modifying Application.
+    if not _installed_applications.get(self) and isinstance(handler, MessageHandler):
+        _installed_applications[self] = True
+        _original_add_handler(
+            self,
+            MessageHandler(_MEDIA_FILTER, _handle_comment_media),
+            group=group - 1,
+        )
+    return _original_add_handler(self, handler, group)
 
 
 if not getattr(Application.add_handler, "_task_comment_media_patch", False):
