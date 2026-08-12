@@ -12,8 +12,8 @@ from services.groq_service import (
     GroqRequestError,
     ask_task_assistant,
     get_processing_status_messages,
-    parse_task_request,
 )
+from services.task_intelligence import parse_task_request_smart
 from services.habit_service import create_habit, get_habit
 from services.task_service import create_task_async
 
@@ -136,7 +136,7 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         draft = await _run_with_processing(
             update.message,
-            lambda: parse_task_request(update.effective_user.id, request_text),
+            lambda: parse_task_request_smart(update.effective_user.id, request_text),
         )
         if draft.get("action") in {"CREATE_TASK", "CREATE_HABIT"}:
             context.user_data["ai_request_draft"] = draft
