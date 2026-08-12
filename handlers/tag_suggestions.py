@@ -32,8 +32,6 @@ async def handle_tag_text(update, context):
         if callback is not None and await callback(update, context):
             return True
 
-    # Category, title, deadline, description, assignment search, etc. keep
-    # using the exact same save_task flow as before.
     return await task_module.save_task(update, context)
 
 
@@ -61,12 +59,13 @@ async def _quick_stats(user_id):
 
 
 def install_tag_flow(task_module):
-    """Install the tag/assignment flow while keeping the normal text router."""
+    """Install the tag/assignment flow and route media while collecting comments."""
     if getattr(task_module, "_smart_tag_flow_installed", False):
         return
     task_module._smart_tag_flow_installed = True
     original_assignment_callback = task_module.assignment_callback
     original_finalize_task = task_module._finalize_task
+    original_comment_input = task_module.handle_comment_input
 
     async def ask_tags(message, context):
         context.user_data["step"] = "tags"
@@ -74,10 +73,7 @@ def install_tag_flow(task_module):
         user_id = getattr(user, "id", 0)
         keyboard, tags = await recent_tag_keyboard(user_id, limit=3)
         context.user_data["tag_suggestions"] = tags
-        await message.reply_text(
-            "🏷 تگ را انتخاب کنید یا تگ جدید را وارد کنید:",
-            reply_markup=keyboard,
-        )
+        await message.reply_text("🏷 تگ را انتخاب کنید یا تگ جدید را وارد کنید:", reply_markup=keyboard)
 
     async def ask_assignment(update, context):
         context.user_data["step"] = "assignment_method"
@@ -157,7 +153,8 @@ def install_tag_flow(task_module):
             return
         if data.startswith("assign_member_"):
             mid = data.replace("assign_member_", "", 1)
-            member = next((m for m in await __import__("services.team_service", fromlist=["aget_team_members"]).aget_team_members(mid) if str(m.get("user_id")) == mid), None)
+            members = await __import__("services.team_service", fromlist=["aget_team_members"]).aget_team_members(mid)
+            member = next((m for m in members if str(m.get("user_id")) == mid), None)
             if member:
                 context.user_data.setdefault("new_task", {})["assignee"] = member
                 await _show_assignment_summary(query, context)
@@ -197,9 +194,6 @@ def install_tag_flow(task_module):
             await _safe_edit(query, "📄 توضیح / یادداشت را وارد کنید یا دکمه «رد کردن» را بزنید:\n(اختیاری)", reply_markup=description_keyboard)
             return
         if data in ("tag_new", "tags_new"):
-            # Same pattern as category: keep the step at `tags` and let the
-            # normal text handler receive the next message. No special second
-            # text handler or hidden state is required.
             context.user_data["step"] = "tags"
             context.user_data["awaiting_tag_input"] = True
             await _safe_edit(query, "🏷 تگ جدید را وارد کنید:")
@@ -239,16 +233,73 @@ def install_tag_flow(task_module):
         await task_module._ask_description(update.effective_message, context)
         return True
 
+    async def batch_comment_input(update, context):
+        """Keep comment mode open so multiple messages/media can be attached."""
+        if context.user_data.get("step") != "task_comment":
+            return await original_comment_input(update, context)
+
+        task_id = context.user_data.get("comment_task_id")
+        task = await task_module.get_task_by_id_async(task_id)
+        if not task or not await task_module._can_view_task(update.effective_user.id, task):
+            context.user_data.pop("comment_task_id", None)
+            context.user_data.pop("comment_attachment_count", None)
+            context.user_data.pop("step", None)
+            await update.effective_message.reply_text("تسک پیدا نشد یا دسترسی ندارید.")
+            return True
+
+        content = task_module._extract_comment_content(update.effective_message)
+        if not content:
+            return False
+
+        user = update.effective_user
+        ok = await task_module.add_task_comment_async(
+            task_id,
+            {"id": user.id, "full_name": user.full_name, "username": user.username or ""},
+            content,
+        )
+        if not ok:
+            await update.effective_message.reply_text("❌ خطا در ثبت کامنت.")
+            return True
+
+        count = int(context.user_data.get("comment_attachment_count", 0)) + 1
+        context.user_data["comment_attachment_count"] = count
+        await update.effective_message.reply_text(
+            f"✅ مورد {count} ثبت شد.\n"
+            "می‌توانید فایل، عکس، صدا، ویدیو یا متن دیگری بفرستید.\n"
+            "برای پایان ارسال، کلمه «تمام» را بفرستید."
+        )
+        return True
+
+    async def handle_comment_media(update, context):
+        """Route non-text Telegram media to the active comment collector."""
+        if context.user_data.get("step") != "task_comment":
+            return False
+        message = update.effective_message
+        if not message or message.text:
+            return False
+        return await batch_comment_input(update, context)
+
+    async def finalize_comment_text(update, context):
+        if context.user_data.get("step") != "task_comment":
+            return False
+        text = (update.effective_message.text or "").strip().lower()
+        if text not in {"تمام", "ثبت", "پایان", "done", "finish"}:
+            return await batch_comment_input(update, context)
+        count = int(context.user_data.get("comment_attachment_count", 0))
+        context.user_data.pop("comment_task_id", None)
+        context.user_data.pop("comment_attachment_count", None)
+        context.user_data.pop("step", None)
+        await update.effective_message.reply_text(f"✅ ارسال کامنت پایان یافت. {count} مورد برای این تسک ثبت شد.")
+        return True
+
     task_module._ask_tags = ask_tags
     task_module._ask_assignment = ask_assignment
     task_module.assignment_callback = assignment_callback
     task_module._handle_tag_callback = handle_tag_callback
     task_module._handle_tag_text = _handle_tag_text
     task_module._finalize_task = finalize_task_with_tracking
+    task_module.handle_comment_input = finalize_comment_text
 
-    # Keep the compatibility patch for code that still imports save_task from
-    # main.py. The actual application now registers handle_tag_text as the
-    # unified text entry point, so this is only a safe fallback.
     main_module = sys.modules.get("main")
     if main_module is not None:
         original_save_task = getattr(main_module, "save_task", None)
@@ -259,6 +310,18 @@ def install_tag_flow(task_module):
                 return await original_save_task(update, context)
             save_task_with_tag_text._tag_text_wrapped = True
             main_module.save_task = save_task_with_tag_text
+
+        # install_tag_flow runs before the application's message handlers are
+        # registered. Patch track_usage so media messages also reach comment
+        # mode even though the normal entry handler is TEXT-only.
+        original_track_usage = getattr(main_module, "track_usage", None)
+        if original_track_usage is not None and not getattr(original_track_usage, "_comment_media_wrapped", False):
+            async def track_usage_with_comment_media(update, context):
+                await original_track_usage(update, context)
+                if context.user_data.get("step") == "task_comment":
+                    await handle_comment_media(update, context)
+            track_usage_with_comment_media._comment_media_wrapped = True
+            main_module.track_usage = track_usage_with_comment_media
 
 
 async def _aget_user_teams(user_id):
