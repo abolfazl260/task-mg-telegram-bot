@@ -23,44 +23,33 @@ def _is_user_local_time(user_id, hour, minute):
 
 async def morning_today_tasks(context):
     """07:00 — list tasks due today (and overdue active)."""
-
     user_ids = get_all_user_ids()
-
     for uid in user_ids:
         try:
             user_id = int(uid)
         except ValueError:
             continue
-
         if not _is_user_local_time(user_id, 7, 0):
             continue
         local_today = _user_now(user_id).date().isoformat()
         tasks = get_active_tasks(user_id)
         today_list = [t for t in tasks if (t.get("deadline") or "") == local_today]
-        overdue = [
-            t for t in tasks
-            if t.get("deadline") and t.get("deadline") < local_today
-        ]
-
+        overdue = [t for t in tasks if t.get("deadline") and t.get("deadline") < local_today]
         if not today_list and not overdue:
             continue
-
         lines = ["☀️ صبح بخیر — برنامه امروز\n"]
-
         if today_list:
             lines.append(f"📌 تسک‌های امروز ({len(today_list)}):")
             for t in sorted(today_list, key=lambda x: {"high": 0, "medium": 1, "low": 2}.get(x.get("priority"), 3)):
                 lines.append(f"• {_priority_emoji(t.get('priority'))} {t.get('title', '-')}")
         else:
             lines.append("📌 تسک با مهلت امروز ندارید.")
-
         if overdue:
             lines.append(f"\n⚠️ عقب‌افتاده ({len(overdue)}):")
             for t in overdue[:8]:
                 lines.append(f"• {_priority_emoji(t.get('priority'))} {t.get('title', '-')} ({t.get('deadline')})")
             if len(overdue) > 8:
                 lines.append(f"... و {len(overdue) - 8} مورد دیگر")
-
         try:
             await context.bot.send_message(chat_id=user_id, text="\n".join(lines))
         except Exception as e:
@@ -69,26 +58,20 @@ async def morning_today_tasks(context):
 
 async def midday_summary_and_weekly(context):
     """11:00 — today's activity summary + weekly overview."""
-
     user_ids = get_all_user_ids()
-
     for uid in user_ids:
         try:
             user_id = int(uid)
         except ValueError:
             continue
-
         if not _is_user_local_time(user_id, 11, 0):
             continue
         today = _user_now(user_id).date()
         today_str = today.isoformat()
-        week_start = today - timedelta(days=today.weekday())  # Monday
-
+        week_start = today - timedelta(days=today.weekday())
         all_tasks = get_all_user_tasks(user_id)
         if not all_tasks:
             continue
-
-        # Today completed
         done_today = []
         for t in all_tasks:
             if t.get("status") != "done":
@@ -96,10 +79,8 @@ async def midday_summary_and_weekly(context):
             completed = (t.get("completed_at") or "")[:10]
             if completed == today_str:
                 done_today.append(t)
-
         active = [t for t in all_tasks if t.get("status") in ("pending", "in_progress")]
         due_today = [t for t in active if (t.get("deadline") or "") == today_str]
-
         lines = ["📋 خلاصه فعالیت امروز\n"]
         lines.append(f"✅ انجام‌شده امروز: {len(done_today)}")
         if done_today:
@@ -107,11 +88,8 @@ async def midday_summary_and_weekly(context):
                 lines.append(f"  • {t.get('title', '-')}")
             if len(done_today) > 6:
                 lines.append(f"  ... و {len(done_today) - 6} مورد")
-
         lines.append(f"\n📌 باقی‌مانده امروز: {len(due_today)}")
         lines.append(f"📂 کل فعال: {len(active)}")
-
-        # Weekly
         created_week = 0
         done_week = 0
         for t in all_tasks:
@@ -130,18 +108,15 @@ async def midday_summary_and_weekly(context):
                         done_week += 1
                 except Exception:
                     pass
-
         lines.append("\n📅 گزارش هفتگی (از دوشنبه):")
         lines.append(f"• ایجادشده این هفته: {created_week}")
         lines.append(f"• انجام‌شده این هفته: {done_week}")
-
         try:
             await context.bot.send_message(chat_id=user_id, text="\n".join(lines))
         except Exception as e:
             logger.warning("Midday summary failed for %s: %s", user_id, e)
 
 
-# Keep old name as alias for safety if referenced elsewhere
 async def check_deadline_reminders(context):
     """Legacy alias — prefer morning_today_tasks."""
     await morning_today_tasks(context)
@@ -156,15 +131,24 @@ from services.habit_service import (
 )
 
 
-async def habit_reminders(context):
-    """Every minute — send habit reminders that match the current HH:MM."""
+def _habit_reminder_times(value):
+    """Return normalized HH:MM values from the existing reminder_time field."""
+    if not value:
+        return set()
+    return {
+        item.strip()
+        for item in str(value).split(",")
+        if item.strip()
+    }
 
+
+async def habit_reminders(context):
+    """Every minute — send habit reminders matching the current HH:MM."""
     for uid in get_all_habit_user_ids():
         try:
             user_id = int(uid)
         except ValueError:
             continue
-
         user_now = _user_now(user_id)
         now_time = user_now.strftime("%H:%M")
         today = user_now.date().isoformat()
@@ -176,7 +160,7 @@ async def habit_reminders(context):
         for habit in get_user_habits(user_id, active_only=True):
             if not is_habit_due_on(habit):
                 continue
-            if habit.get("reminder_time") != now_time:
+            if now_time not in _habit_reminder_times(habit.get("reminder_time")):
                 continue
             if habit.get("id") in done_today:
                 continue
@@ -196,7 +180,6 @@ async def habit_reminders(context):
 
 async def weekly_habit_reports(context):
     """Friday — send automatic weekly habit report."""
-
     for uid in get_all_habit_user_ids():
         try:
             user_id = int(uid)
@@ -209,10 +192,7 @@ async def weekly_habit_reports(context):
         habits = get_user_habits(user_id, active_only=True)
         if not habits:
             continue
-        logs = [
-            log for log in get_logs(user_id=user_id)
-            if start.isoformat() <= log.get("done_date", "") <= end.isoformat()
-        ]
+        logs = [log for log in get_logs(user_id=user_id) if start.isoformat() <= log.get("done_date", "") <= end.isoformat()]
         counts = {habit["id"]: 0 for habit in habits}
         for log in logs:
             if log.get("habit_id") in counts:
