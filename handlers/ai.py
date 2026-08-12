@@ -2,13 +2,14 @@
 
 import asyncio
 
-from telegram import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode, Update
 from telegram.ext import ContextTypes
 
 from services.groq_service import (
     GroqConfigurationError,
     GroqRequestError,
     ask_task_assistant,
+    get_processing_status_messages,
     parse_task_request,
 )
 from services.habit_service import create_habit, get_habit
@@ -80,14 +81,14 @@ def _draft_text(draft: dict) -> str:
     lines = ["🤖 تسک پیشنهادی هوش مصنوعی", "", f"📌 عنوان: {draft['title']}"]
     if draft.get("deadline"):
         lines.append(f"🗓 موعد: {draft['deadline']}")
-    lines.append(f"🎯 اولویت: {_PRIORITY_LABEL.get(draft.get('priority'), '🟠 متوسط')}")
+    lines.append(f"🎯 اولویت: {_PRIORITY_LABEL.get(draft.get('priority'), '🟢 پایین')}")
     if draft.get("category"):
         lines.append(f"📂 دسته‌بندی: {draft['category']}")
     if draft.get("tags"):
         lines.append(f"🏷 تگ: {draft['tags']}")
     if draft.get("description"):
         lines.append(f"📝 توضیح: {draft['description']}")
-    lines.extend(["", "آیا این تسک ایجاد شود?"])
+    lines.extend(["", "آیا این تسک ایجاد شود؟"])
     return "\n".join(lines)
 
 
@@ -100,6 +101,30 @@ def _draft_keyboard(action: str) -> InlineKeyboardMarkup:
     ])
 
 
+async def _run_with_processing(message, operation):
+    """Run AI work while showing generic progress, never model reasoning."""
+    statuses = get_processing_status_messages()
+    status_message = await message.reply_text(statuses[0])
+    task = asyncio.create_task(asyncio.to_thread(operation))
+    index = 1
+    try:
+        while not task.done():
+            await asyncio.sleep(0.35)
+            if task.done():
+                break
+            await status_message.edit_text(statuses[index % len(statuses)])
+            index += 1
+        result = await task
+        await status_message.delete()
+        return result
+    except Exception:
+        try:
+            await status_message.delete()
+        except Exception:
+            pass
+        raise
+
+
 async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     request_text = " ".join(context.args).strip()
     if not request_text:
@@ -107,12 +132,18 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        draft = await asyncio.to_thread(parse_task_request, update.effective_user.id, request_text)
+        draft = await _run_with_processing(
+            update.message,
+            lambda: parse_task_request(update.effective_user.id, request_text),
+        )
         if draft.get("action") in {"CREATE_TASK", "CREATE_HABIT"}:
             context.user_data["ai_request_draft"] = draft
             await update.message.reply_text(_draft_text(draft), reply_markup=_draft_keyboard(draft["action"]))
             return
-        answer = await asyncio.to_thread(ask_task_assistant, update.effective_user.id, request_text)
+        answer = await _run_with_processing(
+            update.message,
+            lambda: ask_task_assistant(update.effective_user.id, request_text),
+        )
     except GroqConfigurationError:
         await update.message.reply_text("⚠️ دستیار هوشمند در حال حاضر فعال نیست.")
         return
@@ -123,7 +154,7 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # پاسخ بدون داده مرتبط نباید برای کاربر ارسال شود.
     if not answer:
         return
-    await update.message.reply_text(f"🤖 {answer}")
+    await update.message.reply_text(f"🤖 {answer}", parse_mode=ParseMode.HTML)
 
 
 async def ai_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
