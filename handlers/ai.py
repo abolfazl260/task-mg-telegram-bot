@@ -69,7 +69,6 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ai_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     draft = context.user_data.pop("ai_task_draft", None)
     if query.data == "ai_task_cancel":
         await query.edit_message_text("❌ ایجاد تسک لغو شد.")
