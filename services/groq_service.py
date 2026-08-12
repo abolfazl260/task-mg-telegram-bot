@@ -118,82 +118,177 @@ def _extract_json(text: str) -> dict:
 
 
 def parse_task_request(user_id: int, request_text: str) -> dict:
-    """Convert natural Persian task/habit text into a validated draft."""
+    """Convert natural Persian/English task or habit text into a validated draft."""
     today = datetime.now(timezone.utc).date().isoformat()
     prompt = f"""
-تو موتور استخراج درخواست برای یک ربات مدیریت کار و عادت فارسی هستی.
+تو یک موتور هوشمند استخراج درخواست برای ربات مدیریت کار و عادت هستی.
+پیام کاربر را تحلیل کن و فقط یک JSON معتبر برگردان؛ هیچ Markdown یا توضیح اضافه‌ای ننویس.
+
 تاریخ امروز میلادی: {today}
 
-پیام کاربر را تحلیل کن و فقط JSON معتبر برگردان، بدون Markdown و بدون توضیح.
-سه حالت ممکن است:
-- CREATE_TASK: یک کار یک‌باره یا دارای موعد مشخص.
-- CREATE_HABIT: یک رفتار/کار تکرارشونده که باید به عنوان عادت ذخیره شود و در صورت وجود زمان، یادآوری شود.
-- CHAT: سؤال، مشاوره یا درخواست غیرعملیاتی.
+━━━━━━━━━━━━━━━━━━━━
+۱) تشخیص عملیات
+━━━━━━━━━━━━━━━━━━━━
 
-ساختار دقیق JSON:
+CREATE_TASK:
+کار یک‌باره، جلسه، قرار، پروژه یا کاری که قرار نیست منظم تکرار شود.
+
+CREATE_HABIT:
+رفتار یا کاری که کاربر می‌خواهد به شکل منظم و تکرارشونده انجام دهد یا برای آن یادآوری تکراری داشته باشد.
+نشانه‌ها شامل «هر روز»، «روزانه»، «هر صبح»، «هر شب»، «هر هفته»، «هفتگی»، «هر ماه»، «ماهانه»،
+«هفته‌ای چند بار»، «روزی چند بار»، «چند بار در روز»، «مرتب»، «به صورت منظم»، «همیشه یادم بنداز»
+و معادل‌های انگلیسی مانند daily, weekly, monthly, every day, every week, regularly هستند.
+
+CHAT:
+فقط سؤال صریح، احوال‌پرسی، مشاوره یا درخواست توضیح غیرعملیاتی.
+
+اگر پیام خبری یا دستوری است و سؤال نیست، پیش‌فرض CREATE_TASK است.
+اگر نشانه روشن تکرار وجود دارد، CREATE_HABIT بر CREATE_TASK اولویت دارد.
+
+━━━━━━━━━━━━━━━━━━━━
+۲) قوانین زبان
+━━━━━━━━━━━━━━━━━━━━
+
+مقادیر متنی title، description، category و tags را به همان زبان پیام کاربر تولید کن.
+نام شرکت، شخص و مکان را در title حفظ کن.
+
+━━━━━━━━━━━━━━━━━━━━
+۳) تاریخ و ساعت
+━━━━━━━━━━━━━━━━━━━━
+
+امروز = {today}
+
+امروز، فردا و پس‌فردا را دقیقاً بر اساس این تاریخ به YYYY-MM-DD تبدیل کن.
+ساعت همیشه HH:MM باشد.
+«ساعت ۲» یا «۲ بعدازظهر» = 14:00 مگر اینکه متن صراحتاً صبح را بگوید.
+«ساعت ۱۴» = 14:00.
+برای CREATE_TASK اگر تاریخ یا ساعت گفته نشده، deadline خالی باشد و هرگز حدس نزن.
+برای CREATE_HABIT، deadline همیشه خالی است.
+
+━━━━━━━━━━━━━━━━━━━━
+۴) قوانین عادت و تکرار
+━━━━━━━━━━━━━━━━━━━━
+
+daily: هر روز، روزانه، هر صبح، هر شب، every day, daily
+weekly: هر هفته، هفتگی، every week, weekly
+monthly: هر ماه، ماهانه، every month, monthly
+
+اگر کاربر چند بار در روز را بیان کرد، عادت روزانه است.
+مثال: «هر روز ساعت ۸ و ۱۴ آب بخورم» → daily + reminder_time="08:00,14:00"
+
+اگر گفت «هفته‌ای سه بار ورزش کنم» → weekly و target باید مفهوم «سه بار در هفته» را حفظ کند.
+اگر گفت «هر ماه گزارش مالی را بررسی کنم» → monthly.
+
+ساختار فعلی فقط daily/weekly/monthly را پشتیبانی می‌کند؛ Schema جدید پیشنهاد یا اختراع نکن.
+
+اگر تکرار مشخص است ولی ساعت مشخص نشده، عادت ایجاد شود و reminder_time خالی بماند.
+اگر کاربر ساعت دقیق برای رفتار تکرارشونده داد، آن را در reminder_time قرار بده.
+اگر چند ساعت داده شد، همه ساعت‌های معتبر را با کاما و بدون فاصله برگردان.
+
+━━━━━━━━━━━━━━━━━━━━
+۵) هدف عادت
+━━━━━━━━━━━━━━━━━━━━
+
+تعداد، مقدار یا مدت هدف را در target قرار بده.
+
+«هر روز ۵ لیوان آب بخورم» → target="۵ لیوان در روز"
+«هفته‌ای سه بار ورزش کنم» → target="۳ بار در هفته"
+«هر روز ۳۰ دقیقه مطالعه کنم» → target="۳۰ دقیقه در روز"
+
+اگر هدف مشخص نشده، target خالی باشد.
+
+━━━━━━━━━━━━━━━━━━━━
+۶) یادآوری
+━━━━━━━━━━━━━━━━━━━━
+
+reminder_time فقط بر اساس زمان صریح کاربر پر شود.
+هرگز ساعت یادآوری را حدس نزن.
+
+━━━━━━━━━━━━━━━━━━━━
+۷) اولویت
+━━━━━━━━━━━━━━━━━━━━
+
+priority پیش‌فرض low است.
+فقط وقتی کاربر صریحاً فوریت یا اهمیت را بیان کند high یا medium انتخاب کن؛ مانند «فوری»، «خیلی مهم»، «ضروری»، «ASAP»، «urgent».
+از متن کاربر درباره اهمیت حدس نزن.
+
+━━━━━━━━━━━━━━━━━━━━
+۸) عنوان و توضیحات
+━━━━━━━━━━━━━━━━━━━━
+
+title کوتاه و واضح و مبتنی بر نیت اصلی باشد.
+مثال: «امروز ساعت ۲ جلسه با شرکت مدیران خودرو دارم» → «جلسه با شرکت مدیران خودرو».
+اطلاعات تکمیلی در description قرار بگیرد.
+
+━━━━━━━━━━━━━━━━━━━━
+۹) خروجی
+━━━━━━━━━━━━━━━━━━━━
+
+فقط این JSON را برگردان:
 {{
   "action": "CREATE_TASK" یا "CREATE_HABIT" یا "CHAT",
-  "title": "عنوان کوتاه و روشن",
+  "title": "عنوان کوتاه",
   "deadline": "YYYY-MM-DD HH:MM" یا "",
   "priority": "high" یا "medium" یا "low",
-  "category": "" یا دسته‌ای که صریحاً در پیام آمده,
-  "tags": "" یا تگ‌هایی که صریحاً در پیام آمده,
-  "description": "اطلاعات تکمیلی پیام",
+  "category": "" یا دسته صریح پیام,
+  "tags": "" یا تگ صریح پیام,
+  "description": "اطلاعات تکمیلی",
   "repeat_type": "daily" یا "weekly" یا "monthly" یا "",
   "target": "هدف/مقدار عادت یا خالی",
   "reminder_time": "HH:MM,HH:MM" یا ""
 }}
 
-قواعد مهم:
-- اگر کاربر از تکرار یا روال استفاده کرد، مثل «هر روز»، «روزانه»، «هر هفته»، «هفته‌ای»، «هر ماه»، «به صورت منظم»، «همیشه یادم بنداز»، «هر شب»، «هر صبح»، یا انجام چندباره در روز، action=CREATE_HABIT است.
-- اگر کار فقط یک بار برای یک تاریخ/ساعت مشخص است، action=CREATE_TASK است.
-- اگر کاربر برای یک رفتار تکرارشونده ساعت مشخص خواست، آن ساعت را در reminder_time قرار بده.
-- اگر چند ساعت در روز گفته شد، همه را با کاما در reminder_time قرار بده؛ نمونه: «هر روز ساعت ۸ و ۱۴ آب بخورم» → «08:00,14:00».
-- «هر روز» → repeat_type=daily، «هر هفته/هفتگی» → weekly، «هر ماه/ماهانه» → monthly.
-- برای عباراتی مثل «هر صبح» یا «هر شب»، repeat_type=daily است؛ اگر ساعت دقیق داده نشده، reminder_time خالی بماند و زمان را حدس نزن.
-- اگر تکرار وجود دارد ولی ساعت ندارد، habit ساخته شود بدون یادآوری؛ کاربر بعداً می‌تواند یادآوری را تنظیم کند.
-- «چند بار در روز» به معنی عادت است؛ اگر تعداد و ساعت‌ها مشخص نیست، target را نگه دار و reminder_time را حدس نزن.
-- «هفته‌ای سه بار» را فعلاً به عنوان habit با repeat_type=weekly استخراج کن و عبارت «سه بار» را در target/description حفظ کن؛ ساختار فعلی دیتابیس فقط روزانه/هفتگی/ماهانه را پشتیبانی می‌کند و نباید Schema جدیدی پیشنهاد شود.
-- «امروز ساعت ۲» یعنی امروز ساعت 14:00، مگر اینکه متن صریحاً 2 صبح را بگوید.
-- «ساعت ۱۴» یعنی 14:00.
-- «فردا» و «پس‌فردا» را با توجه به تاریخ امروز به تاریخ میلادی تبدیل کن.
-- اگر ساعت یا تاریخ گفته نشده، deadline خالی باشد.
-- زمان یا جزئیاتی که در پیام نیست را حدس نزن.
-- priority پیش‌فرض medium است.
-- title را از نیت اصلی بساز، نه از کل جمله.
-- نام شرکت، شخص یا مکان را در title حفظ کن.
-- برای عادت، deadline را خالی بگذار و از repeat_type/reminder_time استفاده کن.
-- اگر پیام صرفاً سؤال یا درخواست مشاوره است، action=CHAT باشد.
-
 پیام کاربر:
 {request_text}
 """
+
     result = _extract_json(_groq_request(prompt))
-    action = str(result.get("action") or "CHAT").upper()
-    if action not in {"CREATE_TASK", "CREATE_HABIT"}:
+
+    action = str(result.get("action") or "CREATE_TASK").upper().strip()
+    if action not in {"CREATE_TASK", "CREATE_HABIT", "CHAT"}:
+        action = "CREATE_TASK"
+
+    if action == "CHAT":
         return {"action": "CHAT"}
 
     title = str(result.get("title") or "").strip()
     if not title:
         raise GroqRequestError("عنوان از پیام شما قابل تشخیص نبود.")
-    priority = str(result.get("priority") or "medium").lower()
+
+    priority = str(result.get("priority") or "low").lower().strip()
     if priority not in {"high", "medium", "low"}:
-        priority = "medium"
+        priority = "low"
+
     deadline = str(result.get("deadline") or "").strip()
     if deadline and not re.fullmatch(r"\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?", deadline):
         deadline = ""
-    repeat_type = str(result.get("repeat_type") or "").lower()
-    if repeat_type not in {"daily", "weekly", "monthly"}:
-        repeat_type = "daily" if action == "CREATE_HABIT" else ""
+    if action == "CREATE_HABIT":
+        deadline = ""
+
+    repeat_type = str(result.get("repeat_type") or "").lower().strip()
+    if action == "CREATE_HABIT":
+        if repeat_type not in {"daily", "weekly", "monthly"}:
+            raise GroqRequestError(
+                "نوع تکرار عادت مشخص نیست. لطفاً روزانه، هفتگی یا ماهانه بودن آن را مشخص کنید."
+            )
+    else:
+        repeat_type = ""
+
     reminder_time = str(result.get("reminder_time") or "").strip()
     if reminder_time:
         times = [item.strip() for item in reminder_time.split(",") if item.strip()]
-        times = [item for item in times if re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", item)]
-        reminder_time = ",".join(times)
+        valid_times = [
+            item for item in times
+            if re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", item)
+        ]
+        reminder_time = ",".join(dict.fromkeys(valid_times))
+    if action != "CREATE_HABIT":
+        reminder_time = ""
+
     return {
         "action": action,
         "title": title[:200],
-        "deadline": "" if action == "CREATE_HABIT" else deadline,
+        "deadline": deadline,
         "priority": priority,
         "category": str(result.get("category") or "").strip()[:100],
         "tags": str(result.get("tags") or "").strip()[:300],
