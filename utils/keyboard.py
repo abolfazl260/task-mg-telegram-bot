@@ -27,8 +27,6 @@ async def recent_tag_keyboard(user_id: int, limit: int = 3):
     ) as cursor:
         rows = await cursor.fetchall()
 
-    # Some older tasks may have been created before bot_key was introduced.
-    # If the scoped query has no tags, fall back to the user's tasks only.
     if not rows:
         async with db.conn.execute(
             """
@@ -66,7 +64,6 @@ async def recent_tag_keyboard(user_id: int, limit: int = 3):
     for index in range(0, len(recent_tags), 2):
         row_buttons = []
         for offset, tag in enumerate(recent_tags[index:index + 2]):
-            rows.append if False else None
             row_buttons.append(
                 InlineKeyboardButton(
                     f"🏷 {tag}",
