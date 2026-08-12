@@ -53,15 +53,12 @@ reports_handler.report_week = calendar_runtime.report_week
 reports_handler.report_heatmap = calendar_reports_v2.report_heatmap
 reports_handler.report_heatmap_week = calendar_runtime.report_heatmap_week
 reports_handler.report_today = calendar_runtime.report_today
-# calendar_runtime exposes the implementation as report_compare_months.
-# Keep the public handler name unchanged for the existing reports module.
 extra_reports_handler.report_compare_months = calendar_runtime.report_compare_months
 report_compare_months = calendar_runtime.report_compare_months
 deadline_selected = calendar_runtime_extensions.deadline_selected
 
 
 async def handle_tag_callback(update, context):
-    """Dispatch tag callbacks after install_tag_flow has installed the async handler."""
     callback = getattr(task_handler, "_handle_tag_callback", None)
     if callback is None:
         await update.callback_query.answer("بخش تگ‌ها آماده نیست.", show_alert=True)
@@ -70,7 +67,6 @@ async def handle_tag_callback(update, context):
 
 
 def _add_calendar_pdf_button(markup):
-    """Add the dedicated monthly PDF export without changing the existing reports module."""
     rows = [list(row) for row in markup.inline_keyboard]
     if not any(button.callback_data == "report_calendar_pdf" for row in rows for button in row):
         rows.insert(-1, [InlineKeyboardButton("📄 خروجی PDF تقویم ماهانه", callback_data="report_calendar_pdf")])
@@ -86,6 +82,8 @@ if reports_handler.reports_menu_keyboard is not None:
     reports_handler.reports_menu_keyboard = _reports_menu_keyboard_with_pdf
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
@@ -204,15 +202,7 @@ def _feature(app, name):
 
 
 def build_application(profile):
-    request = HTTPXRequest(
-        connection_pool_size=16,
-        read_timeout=30.0,
-        write_timeout=120.0,
-        connect_timeout=30.0,
-        pool_timeout=30.0,
-        media_write_timeout=120.0,
-        http_version="1.1",
-    )
+    request = HTTPXRequest(connection_pool_size=16, read_timeout=30.0, write_timeout=120.0, connect_timeout=30.0, pool_timeout=30.0, media_write_timeout=120.0, http_version="1.1")
     app = Application.builder().token(profile.token).request(request).post_init(post_init).build()
     app.bot_data["bot_config"] = profile
     install_tag_flow(task_handler)
@@ -258,7 +248,7 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(safe_assignment_confirm, pattern="^assign_confirm_create$"))
     app.add_handler(CallbackQueryHandler(assignment_callback, pattern="^assign_"))
     app.add_handler(CallbackQueryHandler(assignment_manage_callback, pattern="^(owner_|asg_|chg_)"))
-    app.add_handler(CallbackQueryHandler(task_details_callback, pattern="^(task_details_|task_history_)"))
+    app.add_handler(CallbackQueryHandler(task_details_callback, pattern="^(task_details_|task_history_)") )
     app.add_handler(CallbackQueryHandler(comment_callback, pattern="^comment_add_"))
     app.add_handler(CallbackQueryHandler(comment_cancel_callback, pattern="^comment_cancel_"))
     app.add_handler(CallbackQueryHandler(paginated_detail_page, pattern="^detail_page_"))
@@ -284,10 +274,22 @@ def build_application(profile):
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
     app.add_handler(CallbackQueryHandler(button_handler, pattern="^(?!priority_|deadline_|category_pick_|category_skip|tag_|tags_|step_back_description|description_skip|detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|task_details_|task_history_|comment_add_|comment_cancel_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_|custombot_|int_)"))
-    # Use the same unified text-entry flow as the category step. The tag
-    # handler consumes tag text when step == tags and delegates every other
-    # step to the normal save_task handler.
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_tag_text), group=0)
+    # The same message flow handles both text and Telegram media. This replaces
+    # the old TEXT-only gate that prevented photo/document/video/etc. from
+    # reaching handlers.task.handle_comment_input().
+    comment_message_filter = (
+        filters.TEXT
+        | filters.PHOTO
+        | filters.Document.ALL
+        | filters.VIDEO
+        | filters.AUDIO
+        | filters.VOICE
+        | filters.ANIMATION
+        | filters.Sticker.ALL
+        | filters.CONTACT
+        | filters.LOCATION
+    ) & ~filters.COMMAND
+    app.add_handler(MessageHandler(comment_message_filter, handle_tag_text), group=0)
     app.add_error_handler(error_handler)
     return app
 
