@@ -21,6 +21,37 @@ async def notify_admins(context, text):
             logger.warning("Admin notification failed for %s: %s", admin_id, exc)
 
 
+async def notify_ai_parse_failure(update, context, request_text: str, error: Exception):
+    """Notify admins with the original user input when structured AI parsing fails."""
+    user = update.effective_user
+    message = update.message
+    source = "voice" if message and message.voice else "text"
+    user_info = (
+        f"نام: {user.full_name if user else '—'}\n"
+        f"یوزرنیم: @{user.username if user and user.username else '—'}\n"
+        f"آیدی: {user.id if user else '—'}"
+    )
+    text = (
+        "⚠️ پاسخ ساختاریافته هوش مصنوعی قابل پردازش نبود.\n\n"
+        f"نوع ورودی: {'🎤 Voice' if source == 'voice' else '📝 Text'}\n"
+        f"{user_info}\n\n"
+        f"متن ورودی/استخراج‌شده:\n{request_text or '—'}\n\n"
+        f"خطا: {str(error)}"
+    )
+
+    for admin_id in _admin_text_ids():
+        try:
+            await context.bot.send_message(chat_id=admin_id, text=text)
+            if source == "voice" and message:
+                await context.bot.forward_message(
+                    chat_id=admin_id,
+                    from_chat_id=message.chat_id,
+                    message_id=message.message_id,
+                )
+        except Exception as exc:
+            logger.warning("AI parse failure notification failed for %s: %s", admin_id, exc)
+
+
 async def notify_new_user(context, user):
     if not user:
         return
