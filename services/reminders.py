@@ -135,11 +135,7 @@ def _habit_reminder_times(value):
     """Return normalized HH:MM values from the existing reminder_time field."""
     if not value:
         return set()
-    return {
-        item.strip()
-        for item in str(value).split(",")
-        if item.strip()
-    }
+    return {item.strip() for item in str(value).split(",") if item.strip()}
 
 
 async def habit_reminders(context):
@@ -151,18 +147,10 @@ async def habit_reminders(context):
             continue
         user_now = _user_now(user_id)
         now_time = user_now.strftime("%H:%M")
-        today = user_now.date().isoformat()
-        done_today = {
-            log.get("habit_id")
-            for log in get_logs(user_id=user_id)
-            if log.get("done_date") == today
-        }
         for habit in get_user_habits(user_id, active_only=True):
             if not is_habit_due_on(habit):
                 continue
             if now_time not in _habit_reminder_times(habit.get("reminder_time")):
-                continue
-            if habit.get("id") in done_today:
                 continue
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ انجام دادم", callback_data=f"habit_done_{habit['id']}")],
