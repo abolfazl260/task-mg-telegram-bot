@@ -56,7 +56,7 @@ async def _quick_stats(user_id):
 
 
 def install_tag_flow(task_module):
-    """Install tag/assignment customizations without intercepting comment media."""
+    """Install the database-backed tag flow while keeping task creation logic centralized."""
     if getattr(task_module, "_smart_tag_flow_installed", False):
         return
     task_module._smart_tag_flow_installed = True
@@ -174,7 +174,7 @@ def install_tag_flow(task_module):
     async def handle_tag_callback(update, context):
         query = update.callback_query
         data = query.data or ""
-        if not (data.startswith("tag_") or data.startswith("tags_")) and data != "step_back_description":
+        if not (data.startswith("tag_") or data.startswith("tags_")) and data not in {"step_back_description", "step_back_category"}:
             return
         task = context.user_data.get("new_task")
         if not isinstance(task, dict):
@@ -182,22 +182,30 @@ def install_tag_flow(task_module):
             return
         await query.answer()
         description_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⏭ رد کردن", callback_data="description_skip")]])
+
         if data in ("tag_none", "tags_skip"):
             task["tags"] = ""
             context.user_data.pop("tag_suggestions", None)
             context.user_data.pop("awaiting_tag_input", None)
-            context.user_data["step"] = "description"
-            await _safe_edit(query, "📄 توضیح / یادداشت را وارد کنید یا دکمه «رد کردن» را بزنید:\n(اختیاری)", reply_markup=description_keyboard)
+            await task_module._ask_description(query.message, context)
             return
+
         if data in ("tag_new", "tags_new"):
             context.user_data["step"] = "tags"
             context.user_data["awaiting_tag_input"] = True
             await _safe_edit(query, "🏷 تگ جدید را وارد کنید:")
             return
+
+        if data == "step_back_category":
+            context.user_data["step"] = "category"
+            await _safe_edit(query, "📂 دسته‌بندی را انتخاب کنید یا نام دسته‌بندی جدید را ارسال کنید.", reply_markup=await task_module._category_keyboard(update.effective_user.id))
+            return
+
         if data == "step_back_description":
             context.user_data["step"] = "description"
             await _safe_edit(query, "📄 توضیح / یادداشت را وارد کنید یا دکمه «رد کردن» را بزنید:\n(اختیاری)", reply_markup=description_keyboard)
             return
+
         if data.startswith("tag_pick_"):
             try:
                 index = int(data.replace("tag_pick_", "", 1))
@@ -209,8 +217,7 @@ def install_tag_flow(task_module):
                 task["tags"] = tags[index]
                 context.user_data.pop("tag_suggestions", None)
                 context.user_data.pop("awaiting_tag_input", None)
-                context.user_data["step"] = "description"
-                await _safe_edit(query, "📄 توضیح / یادداشت را وارد کنید یا دکمه «رد کردن» را بزنید:\n(اختیاری)", reply_markup=description_keyboard)
+                await task_module._ask_description(query.message, context)
                 return
             await query.answer("تگ انتخاب‌شده دیگر در دسترس نیست.", show_alert=True)
 
