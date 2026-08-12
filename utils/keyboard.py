@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import logging
 
 import jdatetime
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -6,41 +7,34 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from services.database import get_db
 from bot_context import get_current_bot_key
 
+logger = logging.getLogger(__name__)
+
 
 async def recent_tag_keyboard(user_id: int, limit: int = 3):
-    """Build tag suggestions from the user's existing tasks in SQLite."""
+    """Build tag suggestions from this user's tasks for the current bot only."""
     db = await get_db()
     bot_key = get_current_bot_key() or "default"
+    normalized_user_id = str(user_id)
+    logger.debug("tag_suggestions query bot_key=%s user_id=%s limit=%s", bot_key, normalized_user_id, limit)
 
-    async with db.conn.execute(
-        """
-        SELECT tags
-        FROM tasks
-        WHERE bot_key = ?
-          AND user_id = ?
-          AND tags IS NOT NULL
-          AND TRIM(tags) <> ''
-        ORDER BY created_at DESC
-        LIMIT 50
-        """,
-        (bot_key, str(user_id)),
-    ) as cursor:
-        rows = await cursor.fetchall()
-
-    if not rows:
+    try:
         async with db.conn.execute(
             """
             SELECT tags
             FROM tasks
-            WHERE user_id = ?
+            WHERE bot_key = ?
+              AND user_id = ?
               AND tags IS NOT NULL
               AND TRIM(tags) <> ''
             ORDER BY created_at DESC
             LIMIT 50
             """,
-            (str(user_id),),
+            (bot_key, normalized_user_id),
         ) as cursor:
             rows = await cursor.fetchall()
+    except Exception:
+        logger.exception("tag_suggestions query failed bot_key=%s user_id=%s", bot_key, normalized_user_id)
+        raise
 
     recent_tags = []
     seen = set()
@@ -59,6 +53,14 @@ async def recent_tag_keyboard(user_id: int, limit: int = 3):
                 break
         if len(recent_tags) >= limit:
             break
+
+    logger.debug(
+        "tag_suggestions result bot_key=%s user_id=%s rows=%s tags=%s",
+        bot_key,
+        normalized_user_id,
+        len(rows),
+        recent_tags,
+    )
 
     rows = []
     for index in range(0, len(recent_tags), 2):
