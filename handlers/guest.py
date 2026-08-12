@@ -14,8 +14,14 @@ from datetime import date, datetime
 
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.ext import ContextTypes
+from telegram.ext import ApplicationHandlerStop, ContextTypes
 
+from handlers.business import (
+    handle_business_connection,
+    handle_business_message,
+    handle_deleted_business_messages,
+    handle_edited_business_message,
+)
 from services.task_service import create_task, get_all_user_tasks
 from utils.date_parse import parse_deadline_input
 
@@ -143,13 +149,34 @@ async def _answer_guest_query(context: ContextTypes.DEFAULT_TYPE, guest_query_id
 
 
 async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Create one-shot tasks from Guest Mode messages.
+    """Create one-shot tasks from Guest Mode messages and guard business updates.
 
     Usage in any supported chat after Guest Mode is enabled in BotFather:
     ``@YourBot add Buy server credits 2026-08-20 فوری``.
     Important reports can also be shared in groups with:
     ``@YourBot گزارش مهم``.
+
+    Business updates are routed here as a guard because all TypeHandlers in the
+    application previously shared the same group. python-telegram-bot executes
+    at most one handler per group, so the first business TypeHandler could return
+    without handling a business_message. Routing them here prevents ordinary
+    MessageHandlers from accessing ``update.message`` when it is None.
     """
+
+    # Business updates do not populate update.message. Route them before the
+    # ordinary message pipeline so they can never reach handlers expecting text.
+    if update.business_connection:
+        await handle_business_connection(update, context)
+        return
+    if update.business_message:
+        await handle_business_message(update, context)
+        return
+    if update.edited_business_message:
+        await handle_edited_business_message(update, context)
+        return
+    if update.deleted_business_messages:
+        await handle_deleted_business_messages(update, context)
+        return
 
     guest = _guest_message(update)
     if not guest:
