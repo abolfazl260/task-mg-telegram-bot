@@ -22,17 +22,32 @@ class GroqRequestError(RuntimeError):
     """Raised when Groq returns an unusable response."""
 
 
+_PROCESSING_STATUS_MESSAGES = [
+    "🤖 در حال پردازش درخواست…",
+    "🤖 در حال استخراج اطلاعات…",
+    "🤖 در حال آماده‌سازی نتیجه…",
+]
+
+
+def get_processing_status_messages() -> list[str]:
+    """Return short, generic status messages; never expose model reasoning."""
+    return list(_PROCESSING_STATUS_MESSAGES)
+
+
 def _task_context(user_id: int, limit: int = 25) -> str:
     tasks = get_all_user_tasks(user_id)
     if not tasks:
         return "هنوز تسکی برای این کاربر ثبت نشده است."
     priority_order = {"high": 0, "medium": 1, "low": 2}
     status_order = {"pending": 0, "in_progress": 1, "done": 2, "cancelled": 3}
-    tasks = sorted(tasks, key=lambda task: (
-        status_order.get(task.get("status"), 9),
-        priority_order.get(task.get("priority"), 9),
-        task.get("deadline") or "9999-99-99",
-    ))[:limit]
+    tasks = sorted(
+        tasks,
+        key=lambda task: (
+            status_order.get(task.get("status"), 9),
+            priority_order.get(task.get("priority"), 9),
+            task.get("deadline") or "9999-99-99",
+        ),
+    )[:limit]
     lines = []
     for index, task in enumerate(tasks, start=1):
         lines.append(
@@ -41,6 +56,7 @@ def _task_context(user_id: int, limit: int = 25) -> str:
             f"اولویت: {task.get('priority') or 'low'} | "
             f"ددلاین: {task.get('deadline') or 'ندارد'} | "
             f"دسته: {task.get('category') or '—'} | "
+            f"تگ: {task.get('tags') or '—'} | "
             f"توضیح: {(task.get('description') or '—')[:120]}"
         )
     return "\n".join(lines)
@@ -89,22 +105,38 @@ def _groq_request(prompt: str) -> str:
     return text
 
 
+def _sanitize_rich_answer(text: str) -> str:
+    """Keep only a small Telegram-HTML subset and remove model chatter."""
+    text = re.sub(r"^```(?:html)?\s*|\s*```$", "", text.strip(), flags=re.IGNORECASE)
+    text = re.sub(r"(?i)<\s*/?\s*(script|style|ul|ol|li|div|span|h[1-6])[^>]*>", "", text)
+    text = re.sub(r"(?i)<\s*(b|strong)\s*>", "<b>", text)
+    text = re.sub(r"(?i)</\s*(b|strong)\s*>", "</b>", text)
+    text = re.sub(r"(?i)<\s*(i|em)\s*>", "<i>", text)
+    text = re.sub(r"(?i)</\s*(i|em)\s*>", "</i>", text)
+    text = re.sub(r"(?i)<\s*code\s*>", "<code>", text)
+    text = re.sub(r"(?i)</\s*code\s*>", "</code>", text)
+    text = re.sub(r"(?i)<\s*br\s*/?\s*>", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()[:1200]
+
+
 def ask_task_assistant(user_id: int, question: str) -> str:
-    """Answer only from the user's stored task data, briefly and without speculation."""
+    """Answer only from the user's stored task data with short Telegram HTML."""
     context = _task_context(user_id)
     prompt = (
         "تو دستیار مدیریت کارها هستی. فقط و فقط بر اساس داده‌های تسک زیر پاسخ بده. "
-        "از دانش عمومی، حدس، پیشنهاد، تحلیل خارج از داده‌ها یا ساختن اطلاعات جدید استفاده نکن. "
+        "از دانش عمومی، حدس، پیشنهاد یا ساختن اطلاعات جدید استفاده نکن. "
         "اگر پاسخ دقیق سؤال در داده‌ها وجود ندارد، دقیقاً NO_DATA برگردان. "
-        "پاسخ باید بسیار کوتاه باشد؛ حداکثر ۳ بولت یا ۲ جمله. "
-        "هیچ مقدمه، توضیح درباره روند فکر کردن، استدلال، تحلیل داخلی یا عبارت‌هایی مثل «در حال بررسی» ننویس.\n\n"
+        "پاسخ کوتاه باشد؛ حداکثر ۳ بولت یا ۲ جمله. "
+        "برای خوانایی می‌توانی فقط از HTML تلگرام <b>، <i> و <code> استفاده کنی و برای بولت از • استفاده کن. "
+        "هیچ مقدمه، استدلال، تحلیل داخلی، زنجیره فکر یا عبارت‌هایی مثل «در حال بررسی» ننویس.\n\n"
         f"داده‌های ثبت‌شده کاربر:\n{context}\n\n"
         f"درخواست کاربر:\n{question}"
     )
     answer = _groq_request(prompt).strip()
     if answer.upper() == "NO_DATA":
         return ""
-    return answer[:1000]
+    return _sanitize_rich_answer(answer)
 
 
 def _extract_json(text: str) -> dict:
@@ -124,17 +156,75 @@ def _extract_json(text: str) -> dict:
     return value
 
 
+def _auto_category_and_tags(request_text: str, result: dict) -> tuple[str, str]:
+    """Apply deterministic Persian category/tag enrichment after the model parse."""
+    text = request_text.lower().strip()
+    category = str(result.get("category") or "").strip()
+    existing = str(result.get("tags") or "").strip()
+
+    rules = [
+        ("خرید", r"خرید|بخرم|بخر|فروشگاه|سوپرمارکت|سفارش|تخم\s*مرغ|نان|مواد\s*غذایی", ["#خرید"]),
+        ("مالی", r"پرداخت|فاکتور|هزینه|پول|بودجه|درآمد|حقوق|مالی|قبض|صورتحساب", ["#مالی"]),
+        ("کاری/شغلی", r"جلسه|شرکت|مدیر|پروژه|گزارش|مشتری|قرارداد|کار|اداری|ارسال\s+.*برای\s+مدیر", ["#کاری"]),
+        ("شخصی", r"خانواده|خانه|شخصی|دوست|سفر|تفریح|خودم", ["#شخصی"]),
+        ("سلامت", r"ورزش|تمرین|آب\s+بخور|دارو|پزشک|سلامت|خواب|پیاده\s*روی", ["#سلامت"]),
+    ]
+
+    matched_tags: list[str] = []
+    for label, pattern, tags in rules:
+        if re.search(pattern, text):
+            if not category:
+                category = label
+            matched_tags.extend(tags)
+            break
+
+    semantic_tags = [
+        (r"جلسه", "#جلسه"),
+        (r"پروژه", "#پروژه"),
+        (r"گزارش", "#گزارش"),
+        (r"قرارداد", "#قرارداد"),
+        (r"پرداخت|فاکتور", "#پرداخت"),
+        (r"ورزش|تمرین", "#ورزش"),
+        (r"خرید|بخر|تخم\s*مرغ", "#خرید"),
+    ]
+    for pattern, tag in semantic_tags:
+        if re.search(pattern, text) and tag not in matched_tags:
+            matched_tags.append(tag)
+
+    existing_tags = [item.strip() for item in re.split(r"[,،\s]+", existing) if item.strip()]
+    all_tags = []
+    for tag in existing_tags + matched_tags:
+        if tag not in all_tags:
+            all_tags.append(tag)
+    return category[:100], ", ".join(all_tags)[:300]
+
+
 def _normalize_ai_result(request_text: str, result: dict) -> dict:
     """Apply deterministic safeguards for common Persian intents after the LLM parse."""
     text = request_text.strip()
     lower = text.lower()
 
-    # Explicit repetition must win over the model's default CREATE_TASK.
-    weekly_match = re.search(r"(?:هفته(?:‌|\s*)ای|هفتگی|weekly|every\s+week)\s*(\d+)\s*(?:بار|times?)?", lower)
-    daily_repeat = bool(re.search(r"(?:هر\s*روز|روزانه|daily|every\s+day|روزی\s*\d+\s*بار|چند\s*بار\s*در\s*روز)", lower))
-    monthly_repeat = bool(re.search(r"(?:هر\s*ماه|ماهانه|monthly|every\s+month)\s+(?:انجام|بررسی|بخوان|بخور|ورزش|تمرین|یادآوری|تکرار)", lower))
+    weekly_match = re.search(
+        r"(?:هفته(?:‌|\s*)ای|هفتگی|weekly|every\s+week)\s*(\d+)\s*(?:بار|times?)?",
+        lower,
+    )
+    daily_repeat = bool(
+        re.search(
+            r"(?:هر\s*روز|روزانه|daily|every\s+day|روزی\s*\d+\s*بار|چند\s*بار\s*در\s*روز)",
+            lower,
+        )
+    )
+    monthly_repeat = bool(
+        re.search(
+            r"(?:هر\s*ماه|ماهانه|monthly|every\s+month)\s+(?:انجام|بررسی|بخوان|بخور|ورزش|تمرین|یادآوری|تکرار)",
+            lower,
+        )
+    )
 
-    if weekly_match or daily_repeat or monthly_repeat or re.search(r"(?:همیشه|مرتب|به\s*صورت\s*منظم)\s+(?:یادم\s*بنداز|انجام|تکرار)", lower):
+    if weekly_match or daily_repeat or monthly_repeat or re.search(
+        r"(?:همیشه|مرتب|به\s*صورت\s*منظم)\s+(?:یادم\s*بنداز|انجام|تکرار)",
+        lower,
+    ):
         result["action"] = "CREATE_HABIT"
         if weekly_match:
             result["repeat_type"] = "weekly"
@@ -146,24 +236,25 @@ def _normalize_ai_result(request_text: str, result: dict) -> dict:
         elif monthly_repeat:
             result["repeat_type"] = "monthly"
 
-    # "ماهانه" as an adjective (e.g. گزارش فروش ماهانه) is not repetition.
     if re.search(r"گزارش\s+فروش\s+ماهانه|monthly\s+sales\s+report", lower):
         result["action"] = "CREATE_TASK"
         result["repeat_type"] = ""
 
-    # Explicit priority is deterministic and must not be lost by the model.
-    if re.search(r"(?:اولویت\s*بالا|خیلی\s*مهم|فوری|ضروری|با\s*اولویت\s*زیاد|urgent|asap|high\s*priority)", lower):
+    if re.search(
+        r"(?:اولویت\s*بالا|خیلی\s*مهم|فوری|ضروری|با\s*اولویت\s*زیاد|urgent|asap|high\s*priority)",
+        lower,
+    ):
         result["priority"] = "high"
     elif re.search(r"(?:اولویت\s*متوسط|نسبتاً\s*مهم|medium\s*priority)", lower):
         result["priority"] = "medium"
 
-    # Common one-shot task forms should never become CHAT.
     if result.get("action") == "CHAT" and re.search(
         r"(?:ثبت\s*کن|اضافه\s*کن|آماده\s*کنم|ارسال\s*کنم|بخرم|خرید|پرداخت|انجام\s*بدهم|جلسه|دارم)",
         lower,
     ):
         result["action"] = "CREATE_TASK"
 
+    result["category"], result["tags"] = _auto_category_and_tags(request_text, result)
     return result
 
 
@@ -190,6 +281,16 @@ def parse_task_request(user_id: int, request_text: str) -> dict:
 - «فردا گزارش پروژه را برای مدیرم ارسال کنم» = CREATE_TASK با موعد فردا.
 - «خرید تخم مرغ» = CREATE_TASK.
 - هر دستور یا جمله خبری عملیاتی که سؤال نباشد، CREATE_TASK است.
+
+دسته‌بندی خودکار:
+- خرید، بخر، فروشگاه، سفارش و مواد غذایی → «خرید»
+- شرکت، جلسه، پروژه، مدیر، مشتری، گزارش و قرارداد → «کاری/شغلی»
+- پرداخت، فاکتور، هزینه، بودجه و قبض → «مالی»
+- خانواده، خانه، سفر و امور فردی → «شخصی»
+- ورزش، دارو، پزشک و سلامت → «سلامت»
+
+تگ‌های خودکار مرتبط را نیز استخراج کن؛ مانند #خرید، #پروژه، #جلسه، #گزارش، #پرداخت، #ورزش.
+اگر کاربر تگ مشخصی گفته، آن را هم حفظ کن.
 
 قوانین زمان:
 - امروز، فردا و پس‌فردا را بر اساس {today} به YYYY-MM-DD تبدیل کن.
