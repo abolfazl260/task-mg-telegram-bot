@@ -89,7 +89,9 @@ logger = logging.getLogger(__name__)
 
 async def bind_bot_context(update, context):
     profile = context.bot_data.get("bot_config")
-    set_current_bot_key(profile.key if profile else "default")
+    bot_key = profile.key if profile else "default"
+    set_current_bot_key(bot_key)
+    logger.debug("bot_context bound bot_key=%s user_id=%s", bot_key, getattr(update.effective_user, "id", None))
     calendar_runtime_extensions.set_current_user(update.effective_user.id if update.effective_user else None)
 
 
@@ -262,7 +264,10 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(templates_callback, pattern="^tpl_"))
     app.add_handler(CallbackQueryHandler(priority_selected, pattern="^priority_"))
     app.add_handler(CallbackQueryHandler(deadline_selected, pattern="^deadline_"))
-    app.add_handler(CallbackQueryHandler(handle_tag_callback, pattern="^(tag_|tags_|step_back_description)$"))
+    # Tag callbacks must use a prefix match. The previous pattern ended with
+    # '$', so only the literal values 'tag_'/'tags_' matched; real callbacks
+    # such as tag_new/tag_pick_0/tag_none never reached handle_tag_callback.
+    app.add_handler(CallbackQueryHandler(handle_tag_callback, pattern="^(tag_|tags_|step_back_description|step_back_category)"))
     app.add_handler(CallbackQueryHandler(optional_field_callback, pattern="^(category_pick_|category_skip|description_skip)"))
     app.add_handler(CallbackQueryHandler(share_category_callback, pattern="^share_cat_"))
     app.add_handler(CallbackQueryHandler(import_callback, pattern="^import_"))
@@ -273,10 +278,7 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(integration_callback, pattern="^int_"))
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
-    app.add_handler(CallbackQueryHandler(button_handler, pattern="^(?!priority_|deadline_|category_pick_|category_skip|tag_|tags_|step_back_description|description_skip|detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|task_details_|task_history_|comment_add_|comment_cancel_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_|custombot_|int_)"))
-    # The same message flow handles both text and Telegram media. This replaces
-    # the old TEXT-only gate that prevented photo/document/video/etc. from
-    # reaching handlers.task.handle_comment_input().
+    app.add_handler(CallbackQueryHandler(button_handler, pattern="^(?!priority_|deadline_|category_pick_|category_skip|tag_|tags_|step_back_description|step_back_category|description_skip|detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|task_details_|task_history_|comment_add_|comment_cancel_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_|custombot_|int_)"))
     comment_message_filter = (
         filters.TEXT
         | filters.PHOTO
