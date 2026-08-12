@@ -82,6 +82,7 @@ def ask_task_assistant(user_id: int, question: str) -> str:
         headers={
             "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json",
+            "User-Agent": "task-mg-telegram-bot/1.0",
         },
     )
 
