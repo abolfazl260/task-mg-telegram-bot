@@ -28,6 +28,16 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 GROQ_API_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1/responses")
 
+# Speech-to-text configuration. Language is intentionally optional so the
+# provider can auto-detect or support another language without code changes.
+STT_PROVIDER = os.getenv("STT_PROVIDER", "groq")
+STT_API_KEY = os.getenv("STT_API_KEY") or GROQ_API_KEY
+STT_API_URL = os.getenv("STT_API_URL", "https://api.groq.com/openai/v1/audio/transcriptions")
+STT_MODEL = os.getenv("STT_MODEL", "whisper-large-v3-turbo")
+STT_LANGUAGE = os.getenv("STT_LANGUAGE", "").strip()
+VOICE_MAX_SIZE_MB = int(os.getenv("VOICE_MAX_SIZE_MB", "20"))
+VOICE_MAX_DURATION_SECONDS = int(os.getenv("VOICE_MAX_DURATION_SECONDS", "300"))
+
 ADMIN_IDS = [item.strip() for item in os.getenv("ADMIN_IDS", "106056586,69078288").split(",") if item.strip()]
 ADMIN_REPORT_TIME = os.getenv("ADMIN_REPORT_TIME", "20:00")
 
