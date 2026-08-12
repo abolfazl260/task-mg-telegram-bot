@@ -68,11 +68,12 @@ def _time_from_language(text: str) -> str | None:
 
 
 def _looks_like_habit(text: str) -> bool:
+    """Detect explicit recurrence; do not treat periodic adjectives as habits."""
     patterns = (
-        r"هر\s*روز", r"روزانه", r"هر\s*صبح", r"هر\s*شب", r"هر\s*هفته", r"هفتگی",
-        r"هفته\s*ای", r"هر\s*ماه", r"ماهانه", r"روزی\s*\d+\s*بار", r"چند\s*بار\s*در\s*روز",
-        r"به\s*صورت\s*منظم", r"مرتب(?:اً)?", r"همیشه", r"every\s+day", r"daily",
-        r"every\s+week", r"weekly", r"every\s+month", r"monthly",
+        r"هر\s*روز", r"هر\s*صبح", r"هر\s*شب", r"هر\s*هفته", r"هر\s*ماه",
+        r"هفته\s*ای\s*\d+\s*بار", r"روزی\s*\d+\s*بار", r"چند\s*بار\s*در\s*روز",
+        r"به\s*صورت\s*منظم", r"مرتب(?:اً)?", r"همیشه",
+        r"every\s+day", r"every\s+week", r"every\s+month",
     )
     return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
 
@@ -99,9 +100,9 @@ def _enrich(result: dict, text: str) -> dict:
 
     if _looks_like_habit(text):
         result["action"] = "CREATE_HABIT"
-        if re.search(r"هر\s*هفته|هفتگی|هفته\s*ای|every\s+week|weekly", text, re.I):
+        if re.search(r"هر\s*هفته|هفته\s*ای\s*\d+\s*بار|every\s+week", text, re.I):
             result["repeat_type"] = "weekly"
-        elif re.search(r"هر\s*ماه|ماهانه|every\s+month|monthly", text, re.I):
+        elif re.search(r"هر\s*ماه|every\s+month", text, re.I):
             result["repeat_type"] = "monthly"
         else:
             result["repeat_type"] = "daily"
