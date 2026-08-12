@@ -2,7 +2,7 @@
 
 import asyncio
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from services.groq_service import (
@@ -16,6 +16,35 @@ from services.task_service import create_task_async
 
 _PRIORITY_LABEL = {"high": "🔴 بالا", "medium": "🟠 متوسط", "low": "🟢 پایین"}
 
+_AI_EXAMPLES = [
+    ("📝 ساخت یک تسک ساده", "/ai برای امروز گزارش فروش را آماده کنم"),
+    ("⏰ تسک با ساعت دقیق", "/ai امروز ساعت ۱۴ با شرکت مدیران خودرو جلسه دارم"),
+    ("📅 تسک برای روز آینده", "/ai فردا گزارش هفتگی را آماده کنم"),
+    ("🔴 تسک با اولویت بالا", "/ai برای امروز با اولویت بالا قرارداد مشتری را بررسی کنم"),
+    ("🏷 تسک با تگ", "/ai فردا جلسه با تیم فروش دارم با تگ فروش"),
+    ("📝 تسک با توضیحات", "/ai فردا ارائه پروژه را آماده کنم، توضیح: نسخه نهایی ارائه را بررسی و ارسال کنم"),
+    ("💬 پرسش از دستیار", "/ai امروز روی کدام کار تمرکز کنم؟"),
+]
+
+
+def _ai_examples_text() -> str:
+    return (
+        "🤖 دستیار هوشمند\n\n"
+        "با /ai می‌توانید درخواستتان را به زبان طبیعی بنویسید. "
+        "دستیار می‌تواند از متن شما اطلاعات تسک را تشخیص دهد و قبل از ثبت، آن را برای تأیید شما نمایش دهد.\n\n"
+        "💡 چند مثال کاربردی:\n\n"
+        "روی «📋 کپی» بزنید تا متن مثال در کلیپ‌بورد شما کپی شود. سپس آن را در چت ارسال کنید."
+    )
+
+
+def _ai_examples_keyboard() -> InlineKeyboardMarkup:
+    rows = []
+    for label, example in _AI_EXAMPLES:
+        rows.append([
+            InlineKeyboardButton(label, copy_text=CopyTextButton(text=example)),
+        ])
+    return InlineKeyboardMarkup(rows)
+
 
 def _draft_text(draft: dict) -> str:
     lines = ["🤖 تسک پیشنهادی هوش مصنوعی", "", f"📌 عنوان: {draft['title']}"]
@@ -28,7 +57,7 @@ def _draft_text(draft: dict) -> str:
         lines.append(f"🏷 تگ: {draft['tags']}")
     if draft.get("description"):
         lines.append(f"📝 توضیح: {draft['description']}")
-    lines.extend(["", "آیا این تسک ایجاد شود؟"])
+    lines.extend(["", "آیا این تسک ایجاد شود?"])
     return "\n".join(lines)
 
 
@@ -36,10 +65,8 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     request_text = " ".join(context.args).strip()
     if not request_text:
         await update.message.reply_text(
-            "🤖 دستیار هوشمند\n\n"
-            "می‌توانید سؤال بپرسید یا تسک را به زبان طبیعی بنویسید.\n\n"
-            "مثال:\n"
-            "/ai برای امروز جلسه ساعت ۲ دارم با شرکت مدیران خودرو"
+            _ai_examples_text(),
+            reply_markup=_ai_examples_keyboard(),
         )
         return
 
