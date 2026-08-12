@@ -26,7 +26,7 @@ def habit_menu_keyboard():
 def _create_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("ایجاد عادت جدید", callback_data="habit_new")],
-        [InlineKeyboardButton("انتخاب از قالب آماده", callback_data="habit_templates")],
+        [InlineKeyboardButton("📋 قالب‌های آماده", callback_data="habit_templates")],
         [BACK_TO_HABITS_BUTTON],
     ])
 
@@ -52,23 +52,96 @@ def reminder_label(habit):
     repeat = REPEAT_LABEL.get(habit.get("repeat_type"), "روزانه")
     if not reminder_time:
         return "بدون یادآوری"
+    times = [item.strip() for item in str(reminder_time).split(",") if item.strip()]
+    if len(times) > 1:
+        return f"{repeat} در ساعت‌های {', '.join(times)}"
     if habit.get("repeat_type") == "weekly":
-        return f"{repeat} در روز شروع عادت، ساعت {reminder_time}"
+        return f"{repeat} در روز شروع عادت، ساعت {times[0]}"
     if habit.get("repeat_type") == "monthly":
-        return f"{repeat} در تاریخ روز شروع عادت، ساعت {reminder_time}"
-    return f"{repeat} ساعت {reminder_time}"
+        return f"{repeat} در تاریخ روز شروع عادت، ساعت {times[0]}"
+    return f"{repeat} ساعت {times[0]}"
+
+
+def _find_template(key):
+    return next((t for t in TEMPLATES if t["key"] == key), None)
+
+
+def _template_target_label(tpl):
+    return f"{tpl.get('target_value')} {tpl.get('target_unit')}"
 
 
 def format_template(tpl):
+    times = tpl.get("reminder_times") or []
+    reminder_text = "، ".join(times) if times else "بدون یادآوری"
     return (
-        f"🌱 {tpl.get('title', '—')}\n\n"
-        f"📂 دسته‌بندی: {tpl.get('category') or '—'}\n"
-        f"🎯 هدف: {tpl.get('target') or '—'}\n"
-        f"🔁 برنامه تکرار: {REPEAT_LABEL.get(tpl.get('repeat_type'), 'روزانه')}\n"
-        f"⏰ یادآوری پیشنهادی: {tpl.get('reminder_time') or 'بدون یادآوری'}\n\n"
-        f"چرا این عادت را اضافه کنم؟\n{tpl.get('description') or '—'}\n\n"
-        "اگر این قالب را فعال کنید، همین تنظیمات برای شما ثبت می‌شود."
+        f"{tpl.get('title', '—')}\n\n"
+        f"🎯 هدف: {tpl.get('target') or _template_target_label(tpl)}\n"
+        f"📌 نوع: {tpl.get('kind') or '—'}\n"
+        f"🔢 مقدار: {tpl.get('target_value') or '—'}\n"
+        f"📏 واحد: {tpl.get('target_unit') or '—'}\n"
+        f"🔁 تکرار: {REPEAT_LABEL.get(tpl.get('repeat_type'), 'روزانه')}\n"
+        f"⏰ یادآوری: {reminder_text}\n\n"
+        f"{tpl.get('description') or ''}"
     )
+
+
+def _template_form_keyboard(key):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✏️ تغییر هدف", callback_data=f"habit_tpl_target_{key}"), InlineKeyboardButton("⏰ تغییر یادآوری", callback_data=f"habit_tpl_rem_{key}")],
+        [InlineKeyboardButton("📅 تغییر تاریخ شروع", callback_data=f"habit_tpl_date_{key}")],
+        [InlineKeyboardButton("✅ ادامه و ثبت عادت", callback_data=f"habit_tpl_confirm_{key}")],
+        [InlineKeyboardButton("🔙 بازگشت به قالب‌ها", callback_data="habit_templates")],
+    ])
+
+
+def _template_form_text(h):
+    return (
+        f"📝 تنظیم عادت «{h['title']}»\n\n"
+        f"🎯 هدف: {h.get('target', '—')}\n"
+        f"📌 نوع: {h.get('kind', '—')}\n"
+        f"🔢 مقدار: {h.get('target_value', '—')}\n"
+        f"📏 واحد: {h.get('target_unit', '—')}\n"
+        f"⏰ یادآوری: {h.get('reminder_time_display') or 'بدون یادآوری'}\n"
+        f"📅 تاریخ شروع: {h.get('start_date') or date.today().isoformat()}\n\n"
+        "می‌توانید مقادیر را تغییر دهید و سپس ثبت عادت را تأیید کنید."
+    )
+
+
+def _prepare_template(context, tpl):
+    times = list(tpl.get("reminder_times") or [])
+    context.user_data["new_habit"] = {
+        "title": tpl["title"],
+        "category": tpl.get("category", ""),
+        "description": tpl.get("description", ""),
+        "repeat_type": tpl.get("repeat_type", "daily"),
+        "target": tpl.get("target") or _template_target_label(tpl),
+        "target_value": tpl.get("target_value"),
+        "target_unit": tpl.get("target_unit", ""),
+        "kind": tpl.get("kind", ""),
+        "reminder_time": ",".join(times),
+        "reminder_time_display": "، ".join(times) if times else "بدون یادآوری",
+        "start_date": date.today().isoformat(),
+        "template_key": tpl["key"],
+    }
+    context.user_data["habit_step"] = None
+
+
+def _create_from_template(user_id, context):
+    h = context.user_data.get("new_habit") or {}
+    hid = create_habit(
+        user_id,
+        h["title"],
+        h.get("category", ""),
+        h.get("description", ""),
+        h.get("repeat_type", "daily"),
+        h.get("target", ""),
+        h.get("reminder_time", ""),
+        h.get("start_date", ""),
+    )
+    context.user_data.pop("habit_step", None)
+    context.user_data.pop("new_habit", None)
+    context.user_data.pop("habit_template_key", None)
+    return hid
 
 
 def format_habit(habit):
@@ -103,36 +176,83 @@ async def handle_habit_callback(update, context):
     if data == "habit_menu":
         await show_habit_menu(update, context)
     elif data == "habit_create":
-        await query.message.reply_text("🌱 ایجاد عادت\n\n1. ایجاد عادت جدید\n2. انتخاب از قالب آماده", reply_markup=_create_keyboard())
+        await query.message.reply_text("🌱 ایجاد عادت\n\nیک روش را انتخاب کنید:", reply_markup=_create_keyboard())
     elif data == "habit_new":
         context.user_data["habit_step"] = "title"
         context.user_data["new_habit"] = {}
         await query.message.reply_text("عنوان عادت را وارد کنید:")
     elif data == "habit_templates":
-        kb = [[InlineKeyboardButton(t["title"], callback_data=f"habit_tpl_view_{t['key']}")] for t in TEMPLATES]
+        labels = {
+            "water": "💧 نوشیدن آب — ۵ بار در روز",
+            "medicine": "💊 یادآوری قرص — ۹ صبح و ۹ شب",
+            "meditation": "🧘 مدیتیشن — ۲۰ دقیقه",
+            "reading": "📚 مطالعه کتاب — ۳۰ دقیقه",
+            "gym": "🏋️ باشگاه — ۳۰ دقیقه",
+        }
+        kb = [[InlineKeyboardButton(labels.get(t["key"], t["title"]), callback_data=f"habit_tpl_view_{t['key']}")] for t in TEMPLATES]
         kb.append([BACK_TO_HABITS_BUTTON])
-        await query.message.reply_text("یک قالب آماده انتخاب کنید:", reply_markup=InlineKeyboardMarkup(kb))
+        await query.message.reply_text("📋 یکی از قالب‌های آماده را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(kb))
     elif data.startswith("habit_tpl_view_"):
-        tpl = next(t for t in TEMPLATES if t["key"] == data.replace("habit_tpl_view_", ""))
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ فعال‌سازی این عادت", callback_data=f"habit_tpl_create_{tpl['key']}")],
-            [InlineKeyboardButton("🔙 بازگشت به قالب‌ها", callback_data="habit_templates")],
-            [BACK_TO_HABITS_BUTTON],
-        ])
-        await query.message.reply_text(format_template(tpl), reply_markup=kb)
-    elif data.startswith("habit_tpl_create_"):
-        tpl = next(t for t in TEMPLATES if t["key"] == data.replace("habit_tpl_create_", ""))
-        hid = create_habit(
-            user_id,
-            tpl["title"],
-            tpl["category"],
-            tpl["description"],
-            tpl.get("repeat_type", "daily"),
-            tpl["target"],
-            tpl.get("reminder_time", ""),
-            date.today().isoformat(),
+        tpl = _find_template(data.replace("habit_tpl_view_", ""))
+        if not tpl:
+            await query.message.reply_text("این قالب پیدا نشد.")
+            return
+        _prepare_template(context, tpl)
+        await query.message.reply_text(
+            format_template(tpl) + "\n\nبرای تغییر مقادیر یا ادامه، یکی از گزینه‌های زیر را انتخاب کنید:",
+            reply_markup=_template_form_keyboard(tpl["key"]),
         )
-        await query.message.reply_text(f"✅ عادت فعال شد\n🆔 {hid}\n\n{format_habit(get_habit(hid))}")
+    elif data.startswith("habit_tpl_target_"):
+        key = data.replace("habit_tpl_target_", "")
+        tpl = _find_template(key)
+        if not tpl:
+            return
+        if not context.user_data.get("new_habit"):
+            _prepare_template(context, tpl)
+        context.user_data["habit_template_key"] = key
+        context.user_data["habit_step"] = "template_target"
+        await query.message.reply_text(
+            f"🎯 هدف فعلی: {context.user_data['new_habit'].get('target', '—')}\n\nهدف جدید را وارد کنید:"
+        )
+    elif data.startswith("habit_tpl_rem_"):
+        key = data.replace("habit_tpl_rem_", "")
+        tpl = _find_template(key)
+        if not tpl:
+            return
+        if not context.user_data.get("new_habit"):
+            _prepare_template(context, tpl)
+        context.user_data["habit_template_key"] = key
+        context.user_data["habit_step"] = "template_reminder"
+        current = context.user_data["new_habit"].get("reminder_time_display") or "بدون یادآوری"
+        await query.message.reply_text(
+            f"⏰ زمان‌های فعلی: {current}\n\n"
+            "زمان‌ها را با ویرگول وارد کنید؛ نمونه: 08:00,11:00,14:00\n"
+            "برای خاموش کردن یادآوری /skip بزنید:"
+        )
+    elif data.startswith("habit_tpl_date_"):
+        key = data.replace("habit_tpl_date_", "")
+        tpl = _find_template(key)
+        if not tpl:
+            return
+        if not context.user_data.get("new_habit"):
+            _prepare_template(context, tpl)
+        context.user_data["habit_template_key"] = key
+        context.user_data["habit_step"] = "template_date"
+        await query.message.reply_text(
+            f"📅 تاریخ فعلی: {context.user_data['new_habit'].get('start_date', date.today().isoformat())}\n\n"
+            "تاریخ شروع را به شکل 2026-08-12 وارد کنید؛ برای امروز /skip بزنید:"
+        )
+    elif data.startswith("habit_tpl_confirm_"):
+        key = data.replace("habit_tpl_confirm_", "")
+        tpl = _find_template(key)
+        h = context.user_data.get("new_habit")
+        if not tpl:
+            await query.message.reply_text("این قالب پیدا نشد.")
+            return
+        if not h or h.get("template_key") != key:
+            _prepare_template(context, tpl)
+        hid = _create_from_template(user_id, context)
+        await query.message.reply_text(f"✅ عادت با موفقیت ثبت شد\n🆔 {hid}\n\n{format_habit(get_habit(hid))}")
     elif data == "habit_list":
         habits = get_user_habits(user_id)
         if not habits:
@@ -226,6 +346,25 @@ async def handle_habit_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         hid = create_habit(update.effective_user.id, h["title"], h.get("category", ""), h.get("description", ""), h.get("repeat_type", "daily"), h.get("target", ""), h.get("reminder_time", ""), h.get("start_date", ""))
         context.user_data.pop("habit_step", None); context.user_data.pop("new_habit", None)
         await update.message.reply_text(f"✅ عادت ثبت شد\n🆔 {hid}"); return True
+    if step == "template_target":
+        h["target"] = text
+        h["target_value"] = text
+        context.user_data["habit_step"] = None
+        await update.message.reply_text(_template_form_text(h), reply_markup=_template_form_keyboard(h["template_key"])); return True
+    if step == "template_reminder":
+        h["reminder_time"] = text
+        h["reminder_time_display"] = "، ".join(item.strip() for item in text.split(",") if item.strip()) or "بدون یادآوری"
+        context.user_data["habit_step"] = None
+        await update.message.reply_text(_template_form_text(h), reply_markup=_template_form_keyboard(h["template_key"])); return True
+    if step == "template_date":
+        try:
+            datetime.strptime(text, "%Y-%m-%d")
+        except ValueError:
+            await update.message.reply_text("❌ قالب تاریخ درست نیست. نمونه: 2026-08-12")
+            return True
+        h["start_date"] = text
+        context.user_data["habit_step"] = None
+        await update.message.reply_text(_template_form_text(h), reply_markup=_template_form_keyboard(h["template_key"])); return True
     if step == "edit_title":
         update_habit(context.user_data.get("habit_edit_id"), title=text)
         context.user_data.pop("habit_step", None); context.user_data.pop("habit_edit_id", None)
@@ -245,6 +384,15 @@ async def habit_skip(update, context):
         hid = create_habit(update.effective_user.id, h["title"], h.get("category", ""), h.get("description", ""), h.get("repeat_type", "daily"), h.get("target", ""), h.get("reminder_time", ""), h["start_date"])
         context.user_data.pop("habit_step", None); context.user_data.pop("new_habit", None)
         await update.message.reply_text(f"✅ عادت ثبت شد\n🆔 {hid}"); return True
+    if step == "template_reminder":
+        h["reminder_time"] = ""
+        h["reminder_time_display"] = "بدون یادآوری"
+        context.user_data["habit_step"] = None
+        await update.message.reply_text(_template_form_text(h), reply_markup=_template_form_keyboard(h["template_key"])); return True
+    if step == "template_date":
+        h["start_date"] = date.today().isoformat()
+        context.user_data["habit_step"] = None
+        await update.message.reply_text(_template_form_text(h), reply_markup=_template_form_keyboard(h["template_key"])); return True
     return False
 
 
