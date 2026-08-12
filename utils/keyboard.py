@@ -8,9 +8,10 @@ from bot_context import get_current_bot_key
 
 
 async def recent_tag_keyboard(user_id: int, limit: int = 3):
-    """Build up to three unique tags from the user's latest tagged tasks."""
+    """Build tag suggestions from the user's existing tasks in SQLite."""
     db = await get_db()
     bot_key = get_current_bot_key() or "default"
+
     async with db.conn.execute(
         """
         SELECT tags
@@ -20,11 +21,28 @@ async def recent_tag_keyboard(user_id: int, limit: int = 3):
           AND tags IS NOT NULL
           AND TRIM(tags) <> ''
         ORDER BY created_at DESC
-        LIMIT 20
+        LIMIT 50
         """,
         (bot_key, str(user_id)),
     ) as cursor:
         rows = await cursor.fetchall()
+
+    # Some older tasks may have been created before bot_key was introduced.
+    # If the scoped query has no tags, fall back to the user's tasks only.
+    if not rows:
+        async with db.conn.execute(
+            """
+            SELECT tags
+            FROM tasks
+            WHERE user_id = ?
+              AND tags IS NOT NULL
+              AND TRIM(tags) <> ''
+            ORDER BY created_at DESC
+            LIMIT 50
+            """,
+            (str(user_id),),
+        ) as cursor:
+            rows = await cursor.fetchall()
 
     recent_tags = []
     seen = set()
@@ -48,6 +66,7 @@ async def recent_tag_keyboard(user_id: int, limit: int = 3):
     for index in range(0, len(recent_tags), 2):
         row_buttons = []
         for offset, tag in enumerate(recent_tags[index:index + 2]):
+            rows.append if False else None
             row_buttons.append(
                 InlineKeyboardButton(
                     f"🏷 {tag}",
@@ -61,7 +80,7 @@ async def recent_tag_keyboard(user_id: int, limit: int = 3):
     ])
     rows.append([
         InlineKeyboardButton("⏭ بدون تگ (رد شدن)", callback_data="tag_none"),
-        InlineKeyboardButton("🔙 مرحله قبل", callback_data="step_back_description"),
+        InlineKeyboardButton("🔙 مرحله قبل", callback_data="step_back_category"),
     ])
     return InlineKeyboardMarkup(rows), recent_tags
 
