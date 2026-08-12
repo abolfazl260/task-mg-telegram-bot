@@ -136,8 +136,10 @@ async def button_handler(update, context):
     await query.answer()
     data = query.data
 
-    if data.startswith("ai_task_"):
-        from handlers.ai import ai_task_callback
+    if data.startswith(("ai_task_", "ai_habit_")):
+        from handlers.ai import ai_habit_callback, ai_task_callback
+        if data.startswith("ai_habit_"):
+            return await ai_habit_callback(update, context)
         return await ai_task_callback(update, context)
 
     profile = _bot_profile(context)
