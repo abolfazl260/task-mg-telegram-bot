@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import asyncio
 import sqlite3
 import threading
@@ -265,25 +266,107 @@ def sync_transaction(statements):
         conn.rollback()
         raise
 
-def _run(coro):
-    """Run an async database coroutine from legacy synchronous service APIs."""
+# Legacy synchronous service APIs cannot call asyncio.run() for every request:
+# each asyncio.run() creates a new event loop and therefore a new aiosqlite
+# connection in _db_by_loop. Those loops were never closed, eventually causing
+# "OSError: [Errno 24] Too many open files" in long-running bots.
+# Keep exactly one dedicated event loop for all legacy sync->async calls.
+_sync_async_loop: asyncio.AbstractEventLoop | None = None
+_sync_async_loop_thread: threading.Thread | None = None
+_sync_async_loop_ready = threading.Event()
+_sync_async_loop_lock = threading.Lock()
+
+
+def _sync_async_loop_worker():
+    global _sync_async_loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    with _sync_async_loop_lock:
+        _sync_async_loop = loop
+        _sync_async_loop_ready.set()
     try:
-        asyncio.get_running_loop()
+        loop.run_forever()
+    finally:
+        pending = asyncio.all_tasks(loop)
+        for task in pending:
+            task.cancel()
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.close()
+        with _sync_async_loop_lock:
+            _sync_async_loop = None
+
+
+def _get_sync_async_loop() -> asyncio.AbstractEventLoop:
+    global _sync_async_loop_thread
+    with _sync_async_loop_lock:
+        loop = _sync_async_loop
+        thread = _sync_async_loop_thread
+        if loop is None or loop.is_closed():
+            _sync_async_loop_ready.clear()
+            thread = threading.Thread(
+                target=_sync_async_loop_worker,
+                name="database-sync-async-loop",
+                daemon=True,
+            )
+            _sync_async_loop_thread = thread
+            thread.start()
+    _sync_async_loop_ready.wait()
+    loop = _sync_async_loop
+    if loop is None or loop.is_closed():
+        raise RuntimeError("Database async bridge failed to start")
+    return loop
+
+
+def _run(coro):
+    """Run an async database coroutine from legacy synchronous service APIs.
+
+    A single persistent event loop is used instead of creating a new loop and
+    a new aiosqlite connection for every call. This prevents file-descriptor
+    exhaustion and keeps the async DB connection bound to a live event loop.
+    """
+    try:
+        running_loop = asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(coro)
+        running_loop = None
 
-    result = []
-    errors = []
+    loop = _get_sync_async_loop()
 
-    def worker():
-        try:
-            result.append(asyncio.run(coro))
-        except BaseException as exc:
-            errors.append(exc)
+    # _run() is a synchronous bridge and should never block the same loop that
+    # executes the coroutine. If a future caller invokes it from the bridge
+    # thread itself, fail clearly rather than deadlocking forever.
+    if running_loop is loop:
+        coro.close()
+        raise RuntimeError("_run() cannot be called from the database bridge event loop")
 
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
-    thread.join()
-    if errors:
-        raise errors[0]
-    return result[0] if result else None
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    return future.result()
+
+
+def _shutdown_sync_async_loop():
+    global _sync_async_loop_thread
+    with _sync_async_loop_lock:
+        loop = _sync_async_loop
+        thread = _sync_async_loop_thread
+    if loop is None or loop.is_closed():
+        return
+
+    async def _close_bridge_db():
+        await close_db()
+
+    try:
+        asyncio.run_coroutine_threadsafe(_close_bridge_db(), loop).result(timeout=5)
+    except Exception:
+        pass
+    try:
+        loop.call_soon_threadsafe(loop.stop)
+    except Exception:
+        pass
+    if thread is not None and thread.is_alive() and threading.current_thread() is not thread:
+        thread.join(timeout=5)
+    with _sync_async_loop_lock:
+        _sync_async_loop_thread = None
+
+
+atexit.register(_shutdown_sync_async_loop)
