@@ -6,6 +6,7 @@ from telegram import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup,
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
+from services.admin_service import notify_ai_parse_failure
 from services.groq_service import (
     GroqConfigurationError,
     GroqRequestError,
@@ -149,6 +150,11 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ دستیار هوشمند در حال حاضر فعال نیست.")
         return
     except GroqRequestError as exc:
+        if str(exc) in {
+            "پاسخ ساختاریافته هوش مصنوعی قابل پردازش نبود.",
+            "پاسخ ساختاریافته هوش مصنوعی نامعتبر است.",
+        }:
+            await notify_ai_parse_failure(update, context, request_text, exc)
         await update.message.reply_text(f"⚠️ {exc}")
         return
 
