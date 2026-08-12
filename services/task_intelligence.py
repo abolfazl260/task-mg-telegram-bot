@@ -1,7 +1,7 @@
 """Deterministic intelligence layer around the existing AI task parser.
 
 The LLM remains responsible for semantic extraction. This layer normalizes common
-Persian input variants and applies conservative safeguards so text and voice
+Persian/Arabic Unicode and applies conservative safeguards so text and voice
 transcripts are interpreted consistently without duplicating task business logic.
 """
 
@@ -39,13 +39,23 @@ def _date_from_language(text: str, today: date) -> str | None:
 
 
 def _time_from_language(text: str) -> str | None:
-    """Extract common Persian spoken/written clock expressions."""
-    match = re.search(r"\b(\d{1,2})(?:[:٫.](\d{1,2}))?\s*(صبح|ظهر|بعدازظهر|عصر|شب)?\b", text)
+    """Extract a clock time only when the text explicitly signals a time."""
+    match = re.search(
+        r"(?:ساعت\s*)?(\d{1,2})(?:[:٫.](\d{1,2}))\s*(صبح|ظهر|بعدازظهر|عصر|شب)?|"
+        r"\bساعت\s*(\d{1,2})\s*(صبح|ظهر|بعدازظهر|عصر|شب)?",
+        text,
+        flags=re.IGNORECASE,
+    )
     if not match:
         return None
-    hour = int(match.group(1))
-    minute = int(match.group(2) or 0)
-    period = match.group(3) or ""
+    if match.group(1) is not None:
+        hour = int(match.group(1))
+        minute = int(match.group(2) or 0)
+        period = match.group(3) or ""
+    else:
+        hour = int(match.group(4))
+        minute = 0
+        period = match.group(5) or ""
     if hour > 23 or minute > 59:
         return None
     if period in {"بعدازظهر", "عصر", "شب"} and hour < 12:
@@ -59,11 +69,10 @@ def _time_from_language(text: str) -> str | None:
 
 def _looks_like_habit(text: str) -> bool:
     patterns = (
-        r"هر\s*روز", r"روزانه", r"هر\s*صبح", r"هر\s*شب", r"هر\s*صبح", r"هر\s*شب",
-        r"هر\s*هفته", r"هفتگی", r"هفته\s*ای", r"هر\s*ماه", r"ماهانه",
-        r"روزی\s*\d+\s*بار", r"چند\s*بار\s*در\s*روز", r"به\s*صورت\s*منظم",
-        r"مرتب(?:اً)?", r"همیشه", r"every\s+day", r"daily", r"every\s+week",
-        r"weekly", r"every\s+month", r"monthly",
+        r"هر\s*روز", r"روزانه", r"هر\s*صبح", r"هر\s*شب", r"هر\s*هفته", r"هفتگی",
+        r"هفته\s*ای", r"هر\s*ماه", r"ماهانه", r"روزی\s*\d+\s*بار", r"چند\s*بار\s*در\s*روز",
+        r"به\s*صورت\s*منظم", r"مرتب(?:اً)?", r"همیشه", r"every\s+day", r"daily",
+        r"every\s+week", r"weekly", r"every\s+month", r"monthly",
     )
     return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
 
