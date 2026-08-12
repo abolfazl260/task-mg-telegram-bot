@@ -1,8 +1,7 @@
 """Deterministic intelligence layer around the existing AI task parser.
 
-The LLM remains responsible for semantic extraction. This layer normalizes common
-Persian/Arabic Unicode and applies conservative safeguards so text and voice
-transcripts are interpreted consistently without duplicating task business logic.
+Text and voice transcripts share this layer. Questions remain CHAT; every
+non-question must become a task or habit, with conservative habit detection.
 """
 
 import re
@@ -15,7 +14,6 @@ _PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "012
 
 
 def normalize_user_text(text: str) -> str:
-    """Normalize common Persian/Arabic Unicode and spacing variants."""
     text = (text or "").translate(_PERSIAN_DIGITS)
     text = text.replace("ي", "ی").replace("ى", "ی").replace("ك", "ک")
     text = text.replace("ـ", "")
@@ -25,7 +23,6 @@ def normalize_user_text(text: str) -> str:
 
 
 def _date_from_language(text: str, today: date) -> str | None:
-    """Resolve unambiguous relative Persian dates without guessing."""
     patterns = [
         (r"\bپس\s*فردا\b", today + timedelta(days=2)),
         (r"\bفردا\b", today + timedelta(days=1)),
@@ -39,7 +36,6 @@ def _date_from_language(text: str, today: date) -> str | None:
 
 
 def _time_from_language(text: str) -> str | None:
-    """Extract a clock time only when the text explicitly signals a time."""
     match = re.search(
         r"(?:ساعت\s*)?(\d{1,2})(?:[:٫.](\d{1,2}))\s*(صبح|ظهر|بعدازظهر|عصر|شب)?|"
         r"\bساعت\s*(\d{1,2})\s*(صبح|ظهر|بعدازظهر|عصر|شب)?",
@@ -49,18 +45,12 @@ def _time_from_language(text: str) -> str | None:
     if not match:
         return None
     if match.group(1) is not None:
-        hour = int(match.group(1))
-        minute = int(match.group(2) or 0)
-        period = match.group(3) or ""
+        hour, minute, period = int(match.group(1)), int(match.group(2) or 0), match.group(3) or ""
     else:
-        hour = int(match.group(4))
-        minute = 0
-        period = match.group(5) or ""
+        hour, minute, period = int(match.group(4)), 0, match.group(5) or ""
     if hour > 23 or minute > 59:
         return None
-    if period in {"بعدازظهر", "عصر", "شب"} and hour < 12:
-        hour += 12
-    elif period == "ظهر" and hour < 12:
+    if period in {"بعدازظهر", "عصر", "شب", "ظهر"} and hour < 12:
         hour += 12
     elif period == "صبح" and hour == 12:
         hour = 0
@@ -68,7 +58,6 @@ def _time_from_language(text: str) -> str | None:
 
 
 def _looks_like_habit(text: str) -> bool:
-    """Detect explicit recurrence; do not treat periodic adjectives as habits."""
     patterns = (
         r"هر\s*روز", r"هر\s*صبح", r"هر\s*شب", r"هر\s*هفته", r"هر\s*ماه",
         r"هفته\s*ای\s*\d+\s*بار", r"روزی\s*\d+\s*بار", r"چند\s*بار\s*در\s*روز",
@@ -79,10 +68,19 @@ def _looks_like_habit(text: str) -> bool:
 
 
 def _looks_like_question(text: str) -> bool:
-    return bool(re.search(r"[؟?]$|^(چی|چه|چطور|چگونه|کدام|کی|چرا|آیا)\b", text))
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if re.search(r"[؟?]$", stripped):
+        return True
+    return bool(re.search(
+        r"^(?:چی|چه|چطور|چگونه|کدام|کی|چرا|آیا|میشه|می\s*شه|میتونی|می\s*تونی|لطفاً\s*بگو|بگو)\b",
+        stripped,
+        flags=re.IGNORECASE,
+    ))
 
 
-def _looks_like_action(text: str) -> bool:
+def _looks_like_explicit_action(text: str) -> bool:
     patterns = (
         r"ثبت\s*(?:کن|کنم|شود)", r"اضافه\s*(?:کن|کنم)", r"ایجاد\s*(?:کن|کنم)",
         r"انجام\s*(?:بدم|بدهم|کنم)", r"آماده\s*(?:کنم|کن)", r"ارسال\s*(?:کنم|کن)",
@@ -93,12 +91,18 @@ def _looks_like_action(text: str) -> bool:
 
 
 def _enrich(result: dict, text: str) -> dict:
-    """Conservatively repair fields only when the user explicitly supplied evidence."""
     today = date.today()
     relative_date = _date_from_language(text, today)
     spoken_time = _time_from_language(text)
+    is_question = _looks_like_question(text)
+    is_habit = _looks_like_habit(text)
 
-    if _looks_like_habit(text):
+    # Hard contract: a question is CHAT. Otherwise it must be a task or habit.
+    if is_question:
+        result["action"] = "CHAT"
+        return result
+
+    if is_habit:
         result["action"] = "CREATE_HABIT"
         if re.search(r"هر\s*هفته|هفته\s*ای\s*\d+\s*بار|every\s+week", text, re.I):
             result["repeat_type"] = "weekly"
@@ -109,9 +113,9 @@ def _enrich(result: dict, text: str) -> dict:
         result["deadline"] = ""
         if spoken_time and not result.get("reminder_time"):
             result["reminder_time"] = spoken_time
-
-    if not _looks_like_question(text) and _looks_like_action(text):
-        result["action"] = "CREATE_HABIT" if _looks_like_habit(text) else "CREATE_TASK"
+    else:
+        # Any non-question that is not an explicit recurring habit is a one-off task.
+        result["action"] = "CREATE_TASK"
 
     if relative_date and result.get("action") == "CREATE_TASK":
         deadline = str(result.get("deadline") or "")
@@ -135,7 +139,4 @@ def parse_task_request_smart(user_id: int, request_text: str) -> dict:
     if not normalized:
         raise ValueError("متن درخواست خالی است.")
     result = parse_task_request(user_id, normalized)
-    if result.get("action") == "CHAT":
-        if _looks_like_action(normalized) and not _looks_like_question(normalized):
-            result["action"] = "CREATE_TASK"
     return _enrich(result, normalized)
