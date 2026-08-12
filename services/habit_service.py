@@ -3,8 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 import sqlite3
 from services.database import sync_all, sync_one, sync_execute
 
-# قالب‌ها عمداً در کد ثابت نگهداری می‌شوند تا نیازی به جدول جدید در پایگاه داده نباشد.
-# reminder_time با قالب فعلی جدول habits سازگار است و چند زمان با ویرگول جدا می‌شوند.
+# قالب‌های آماده عمداً ثابت و داخل کد نگهداری می‌شوند؛ جدول جدیدی لازم نیست.
 TEMPLATES = [
     {
         "key": "water",
@@ -17,7 +16,7 @@ TEMPLATES = [
         "reminder_times": ["08:00", "11:00", "14:00", "17:00", "20:00"],
         "reminder_time": "08:00,11:00,14:00,17:00,20:00",
         "category": "سلامت",
-        "description": "هدف پیش‌فرض ۵ بار در روز؛ یادآوری‌ها از ساعت ۸ صبح شروع می‌شوند و در چند ساعت مختلف روز ارسال می‌شوند.",
+        "description": "هدف ۵ بار در روز؛ یادآوری‌ها از ساعت ۸ صبح و در ساعت‌های مختلف روز.",
     },
     {
         "key": "medicine",

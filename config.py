@@ -9,13 +9,6 @@ from bot_platform import load_bot_profiles
 for _logger_name in ("httpx", "httpcore", "telegram.request", "telegram.ext._application"):
     logging.getLogger(_logger_name).setLevel(logging.WARNING)
 
-# Install the media router before main.py creates its Application instances.
-# This also works when main.py is executed as __main__.
-try:
-    import services.comment_media_router  # noqa: F401
-except Exception:
-    logging.getLogger(__name__).exception("Failed to install comment media router")
-
 BASE_DIR = Path(__file__).resolve().parent
 
 load_dotenv(
