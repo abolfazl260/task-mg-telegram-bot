@@ -3,7 +3,75 @@ from datetime import date, datetime, timedelta, timezone
 import sqlite3
 from services.database import sync_all, sync_one, sync_execute
 
-TEMPLATES = []
+# قالب‌ها عمداً در کد ثابت نگهداری می‌شوند تا نیازی به جدول جدید در پایگاه داده نباشد.
+# reminder_time با قالب فعلی جدول habits سازگار است و چند زمان با ویرگول جدا می‌شوند.
+TEMPLATES = [
+    {
+        "key": "water",
+        "title": "💧 نوشیدن آب",
+        "target_value": 5,
+        "target_unit": "بار در روز",
+        "kind": "تعداد دفعات",
+        "target": "۵ بار در روز",
+        "repeat_type": "daily",
+        "reminder_times": ["08:00", "11:00", "14:00", "17:00", "20:00"],
+        "reminder_time": "08:00,11:00,14:00,17:00,20:00",
+        "category": "سلامت",
+        "description": "هدف پیش‌فرض ۵ بار در روز؛ یادآوری‌ها از ساعت ۸ صبح شروع می‌شوند و در چند ساعت مختلف روز ارسال می‌شوند.",
+    },
+    {
+        "key": "medicine",
+        "title": "💊 یادآوری قرص",
+        "target_value": 2,
+        "target_unit": "بار در روز",
+        "kind": "زمان‌بندی‌شده",
+        "target": "۲ بار در روز",
+        "repeat_type": "daily",
+        "reminder_times": ["09:00", "21:00"],
+        "reminder_time": "09:00,21:00",
+        "category": "سلامت",
+        "description": "دو یادآوری روزانه در ساعت ۹ صبح و ۹ شب.",
+    },
+    {
+        "key": "meditation",
+        "title": "🧘 مدیتیشن",
+        "target_value": 20,
+        "target_unit": "دقیقه",
+        "kind": "مدت زمان",
+        "target": "۲۰ دقیقه",
+        "repeat_type": "daily",
+        "reminder_times": [],
+        "reminder_time": "",
+        "category": "سلامت",
+        "description": "۲۰ دقیقه مدیتیشن در روز.",
+    },
+    {
+        "key": "reading",
+        "title": "📚 مطالعه کتاب",
+        "target_value": 30,
+        "target_unit": "دقیقه",
+        "kind": "مدت زمان",
+        "target": "۳۰ دقیقه",
+        "repeat_type": "daily",
+        "reminder_times": [],
+        "reminder_time": "",
+        "category": "یادگیری",
+        "description": "۳۰ دقیقه مطالعه کتاب در روز.",
+    },
+    {
+        "key": "gym",
+        "title": "🏋️ باشگاه",
+        "target_value": 30,
+        "target_unit": "دقیقه",
+        "kind": "مدت زمان",
+        "target": "۳۰ دقیقه",
+        "repeat_type": "daily",
+        "reminder_times": [],
+        "reminder_time": "",
+        "category": "سلامت",
+        "description": "۳۰ دقیقه فعالیت در باشگاه در روز.",
+    },
+]
 
 
 def is_habit_due_on(habit, day=None):
