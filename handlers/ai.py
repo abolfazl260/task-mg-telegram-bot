@@ -106,22 +106,24 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(_ai_examples_text(), reply_markup=_ai_examples_keyboard())
         return
 
-    waiting = await update.message.reply_text("🤖 در حال تحلیل درخواست شما...")
     try:
         draft = await asyncio.to_thread(parse_task_request, update.effective_user.id, request_text)
         if draft.get("action") in {"CREATE_TASK", "CREATE_HABIT"}:
             context.user_data["ai_request_draft"] = draft
-            await waiting.edit_text(_draft_text(draft), reply_markup=_draft_keyboard(draft["action"]))
+            await update.message.reply_text(_draft_text(draft), reply_markup=_draft_keyboard(draft["action"]))
             return
         answer = await asyncio.to_thread(ask_task_assistant, update.effective_user.id, request_text)
     except GroqConfigurationError:
-        await waiting.edit_text("⚠️ برای فعال شدن دستیار هوشمند، متغیر GROQ_API_KEY را در .env تنظیم کنید.")
+        await update.message.reply_text("⚠️ دستیار هوشمند در حال حاضر فعال نیست.")
         return
     except GroqRequestError as exc:
-        await waiting.edit_text(f"⚠️ {exc}")
+        await update.message.reply_text(f"⚠️ {exc}")
         return
 
-    await waiting.edit_text(f"🤖 پاسخ دستیار:\n\n{answer}")
+    # پاسخ بدون داده مرتبط نباید برای کاربر ارسال شود.
+    if not answer:
+        return
+    await update.message.reply_text(f"🤖 {answer}")
 
 
 async def ai_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
