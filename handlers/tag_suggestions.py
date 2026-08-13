@@ -15,7 +15,10 @@ def _patched_ai_task_callback(update, context):
 
 
 def install_tag_flow(task_module):
-    """Install the existing tag flow plus the three-mode /add entry flow."""
+    """Install the shared /add and AI flow exactly once per process."""
+    if getattr(task_module, "_tag_flow_installed", False):
+        return
+
     _legacy_install_tag_flow(task_module)
 
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -107,3 +110,4 @@ def install_tag_flow(task_module):
 
     ai_module._AI_ADD_CALLBACK = ai_add_callback
     ai_module.ai_task_callback.__code__ = _patched_ai_task_callback.__code__
+    task_module._tag_flow_installed = True
