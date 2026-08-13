@@ -200,8 +200,13 @@ def wrap_callback(original: Callable[..., Awaitable[Any]]) -> Callable[..., Awai
 
 
 def install_task_capabilities(app: Any) -> None:
-    """Wrap registered callbacks once, after the application is fully built."""
-    if getattr(app, "_task_capabilities_installed", False):
+    """Wrap registered callbacks once, after the application is fully built.
+
+    ``telegram.ext.Application`` uses slots and does not allow arbitrary
+    attributes. Keep installation state in its supported ``bot_data`` mapping.
+    """
+    state = app.bot_data
+    if state.get("_task_capabilities_installed", False):
         return
     for handlers in app.handlers.values():
         for handler in handlers:
@@ -214,4 +219,4 @@ def install_task_capabilities(app: Any) -> None:
             wrapped = wrap_callback(callback)
             setattr(wrapped, "_task_capability_wrapped", True)
             handler.callback = wrapped
-    app._task_capabilities_installed = True
+    state["_task_capabilities_installed"] = True
