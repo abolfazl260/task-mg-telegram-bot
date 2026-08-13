@@ -15,72 +15,35 @@ async def recent_tag_keyboard(user_id: int, limit: int = 3):
     db = await get_db()
     bot_key = get_current_bot_key() or "default"
     normalized_user_id = str(user_id)
-    logger.debug("tag_suggestions query bot_key=%s user_id=%s limit=%s", bot_key, normalized_user_id, limit)
-
     try:
         async with db.conn.execute(
             """
-            SELECT tags
-            FROM tasks
-            WHERE bot_key = ?
-              AND user_id = ?
-              AND tags IS NOT NULL
-              AND TRIM(tags) <> ''
-            ORDER BY created_at DESC
-            LIMIT 50
-            """,
-            (bot_key, normalized_user_id),
+            SELECT tags FROM tasks
+            WHERE bot_key = ? AND user_id = ? AND tags IS NOT NULL AND TRIM(tags) <> ''
+            ORDER BY created_at DESC LIMIT 50
+            """, (bot_key, normalized_user_id)
         ) as cursor:
             rows = await cursor.fetchall()
     except Exception:
         logger.exception("tag_suggestions query failed bot_key=%s user_id=%s", bot_key, normalized_user_id)
         raise
-
-    recent_tags = []
-    seen = set()
+    recent_tags, seen = [], set()
     for row in rows:
-        raw = row[0] or ""
-        for tag in str(raw).replace("\n", ",").replace("،", ",").split(","):
+        for tag in str(row[0] or "").replace("\n", ",").replace("،", ",").split(","):
             tag = tag.strip().lstrip("#")
-            if not tag:
+            if not tag or tag.casefold() in seen:
                 continue
-            key = tag.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
+            seen.add(tag.casefold())
             recent_tags.append(tag)
             if len(recent_tags) >= limit:
                 break
         if len(recent_tags) >= limit:
             break
-
-    logger.debug(
-        "tag_suggestions result bot_key=%s user_id=%s rows=%s tags=%s",
-        bot_key,
-        normalized_user_id,
-        len(rows),
-        recent_tags,
-    )
-
     rows = []
     for index in range(0, len(recent_tags), 2):
-        row_buttons = []
-        for offset, tag in enumerate(recent_tags[index:index + 2]):
-            row_buttons.append(
-                InlineKeyboardButton(
-                    f"🏷 {tag}",
-                    callback_data=f"tag_pick_{index + offset}",
-                )
-            )
-        rows.append(row_buttons)
-
-    rows.append([
-        InlineKeyboardButton("➕ تایپ تگ جدید", callback_data="tag_new"),
-    ])
-    rows.append([
-        InlineKeyboardButton("⏭ بدون تگ (رد شدن)", callback_data="tag_none"),
-        InlineKeyboardButton("🔙 مرحله قبل", callback_data="step_back_category"),
-    ])
+        rows.append([InlineKeyboardButton(f"🏷 {tag}", callback_data=f"tag_pick_{index + offset}") for offset, tag in enumerate(recent_tags[index:index + 2])])
+    rows.append([InlineKeyboardButton("➕ تایپ تگ جدید", callback_data="tag_new")])
+    rows.append([InlineKeyboardButton("⏭ بدون تگ (رد شدن)", callback_data="tag_none"), InlineKeyboardButton("🔙 مرحله قبل", callback_data="step_back_category")])
     return InlineKeyboardMarkup(rows), recent_tags
 
 
@@ -93,30 +56,16 @@ def priority_keyboard():
 
 
 def deadline_keyboard():
-    """Show quick deadline choices for today and the next seven days."""
     today = datetime.now().date()
     rows = []
-
     def date_label(days: int) -> str:
         target = today + timedelta(days=days)
         jalali = jdatetime.date.fromgregorian(date=target).strftime("%m/%d")
-        if days == 0:
-            prefix = "امروز"
-        elif days == 1:
-            prefix = "فردا"
-        else:
-            prefix = f"+{days} روز"
+        prefix = "امروز" if days == 0 else "فردا" if days == 1 else f"+{days} روز"
         return f"{prefix} — {jalali}"
-
-    rows.append([
-        InlineKeyboardButton(date_label(0), callback_data="deadline_0"),
-        InlineKeyboardButton(date_label(1), callback_data="deadline_1"),
-    ])
+    rows.append([InlineKeyboardButton(date_label(0), callback_data="deadline_0"), InlineKeyboardButton(date_label(1), callback_data="deadline_1")])
     for start in (2, 4, 6):
-        rows.append([
-            InlineKeyboardButton(date_label(start), callback_data=f"deadline_{start}"),
-            InlineKeyboardButton(date_label(start + 1), callback_data=f"deadline_{start + 1}"),
-        ])
+        rows.append([InlineKeyboardButton(date_label(start), callback_data=f"deadline_{start}"), InlineKeyboardButton(date_label(start + 1), callback_data=f"deadline_{start + 1}")])
     rows.append([InlineKeyboardButton("🕐 انتخاب تاریخ و زمان", callback_data="deadline_custom")])
     rows.append([InlineKeyboardButton("⏭ بدون زمان‌بندی", callback_data="deadline_none")])
     rows.append([InlineKeyboardButton("🔙 مرحله قبل", callback_data="step_back_priority")])
@@ -124,45 +73,46 @@ def deadline_keyboard():
 
 
 def assignment_grid_keyboard(user_id: int | None = None):
-    """Keyboard for choosing the task assignee."""
     self_callback = f"assign_self_{user_id}" if user_id is not None else "assign_self"
     return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🙋‍♂️ خودم", callback_data=self_callback),
-            InlineKeyboardButton("👥 هم‌تیمی‌ها", callback_data="assign_teams"),
-        ],
-        [
-            InlineKeyboardButton("🔎 جستجوی کاربر", callback_data="assign_search"),
-            InlineKeyboardButton("⏭ بدون مسئول", callback_data="assign_none"),
-        ],
+        [InlineKeyboardButton("🙋‍♂️ خودم", callback_data=self_callback), InlineKeyboardButton("👥 هم‌تیمی‌ها", callback_data="assign_teams")],
+        [InlineKeyboardButton("🔎 جستجوی کاربر", callback_data="assign_search"), InlineKeyboardButton("⏭ بدون مسئول", callback_data="assign_none")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="step_back_tags")],
     ])
 
 
-def task_action_keyboard(task_id: str, current_status: str = "pending", bot_profile=None, comment_count: int = 0):
-    """Compact task-card actions grouped into logical rows."""
-    labels = {}
-    if bot_profile is not None:
-        labels = bot_profile.workflow.get("actions", {})
+def _task_option_enabled(bot_profile, name: str) -> bool:
+    if bot_profile is None:
+        return True
+    options = (getattr(bot_profile, "settings", {}) or {}).get("task_options", {}) or {}
+    return bool(options.get(name, True))
 
+
+def task_action_keyboard(task_id: str, current_status: str = "pending", bot_profile=None, comment_count: int = 0):
+    """Compact task-card actions filtered by the active BotProfile capabilities."""
+    labels = bot_profile.workflow.get("actions", {}) if bot_profile is not None else {}
     buttons = []
     status_row = []
     if current_status == "pending":
         status_row.append(InlineKeyboardButton(labels.get("start", "🚀 شروع"), callback_data=f"start_{task_id}"))
     if current_status in ("pending", "in_progress"):
-        status_row.append(InlineKeyboardButton(labels.get("done", "✅ انجام شد"), callback_data=f"done_{task_id}"))
-        status_row.append(InlineKeyboardButton(labels.get("cancel", "❌ لغو"), callback_data=f"cancel_{task_id}"))
+        status_row.extend([
+            InlineKeyboardButton(labels.get("done", "✅ انجام شد"), callback_data=f"done_{task_id}"),
+            InlineKeyboardButton(labels.get("cancel", "❌ لغو"), callback_data=f"cancel_{task_id}"),
+        ])
     if current_status == "in_progress":
         buttons.append([InlineKeyboardButton(labels.get("pending", "⏸ بازگشت به انتظار"), callback_data=f"pending_{task_id}")])
     if status_row:
         buttons.append(status_row)
 
-    buttons.append([
-        InlineKeyboardButton(f"💬 کامنت ({comment_count})", callback_data=f"comment_add_{task_id}"),
-        InlineKeyboardButton(labels.get("details", "🔍 جزئیات و تاریخچه"), callback_data=f"task_details_{task_id}"),
-    ])
-    buttons.append([
-        InlineKeyboardButton(labels.get("owner", "👤 تغییر مسئول"), callback_data=f"owner_{task_id}"),
-        InlineKeyboardButton(labels.get("take", "🙋‍♂️ برعهده گرفتن"), callback_data=f"take_{task_id}"),
-    ])
+    detail_buttons = [InlineKeyboardButton(labels.get("details", "🔍 جزئیات و تاریخچه"), callback_data=f"task_details_{task_id}")]
+    if _task_option_enabled(bot_profile, "allow_comments"):
+        detail_buttons.insert(0, InlineKeyboardButton(f"💬 کامنت ({comment_count})", callback_data=f"comment_add_{task_id}"))
+    buttons.append(detail_buttons)
+
+    if _task_option_enabled(bot_profile, "allow_assignment"):
+        buttons.append([
+            InlineKeyboardButton(labels.get("owner", "👤 تغییر مسئول"), callback_data=f"owner_{task_id}"),
+            InlineKeyboardButton(labels.get("take", "🙋‍♂️ برعهده گرفتن"), callback_data=f"take_{task_id}"),
+        ])
     return InlineKeyboardMarkup(buttons)

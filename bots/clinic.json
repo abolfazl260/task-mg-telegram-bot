@@ -1,0 +1,66 @@
+{
+  "key": "clinic",
+  "name": "مدیریت مطب",
+  "username": "clinic_manager_bot",
+  "description": "سامانه مدیریت بیماران، نوبت‌ها و کادر درمان",
+  "settings": {
+    "ui": {
+      "language": "fa",
+      "start_text": "👋 سلام {first_name}\n\n🏥 به سامانه مدیریت مطب خوش آمدید.\n\nدر این ربات هر بیمار به‌صورت یک پرونده قابل مدیریت ثبت می‌شود و می‌توانید نوبت، مسئول پرونده، یادداشت‌ها و وضعیت مراجعه را مدیریت کنید.\n\n📅 مدیریت نوبت‌ها و زمان‌های مراجعه\n👤 مدیریت پرونده بیماران\n👨‍⚕️ تخصیص بیمار به پزشک یا عضو کادر درمان\n💬 ثبت یادداشت و کامنت برای پرونده\n🏷 دسته‌بندی و برچسب‌گذاری\n🔎 جستجوی بیماران\n📊 گزارش‌های کامل مطب\n👥 همکاری کادر درمان",
+      "help_text": "📖 راهنمای مدیریت مطب\n\n👤 بیماران\nهر بیمار به‌عنوان یک پرونده در سامانه ثبت و مدیریت می‌شود.\n\n📅 نوبت‌دهی\nبرای هر پرونده می‌توان تاریخ و ساعت مراجعه را مشخص کرد و برنامه نوبت‌ها را مدیریت کرد.\n\n👨‍⚕️ مسئول پرونده\nپرونده می‌تواند به پزشک یا عضو کادر درمان تخصیص داده شود.\n\n💬 یادداشت‌ها و کامنت‌ها\nمی‌توانید برای هر پرونده متن، عکس، فایل و سایر مستندات را ثبت کنید.\n\n📊 گزارش‌ها\nگزارش‌های مربوط به بیماران، نوبت‌ها، وضعیت پرونده‌ها و عملکرد کادر درمان در دسترس است.\n\n⚠️ این ربات برای مدیریت داخلی مطب طراحی شده است؛ اطلاعات پزشکی را فقط برای افراد مجاز مطب ثبت و به اشتراک بگذارید.",
+      "feature_intro": "🏥 مدیریت بیماران و نوبت‌های مطب در یک محیط ساده",
+      "buttons": {
+        "patients": "👤 بیماران",
+        "add_patient": "➕ ثبت بیمار",
+        "appointments": "📅 نوبت‌ها",
+        "reports": "📊 گزارش‌های مطب",
+        "team": "👥 کادر درمان",
+        "search": "🔎 جستجوی بیمار",
+        "help": "📖 راهنما",
+        "contact": "📞 ارتباط با ما"
+      }
+    },
+    "task_options": {
+      "allow_assignment": true,
+      "allow_tags": true,
+      "allow_comments": true,
+      "allow_categories": true,
+      "allow_search": true,
+      "allow_templates": false,
+      "allow_bulk_import": false,
+      "allow_ai_task_creation": false
+    },
+    "clinic_access": {
+      "owner": ["patients", "appointments", "reports", "team", "assignment", "comments"],
+      "doctor": ["patients", "appointments", "reports", "assignment", "comments"],
+      "reception": ["patients", "appointments", "search", "comments"],
+      "assistant": ["patients", "appointments", "search", "comments"]
+    }
+  },
+  "features": {
+    "custom_bots": false,
+    "integrations": false,
+    "tasks": true,
+    "teams": true,
+    "templates": false,
+    "habits": false,
+    "reports": true,
+    "donate": false,
+    "ai": false,
+    "guest_mode": false,
+    "search": true,
+    "bulk_import": false,
+    "unassigned": true
+  },
+  "menu": [
+    {"label": "➕ ثبت بیمار", "callback_data": "add_task", "feature": "tasks"},
+    {"label": "👤 بیماران", "callback_data": "tasks", "feature": "tasks"},
+    {"label": "📅 نوبت‌ها", "callback_data": "tasks", "feature": "tasks"},
+    {"label": "👨‍⚕️ بیماران بدون مسئول", "callback_data": "unassigned", "feature": "unassigned"},
+    {"label": "👥 کادر درمان", "callback_data": "teams", "feature": "teams"},
+    {"label": "🔎 جستجوی بیمار", "callback_data": "search", "feature": "search"},
+    {"label": "📊 گزارش‌های مطب", "callback_data": "stats", "feature": "reports"},
+    {"label": "📖 راهنما", "callback_data": "help"},
+    {"label": "📞 ارتباط با ما", "callback_data": "contact_us"}
+  ]
+}

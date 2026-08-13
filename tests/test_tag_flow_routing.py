@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_tag_callback_pattern_matches_real_callbacks():
     source = (ROOT / "main.py").read_text(encoding="utf-8")
     match = re.search(
-        r'CallbackQueryHandler\(handle_tag_callback, pattern="([^"]+)"\)',
+        r'CallbackQueryHandler\(handle_tag_callback,\s*pattern="([^"]+)"\)',
         source,
     )
     assert match, "Tag callback handler is not registered"
