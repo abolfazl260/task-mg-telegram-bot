@@ -153,6 +153,13 @@ async def button_handler(update, context):
             return await ai_habit_callback(update, context)
         return await ai_task_callback(update, context)
 
+    # main.py registers this generic callback handler before the dedicated
+    # habit callback handler. Route every habit callback explicitly here so
+    # habit buttons work for both the main bot and feature-limited bot profiles.
+    if data.startswith("habit_"):
+        from handlers.habits import handle_habit_callback
+        return await handle_habit_callback(update, context)
+
     profile = _bot_profile(context)
     feature_by_callback = {
         "add_task": "tasks", "tasks": "tasks", "teams": "teams",
