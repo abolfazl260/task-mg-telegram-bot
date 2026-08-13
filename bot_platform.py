@@ -14,6 +14,11 @@ from dotenv import load_dotenv
 from telegram import BotCommand, Update
 from services.custom_bot_service import read_custom_bots
 from telegram.ext import Application
+from services.task_capabilities import (
+    wrap_save_task,
+    wrap_optional_field_callback,
+    wrap_callback,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 BOTS_DIR = BASE_DIR / "bots"
@@ -64,6 +69,38 @@ DEFAULT_WORKFLOW = {
 }
 
 
+# Task handlers are shared between every bot application. Wrap them at the
+# moment they are registered so the active context.bot_data profile controls
+# the behavior without adding bot-specific conditions to handlers/task.py.
+_ORIGINAL_ADD_HANDLER = Application.add_handler
+_TASK_HANDLER_WRAPPERS = {
+    "save_task": wrap_save_task,
+    "optional_field_callback": wrap_optional_field_callback,
+    "assignment_callback": wrap_callback,
+    "assignment_manage_callback": wrap_callback,
+    "take_assignment": wrap_callback,
+    "take_confirm": wrap_callback,
+    "safe_assignment_confirm": wrap_callback,
+    "comment_callback": wrap_callback,
+    "comment_cancel_callback": wrap_callback,
+    "button_handler": wrap_callback,
+}
+
+
+def _add_handler_with_task_capabilities(self, handler, group: int = 0):
+    callback = getattr(handler, "callback", None)
+    name = getattr(callback, "__name__", "")
+    factory = _TASK_HANDLER_WRAPPERS.get(name)
+    if factory and not getattr(callback, "_task_capability_wrapped", False):
+        wrapped = factory(callback)
+        setattr(wrapped, "_task_capability_wrapped", True)
+        handler.callback = wrapped
+    return _ORIGINAL_ADD_HANDLER(self, handler, group)
+
+
+Application.add_handler = _add_handler_with_task_capabilities
+
+
 @dataclass(frozen=True)
 class BotProfile:
     """Runtime configuration for one Telegram bot instance."""
@@ -85,7 +122,7 @@ class BotProfile:
 
 
 def _env_name(profile_key: str, field_name: str) -> str:
-    safe_key = "".join(ch if ch.isalnum() else "_" for ch in profile_key).upper()
+    safe_key = "".join(ch for ch in profile_key if ch.isalnum()).upper() or "BOT"
     return f"BOT_{safe_key}_{field_name.upper()}"
 
 
@@ -144,10 +181,9 @@ def _custom_bot_profiles() -> list[BotProfile]:
     for row in read_custom_bots(include_tokens=True):
         if row.get("status") != "active" or not row.get("bot_token"):
             continue
-        # A custom bot starts with every feature disabled. The selected
-        # features from the management UI are then enabled explicitly.
         features = {name: False for name in DEFAULT_FEATURES}
-        for feature in [item.strip() for item in row.get("features", "").split(",") if item.strip()]:
+        selected = [item.strip() for item in row.get("features", "").split(",") if item.strip()]
+        for feature in selected:
             if feature in DEFAULT_FEATURES:
                 features[feature] = True
         features["custom_bots"] = False
@@ -158,7 +194,11 @@ def _custom_bot_profiles() -> list[BotProfile]:
             token=row.get("bot_token", ""),
             description="ربات اختصاصی ساخته‌شده توسط کاربر؛ فعلاً رایگان در نسخه بتا.",
             features=features,
-            settings={"pricing_plan": row.get("pricing_plan", "free_beta"), "owner_user_id": row.get("owner_user_id", ""), "habit_only": "habits" in [x.strip() for x in row.get("features", "").split(",") if x.strip()] and "tasks" not in [x.strip() for x in row.get("features", "").split(",") if x.strip()]},
+            settings={
+                "pricing_plan": row.get("pricing_plan", "free_beta"),
+                "owner_user_id": row.get("owner_user_id", ""),
+                "habit_only": "habits" in selected and "tasks" not in selected,
+            },
         ))
     return profiles
 
@@ -168,8 +208,6 @@ def load_bot_profiles() -> list[BotProfile]:
     load_dotenv(BASE_DIR / ".env")
     profile_names = [item.strip() for item in os.getenv("BOT_PROFILES", "").split(",") if item.strip()]
 
-    # BOT_TOKEN remains the original Task Manager bot. It is intentionally
-    # loaded alongside BOT_PROFILES so adding a second bot cannot disable it.
     profiles: list[BotProfile] = []
     legacy_profile = _legacy_default_profile()
     if legacy_profile is not None:
@@ -182,8 +220,6 @@ def load_bot_profiles() -> list[BotProfile]:
 
     profiles.extend(_custom_bot_profiles())
 
-    # Avoid starting the same profile twice if the legacy/default profile is
-    # also listed explicitly in BOT_PROFILES.
     unique: dict[str, BotProfile] = {}
     for profile in profiles:
         if profile.active:
@@ -206,7 +242,3 @@ async def run_applications(apps: list[Application]) -> None:
                 await app.updater.stop()
             await app.stop()
             await app.shutdown()
-
-
-def bot_logger(profile: BotProfile) -> logging.LoggerAdapter:
-    return logging.LoggerAdapter(logging.getLogger(__name__), {"bot": profile.key})
