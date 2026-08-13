@@ -125,6 +125,20 @@ def _load_json_profile(path: Path) -> BotProfile:
     )
 
 
+def _legacy_default_profile() -> BotProfile | None:
+    """Load the original BOT_TOKEN bot when present, even in multi-bot mode."""
+    token = os.getenv("BOT_TOKEN", "").strip()
+    if not token:
+        return None
+    return BotProfile(
+        key="default",
+        name=os.getenv("BOT_NAME", "Task Manager Bot"),
+        username=os.getenv("BOT_USERNAME", "TaskManagerpersian_Bot").lstrip("@"),
+        token=token,
+        description=os.getenv("BOT_DESCRIPTION", ""),
+    )
+
+
 def _custom_bot_profiles() -> list[BotProfile]:
     profiles = []
     for row in read_custom_bots(include_tokens=True):
@@ -150,25 +164,31 @@ def _custom_bot_profiles() -> list[BotProfile]:
 
 
 def load_bot_profiles() -> list[BotProfile]:
-    """Load static profiles and active self-service custom bot profiles."""
+    """Load the legacy bot, static profiles, and active self-service custom bots."""
     load_dotenv(BASE_DIR / ".env")
     profile_names = [item.strip() for item in os.getenv("BOT_PROFILES", "").split(",") if item.strip()]
+
+    # BOT_TOKEN remains the original Task Manager bot. It is intentionally
+    # loaded alongside BOT_PROFILES so adding a second bot cannot disable it.
+    profiles: list[BotProfile] = []
+    legacy_profile = _legacy_default_profile()
+    if legacy_profile is not None:
+        profiles.append(legacy_profile)
+
     if profile_names:
-        profiles = [_load_json_profile(BOTS_DIR / f"{name}.json") for name in profile_names]
-    else:
-        legacy_token = os.getenv("BOT_TOKEN", "").strip()
-        if not legacy_token:
-            raise RuntimeError("Set BOT_TOKEN for one bot or BOT_PROFILES with per-bot token env vars.")
-        profile = BotProfile(
-            key="default",
-            name=os.getenv("BOT_NAME", "Task Manager Bot"),
-            username=os.getenv("BOT_USERNAME", "TaskManagerpersian_Bot").lstrip("@"),
-            token=legacy_token,
-            description=os.getenv("BOT_DESCRIPTION", ""),
-        )
-        profiles = [profile]
+        profiles.extend(_load_json_profile(BOTS_DIR / f"{name}.json") for name in profile_names)
+    elif not profiles:
+        raise RuntimeError("Set BOT_TOKEN for one bot or BOT_PROFILES with per-bot token env vars.")
+
     profiles.extend(_custom_bot_profiles())
-    return [profile for profile in profiles if profile.active]
+
+    # Avoid starting the same profile twice if the legacy/default profile is
+    # also listed explicitly in BOT_PROFILES.
+    unique: dict[str, BotProfile] = {}
+    for profile in profiles:
+        if profile.active:
+            unique[profile.key] = profile
+    return list(unique.values())
 
 
 async def run_applications(apps: list[Application]) -> None:
