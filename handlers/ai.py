@@ -76,14 +76,14 @@ def _draft_keyboard(action: str) -> InlineKeyboardMarkup:
     label = "🌱 افزودن به عادت‌ها" if action == "CREATE_HABIT" else "✅ ایجاد تسک"
     return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=f"{prefix}_create")], [InlineKeyboardButton("❌ لغو", callback_data=f"{prefix}_cancel")]])
 
-def _task_card_for_ai(task: dict) -> str:
+async def _task_card_for_ai(task: dict) -> str:
     normalized = dict(task)
     raw_deadline = str(normalized.get("deadline") or "").strip()
     time_value = "—"
     if len(raw_deadline) >= 16 and raw_deadline[10:11] in {" ", "T"}:
         time_value = raw_deadline[11:16]
         normalized["deadline"] = raw_deadline[:10]
-    text = format_task_card(normalized)
+    text = await format_task_card(normalized)
     text = text.replace("📅 مهلت: بدون ددلاین", "📅 مهلت: —")
     return text + f"\n⏰ ساعت: {time_value}"
 
@@ -155,7 +155,7 @@ async def ai_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"✅ تسک ایجاد شد.\n\n🆔 شناسه: {task_id}")
         return
     keyboard = task_action_keyboard(task.get("id", task_id), task.get("status", "pending"), context.bot_data.get("bot_config"), comment_count=comments_count)
-    await query.edit_message_text("🤖 تسک با موفقیت ایجاد شد.\n\n" + _task_card_for_ai(task), reply_markup=keyboard, parse_mode="Markdown")
+    await query.edit_message_text("🤖 تسک با موفقیت ایجاد شد.\n\n" + await _task_card_for_ai(task), reply_markup=keyboard, parse_mode="Markdown")
 
 async def ai_habit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
