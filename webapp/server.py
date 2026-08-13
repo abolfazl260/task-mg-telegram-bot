@@ -37,7 +37,10 @@ class WebAppHandler(BaseHTTPRequestHandler):
             except TelegramWebAppAuthError:
                 self._json(401, {"error": "unauthorized"})
             return
-        if path == "/api/tasks" or path.startswith("/api/tasks/"):
+        if path == "/api/tasks":
+            self._json(501, {"error": "api_not_ready"})
+            return
+        if path.startswith("/api/tasks/"):
             self._json(501, {"error": "api_not_ready"})
             return
         self._json(404, {"error": "not_found"})
