@@ -130,8 +130,9 @@ def _custom_bot_profiles() -> list[BotProfile]:
     for row in read_custom_bots(include_tokens=True):
         if row.get("status") != "active" or not row.get("bot_token"):
             continue
+        # A custom bot starts with every feature disabled. The selected
+        # features from the management UI are then enabled explicitly.
         features = {name: False for name in DEFAULT_FEATURES}
-        features.update({"tasks": True})
         for feature in [item.strip() for item in row.get("features", "").split(",") if item.strip()]:
             if feature in DEFAULT_FEATURES:
                 features[feature] = True
@@ -143,7 +144,7 @@ def _custom_bot_profiles() -> list[BotProfile]:
             token=row.get("bot_token", ""),
             description="ربات اختصاصی ساخته‌شده توسط کاربر؛ فعلاً رایگان در نسخه بتا.",
             features=features,
-            settings={"pricing_plan": row.get("pricing_plan", "free_beta"), "owner_user_id": row.get("owner_user_id", "")},
+            settings={"pricing_plan": row.get("pricing_plan", "free_beta"), "owner_user_id": row.get("owner_user_id", ""), "habit_only": "habits" in [x.strip() for x in row.get("features", "").split(",") if x.strip()] and "tasks" not in [x.strip() for x in row.get("features", "").split(",") if x.strip()]},
         ))
     return profiles
 
