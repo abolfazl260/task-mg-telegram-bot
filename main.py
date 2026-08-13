@@ -41,7 +41,7 @@ from services import calendar_runtime_extensions
 from services import calendar_reports_v2
 from services import calendar_report_legacy
 from services.database import init_db
-from services.task_capabilities import task_option_enabled
+from services.task_capabilities import install_task_capabilities, task_option_enabled
 
 
 task_handler.format_task_card = calendar_runtime_extensions.format_task_card
@@ -166,6 +166,7 @@ async def _start_oauth_server(app):
 
 async def post_init(app: Application):
     await init_db()
+    install_task_capabilities(app)
     profile = app.bot_data.get("bot_config")
     commands = [BotCommand("ai", "دستیار هوشمند تحلیل تسک‌ها"), BotCommand("start", "شروع ربات و منوی اصلی"), BotCommand("add", "افزودن تسک جدید"), BotCommand("reports", "گزارشات و آمار"), BotCommand("tasks", "منوی تسک‌ها"), BotCommand("unassigned", "وظایف بدون مسئول"), BotCommand("team", "تیم و فضای مشترک"), BotCommand("search", "جستجوی تسک"), BotCommand("templates", "تمپلیت‌های آماده"), BotCommand("habit", "مدیریت عادت‌ها"), BotCommand("donate", "حمایت با Telegram Stars"), BotCommand("jira", "اتصال به Jira"), BotCommand("jira_status", "وضعیت اتصال Jira"), BotCommand("jira_disconnect", "قطع اتصال Jira"), BotCommand("help", "راهنمای کامل استفاده")]
     feature_by_command = {"add": "tasks", "tasks": "tasks", "unassigned": "unassigned", "team": "teams", "search": "search", "templates": "templates", "reports": "reports", "habit": "habits", "donate": "donate", "ai": "ai"}
