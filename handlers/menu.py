@@ -29,7 +29,7 @@ def main_menu(context=None):
     menu_items = profile.menu if profile is not None else []
     if not menu_items:
         from bot_platform import DEFAULT_MENU
-        menu_items = bot_platform.DEFAULT_MENU
+        menu_items = DEFAULT_MENU
     keyboard = []
     if WEBAPP_BASE_URL:
         keyboard.append([InlineKeyboardButton("🌐 مدیریت وظایف در وب", web_app=WebAppInfo(url=WEBAPP_BASE_URL))])
