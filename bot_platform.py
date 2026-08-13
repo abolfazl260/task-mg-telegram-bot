@@ -13,6 +13,7 @@ from typing import Any
 from dotenv import load_dotenv
 from telegram import BotCommand, Update
 from services.custom_bot_service import read_custom_bots
+from services.task_capabilities import install_task_capabilities
 from telegram.ext import Application
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -199,6 +200,7 @@ def load_bot_profiles() -> list[BotProfile]:
 async def run_applications(apps: list[Application]) -> None:
     """Run multiple python-telegram-bot applications in one event loop."""
     for app in apps:
+        install_task_capabilities(app)
         await app.initialize()
         await app.start()
         if app.updater:
