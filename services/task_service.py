@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 
 from bot_context import get_current_bot_key
-from services.database import fetch_all, fetch_one, execute, transaction, sync_all, sync_execute, get_db
+from services.database import fetch_all, fetch_one, execute, transaction, sync_all, sync_execute, get_db, _run as db_run
 from services.team_service import aget_user_teams, acan_edit, ais_member, aget_team
 
 VALID_STATUSES = {"pending", "in_progress", "done", "cancelled"}
@@ -112,17 +112,17 @@ async def link_team_name_category_for_owner_async(team_id):
     team=await aget_team(team_id); return await link_user_category_to_team_async(team["owner_id"],team["name"],team_id) if team else 0
 async def get_assignment_history_async(task_id): return await fetch_all("task_assignment_history","task_id=? ORDER BY id",(task_id,))
 
+
 def _run(coro):
-    import asyncio,threading
-    try: asyncio.get_running_loop()
-    except RuntimeError: return asyncio.run(coro)
-    result=[]; errors=[]
-    def worker():
-        try: result.append(asyncio.run(coro))
-        except BaseException as e: errors.append(e)
-    t=threading.Thread(target=worker,daemon=True); t.start(); t.join()
-    if errors: raise errors[0]
-    return result[0] if result else None
+    """Use the database module's persistent sync-to-async bridge.
+
+    Do not call asyncio.run() here: the scheduler invokes these synchronous
+    wrappers repeatedly, and asyncio.run() creates a fresh event loop for each
+    call. The database module already owns a single persistent loop/connection
+    for legacy synchronous calls.
+    """
+    return db_run(coro)
+
 
 def read_tasks(): return sync_all("tasks","bot_key=?",(_bot(),))
 def save_task(data): return _run(save_task_async(data))
