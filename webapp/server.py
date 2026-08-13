@@ -22,7 +22,13 @@ class WebAppHandler(BaseHTTPRequestHandler):
         if path in {"/", "/health", "/healthz"}:
             self._json(200, {"status": "ok", "service": "telegram-webapp"})
             return
-        self.send_error(404, "Not Found")
+        if path == "/api/me":
+            self._json(501, {"error": "api_not_ready"})
+            return
+        if path == "/api/tasks" or path.startswith("/api/tasks/"):
+            self._json(501, {"error": "api_not_ready"})
+            return
+        self._json(404, {"error": "not_found"})
 
     def log_message(self, format: str, *args: object) -> None:
         return
