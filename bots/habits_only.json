@@ -2,24 +2,33 @@
   "key": "habits_only",
   "name": "Habit Assistant",
   "username": "byeeeebot",
-  "description": "Your personal habit companion with AI and team support.",
+  "description": "Your personal habit and lightweight task companion with AI and team support.",
   "settings": {
     "ui": {
-      "start_text": "👋 Welcome to Habit Assistant!\n\nBuild better habits, track your progress, and stay consistent with the help of AI.\n\n🌱 Create and manage habits\n🤖 Get help from AI\n👥 Work with your team\n📖 Learn how everything works\n\nYou can type your request or send a voice message.",
-      "help_text": "📖 Habit Assistant Help\n\nHabit Assistant is focused on habits, progress, AI guidance, and team collaboration.\n\n🌱 Habits — create, edit, track, and review habits\n🤖 AI Assistant — create habits from natural language or voice and ask questions about your habits\n👥 Teams — collaborate with other people\n🎙️ Voice — describe a habit naturally and let AI process it\n\nThis bot does not manage tasks.",
-      "feature_intro": "✨ Everything you need to build and maintain better habits.",
+      "start_text": "👋 Welcome to Habit Assistant!\n\nBuild better habits, track your progress, manage lightweight tasks, and stay consistent with the help of AI.\n\n🌱 Create and manage habits\n📝 Create and manage tasks\n💬 Add comments to tasks\n📂 Organize tasks with categories\n🔎 Search your tasks\n🤖 Get help from AI\n👥 Work with your team\n📖 Learn how everything works\n\nYou can type your request or send a voice message.",
+      "help_text": "📖 Habit Assistant Help\n\nHabit Assistant supports habits plus a focused set of task-management features.\n\n🌱 Habits — create, edit, track, and review habits\n📝 Tasks — create, view, update, and complete your tasks\n💬 Comments — add text, photos, voice messages, and files to tasks\n📂 Categories — organize tasks without tags\n🔎 Search — find tasks quickly\n🤖 AI Assistant — create habits from natural language or voice and ask questions\n👥 Teams — collaborate with other people\n🎙️ Voice — describe a habit or task naturally and let AI process it\n\nThis bot does not provide task assignment or task templates.",
+      "feature_intro": "✨ Habits first, plus the essential tools for lightweight task management.",
       "buttons": {
         "ai": "🤖 AI Assistant",
         "habits": "🌱 My Habits",
+        "tasks": "📝 My Tasks",
+        "add_task": "➕ Add Task",
         "teams": "👥 My Teams",
-        "help": "📖 Help"
+        "help": "📖 Help",
+        "contact": "📞 Contact Us"
       }
+    },
+    "task_options": {
+      "allow_assignment": false,
+      "allow_tags": false,
+      "allow_bulk_import": false,
+      "allow_ai_task_creation": true
     }
   },
   "features": {
     "custom_bots": false,
     "integrations": false,
-    "tasks": false,
+    "tasks": true,
     "teams": true,
     "templates": false,
     "habits": true,
@@ -27,14 +36,17 @@
     "donate": false,
     "ai": true,
     "guest_mode": false,
-    "search": false,
+    "search": true,
     "bulk_import": false,
     "unassigned": false
   },
   "menu": [
     {"label": "🤖 AI Assistant", "callback_data": "ai_menu", "feature": "ai"},
+    {"label": "➕ Add Task", "callback_data": "add_task", "feature": "tasks"},
+    {"label": "📝 My Tasks", "callback_data": "tasks", "feature": "tasks"},
     {"label": "🌱 My Habits", "callback_data": "habit_menu", "feature": "habits"},
-    {"label": "👥 My Teams", "callback_data": "team_menu", "feature": "teams"},
-    {"label": "📖 Help", "callback_data": "help"}
+    {"label": "👥 My Teams", "callback_data": "teams", "feature": "teams"},
+    {"label": "📖 Help", "callback_data": "help"},
+    {"label": "📞 Contact Us", "callback_data": "contact_us"}
   ]
 }
