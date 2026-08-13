@@ -46,6 +46,7 @@
     {"label": "📝 My Tasks", "callback_data": "tasks", "feature": "tasks"},
     {"label": "🌱 My Habits", "callback_data": "habit_menu", "feature": "habits"},
     {"label": "👥 My Teams", "callback_data": "teams", "feature": "teams"},
+    {"label": "🔎 Search", "callback_data": "search", "feature": "search"},
     {"label": "📖 Help", "callback_data": "help"},
     {"label": "📞 Contact Us", "callback_data": "contact_us"}
   ]
