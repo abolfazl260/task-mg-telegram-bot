@@ -185,11 +185,9 @@ def _enrich(result: dict, text: str) -> dict:
         result["action"] = "CREATE_TASK"
 
     if relative_date and result.get("action") == "CREATE_TASK":
-        deadline = str(result.get("deadline") or "")
-        if not deadline:
-            result["deadline"] = relative_date + (f" {spoken_time}" if spoken_time else "")
-        elif spoken_time and re.fullmatch(r"\d{4}-\d{2}-\d{2}", deadline):
-            result["deadline"] = deadline + f" {spoken_time}"
+        # Explicit relative dates are authoritative; do not trust a model
+        # guess when the user clearly said «دو هفته دیگه», «فردا», etc.
+        result["deadline"] = relative_date + (f" {spoken_time}" if spoken_time else "")
 
     if re.search(r"(?:فوری|ضروری|خیلی\s*مهم|اولویت\s*(?:بالا|زیاد)|urgent|asap|high\s*priority)", text, re.I):
         result["priority"] = "high"
