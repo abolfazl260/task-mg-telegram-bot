@@ -1,0 +1,27 @@
+{
+  "key": "habits_only",
+  "name": "Habit Assistant Bot",
+  "username": "byeeeebot",
+  "description": "ربات اختصاصی مدیریت عادت‌ها با هوش مصنوعی و قابلیت تیم",
+  "features": {
+    "custom_bots": false,
+    "integrations": false,
+    "tasks": false,
+    "teams": true,
+    "templates": false,
+    "habits": true,
+    "reports": false,
+    "donate": false,
+    "ai": true,
+    "guest_mode": false,
+    "search": false,
+    "bulk_import": false,
+    "unassigned": false
+  },
+  "menu": [
+    {"label": "🤖 دستیار هوشمند", "callback_data": "ai_menu", "feature": "ai"},
+    {"label": "🌱 مدیریت عادت‌ها", "callback_data": "habit_menu", "feature": "habits"},
+    {"label": "👥 تیم‌ها", "callback_data": "team_menu", "feature": "teams"},
+    {"label": "📖 راهنما", "callback_data": "help"}
+  ]
+}
