@@ -71,9 +71,8 @@ def wrap_save_task(original: Callable[..., Awaitable[Any]]) -> Callable[..., Awa
         task = context.user_data.get("new_task")
         if not task:
             return await original(update, context)
-
         if step == "category":
-            task["category"] = update.message.text or "" if task_option_enabled(context, "allow_categories") else ""
+            task["category"] = (update.message.text or "") if task_option_enabled(context, "allow_categories") else ""
             if task_option_enabled(context, "allow_tags"):
                 handler = __import__("handlers.task", fromlist=["_ask_tags"])
                 await handler._ask_tags(update.message, context)
@@ -82,18 +81,15 @@ def wrap_save_task(original: Callable[..., Awaitable[Any]]) -> Callable[..., Awa
                 handler = __import__("handlers.task", fromlist=["_ask_description"])
                 await handler._ask_description(update.message, context)
             return
-
         if step == "tags" and not task_option_enabled(context, "allow_tags"):
             task["tags"] = ""
             handler = __import__("handlers.task", fromlist=["_ask_description"])
             await handler._ask_description(update.message, context)
             return
-
         if step == "description" and not task_option_enabled(context, "allow_assignment"):
             task["description"] = update.message.text or ""
             await _show_no_assignment_confirmation(update, context)
             return
-
         return await original(update, context)
     return wrapper
 
@@ -132,10 +128,28 @@ def wrap_optional_field_callback(original: Callable[..., Awaitable[Any]]) -> Cal
     return wrapper
 
 
+def _sanitize_ai_draft(context, draft: dict) -> dict:
+    if not task_option_enabled(context, "allow_tags"):
+        draft["tags"] = ""
+    if not task_option_enabled(context, "allow_categories"):
+        draft["category"] = ""
+    if not task_option_enabled(context, "allow_assignment"):
+        draft["assignee"] = None
+        draft["team_id"] = ""
+    return draft
+
+
 def wrap_callback(original: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
     @wraps(original)
     async def wrapper(update, context):
         data = (update.callback_query.data or "") if update.callback_query else ""
+        if data.startswith("ai_task_"):
+            if not task_option_enabled(context, "allow_ai_task_creation"):
+                await update.callback_query.answer("ایجاد تسک با هوش مصنوعی برای این ربات فعال نیست.", show_alert=True)
+                return
+            draft = context.user_data.get("ai_request_draft")
+            if isinstance(draft, dict):
+                context.user_data["ai_request_draft"] = _sanitize_ai_draft(context, draft)
         if data in {"task_confirm_create", "task_cancel_create"} and not task_option_enabled(context, "allow_assignment"):
             await update.callback_query.answer()
             if data == "task_confirm_create":
@@ -155,37 +169,3 @@ def wrap_callback(original: Callable[..., Awaitable[Any]]) -> Callable[..., Awai
             return
         return await original(update, context)
     return wrapper
-
-
-def wrap_message(original: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
-    @wraps(original)
-    async def wrapper(update, context):
-        if context.user_data.get("step") == "task_confirm_create":
-            return
-        return await original(update, context)
-    return wrapper
-
-
-def install_task_capabilities(app) -> None:
-    """Wrap already-registered callbacks; safe for multiple BotProfiles."""
-    targets = {
-        "save_task": wrap_save_task,
-        "optional_field_callback": wrap_optional_field_callback,
-        "assignment_callback": wrap_callback,
-        "assignment_manage_callback": wrap_callback,
-        "take_assignment": wrap_callback,
-        "take_confirm": wrap_callback,
-        "safe_assignment_confirm": wrap_callback,
-        "comment_callback": wrap_callback,
-        "comment_cancel_callback": wrap_callback,
-        "button_handler": wrap_callback,
-    }
-    for handlers in app.handlers.values():
-        for handler in handlers:
-            callback = getattr(handler, "callback", None)
-            name = getattr(callback, "__name__", "")
-            factory = targets.get(name)
-            if factory and not getattr(callback, "_task_capability_wrapped", False):
-                wrapped = factory(callback)
-                setattr(wrapped, "_task_capability_wrapped", True)
-                handler.callback = wrapped
