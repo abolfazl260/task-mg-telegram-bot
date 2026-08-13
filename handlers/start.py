@@ -53,9 +53,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     profile = context.bot_data.get("bot_config")
     bot_name = profile.name if profile else "Task Manager Bot"
-    bot_description = f"\n{profile.description}\n" if profile and profile.description else ""
+    ui = (profile.settings or {}).get("ui", {}) if profile else {}
+    custom_start = ui.get("start_text") if isinstance(ui, dict) else None
 
-    text = f"""
+    if custom_start:
+        text = custom_start.replace("{first_name}", user.first_name or "")
+    else:
+        bot_description = f"\n{profile.description}\n" if profile and profile.description else ""
+        text = f"""
 # 👋 سلام {user.first_name}
 
 ## 📋 {bot_name}
@@ -76,7 +81,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ---
 
 ## 🎯 اولویت‌ها
-
+a
 🔴 بالا
 کارهای مهم و فوری
 
