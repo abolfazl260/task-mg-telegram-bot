@@ -118,52 +118,74 @@ def _parse_report_time():
 async def _jira_sync_job(context):
     profile = context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config")
     bot_key = profile.key if profile else "default"
-    set_current_bot_key(bot_key)
     try:
-        await run_jira_sync(profile=profile)
+        result = await run_jira_sync(bot_key)
+        if result:
+            changed, connections = result
+            if changed:
+                logger.info("Jira sync bot=%s changed=%s connections=%s", bot_key, changed, connections)
     except Exception:
         logger.exception("Jira sync failed for bot=%s", bot_key)
 
 
 async def _integration_sync_job(context):
-    profile = context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config")
+    profile = context.job.data if context.job.data else context.application.bot_data.get("bot_config")
     bot_key = profile.key if profile else "default"
-    set_current_bot_key(bot_key)
     try:
-        await run_external_sync(profile=profile)
+        results = await run_external_sync(bot_key)
+        if results:
+            logger.info("External task sync bot=%s users=%s", bot_key, len(results))
     except Exception:
-        logger.exception("External integration sync failed for bot=%s", bot_key)
+        logger.exception("External task sync failed for bot=%s", bot_key)
 
 
-async def post_init(app):
+async def _oauth_callback(request):
+    from aiohttp import web
+    from services.integration_service import complete_oauth
+    provider = request.match_info.get("provider")
+    error = request.query.get("error")
+    if error:
+        return web.Response(text=f"اتصال لغو شد: {error}", content_type="text/html", charset="utf-8")
+    code = request.query.get("code")
+    state = request.query.get("state")
+    if not code or not state:
+        return web.Response(text="اطلاعات اتصال ناقص است.", status=400, content_type="text/html", charset="utf-8")
+    try:
+        complete_oauth(provider, code, state)
+        return web.Response(text="<h2>اتصال با موفقیت انجام شد.</h2><p>می‌توانید به تلگرام برگردید و همگام‌سازی را اجرا کنید.</p>", content_type="text/html", charset="utf-8")
+    except Exception as exc:
+        logger.exception("OAuth callback failed")
+        return web.Response(text=f"<h2>اتصال ناموفق بود.</h2><p>{str(exc)}</p>", status=500, content_type="text/html", charset="utf-8")
+
+
+async def _start_oauth_server(app):
+    base = os.getenv("INTEGRATION_REDIRECT_BASE_URL", "").strip()
+    if not base:
+        logger.info("External task OAuth server disabled: INTEGRATION_REDIRECT_BASE_URL is not set")
+        return
+    from aiohttp import web
+    oauth_app = web.Application()
+    oauth_app.router.add_get("/integrations/oauth/{provider}", _oauth_callback)
+    runner = web.AppRunner(oauth_app)
+    await runner.setup()
+    host = os.getenv("INTEGRATION_HOST", "0.0.0.0")
+    port = int(os.getenv("INTEGRATION_PORT", "8080"))
+    site = web.TCPSite(runner, host, port)
+    await site.start()
+    app.bot_data["integration_oauth_runner"] = runner
+    logger.info("External task OAuth callback listening on %s:%s", host, port)
+
+
+async def post_init(app: Application):
     await init_db()
     profile = app.bot_data.get("bot_config")
-
-    commands = [
-        BotCommand("ai", "دستیار هوشمند تحلیل تسک‌ها"),
-        BotCommand("start", "شروع ربات و منوی اصلی"),
-        BotCommand("add", "افزودن تسک جدید"),
-        BotCommand("reports", "گزارشات و آمار"),
-        BotCommand("tasks", "منوی تسک‌ها"),
-        BotCommand("unassigned", "وظایف بدون مسئول"),
-        BotCommand("team", "تیم و فضای مشترک"),
-        BotCommand("search", "جستجوی تسک"),
-        BotCommand("templates", "تمپلیت‌های آماده"),
-        BotCommand("habit", "مدیریت عادت‌ها"),
-        BotCommand("donate", "حمایت با Telegram Stars"),
-        BotCommand("jira", "اتصال به Jira"),
-        BotCommand("jira_status", "وضعیت اتصال Jira"),
-        BotCommand("jira_disconnect", "قطع اتصال Jira"),
-        BotCommand("help", "راهنمای کامل استفاده"),
-    ]
+    commands = [BotCommand("ai", "دستیار هوشمند تحلیل تسک‌ها"), BotCommand("start", "شروع ربات و منوی اصلی"), BotCommand("add", "افزودن تسک جدید"), BotCommand("reports", "گزارشات و آمار"), BotCommand("tasks", "منوی تسک‌ها"), BotCommand("unassigned", "وظایف بدون مسئول"), BotCommand("team", "تیم و فضای مشترک"), BotCommand("search", "جستجوی تسک"), BotCommand("templates", "تمپلیت‌های آماده"), BotCommand("habit", "مدیریت عادت‌ها"), BotCommand("donate", "حمایت با Telegram Stars"), BotCommand("jira", "اتصال به Jira"), BotCommand("jira_status", "وضعیت اتصال Jira"), BotCommand("jira_disconnect", "قطع اتصال Jira"), BotCommand("help", "راهنمای کامل استفاده")]
     feature_by_command = {"add": "tasks", "tasks": "tasks", "unassigned": "unassigned", "team": "teams", "search": "search", "templates": "templates", "reports": "reports", "habit": "habits", "donate": "donate", "ai": "ai"}
     if profile is not None:
         commands = [cmd for cmd in commands if profile.feature_enabled(feature_by_command.get(cmd.command, ""))]
-
     await app.bot.delete_my_commands()
     await app.bot.set_my_commands(commands)
     logger.info("Telegram command menu updated: %s", ", ".join(f"/{cmd.command}" for cmd in commands))
-
     await _start_oauth_server(app)
     if app.job_queue:
         app.job_queue.run_repeating(morning_today_tasks, interval=60, first=10, name="morning_today_tasks")
@@ -188,9 +210,6 @@ def build_application(profile):
     request = HTTPXRequest(connection_pool_size=16, read_timeout=30.0, write_timeout=120.0, connect_timeout=30.0, pool_timeout=30.0, media_write_timeout=120.0, http_version="1.1")
     app = Application.builder().token(profile.token).request(request).post_init(post_init).build()
     app.bot_data["bot_config"] = profile
-    # install_tag_flow mutates shared handler functions for the legacy /add flow.
-    # It must run exactly once per Python process; running it once per bot wraps
-    # already-patched functions and causes recursive callbacks on the second bot.
     if not getattr(task_handler, "_tag_flow_installed", False):
         install_tag_flow(task_handler)
     app.add_handler(TypeHandler(Update, bind_bot_context), group=-100)
@@ -251,7 +270,7 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(handle_habit_callback, pattern="^habit_"))
     app.add_handler(CallbackQueryHandler(donate_callback, pattern="^donate_"))
     app.add_handler(CallbackQueryHandler(precheckout_callback, pattern="^precheckout_"))
-    app.add_handler(CallbackQueryHandler(calendar_pdf_callback, pattern="^report_calendar_pdf$") )
+    app.add_handler(CallbackQueryHandler(calendar_pdf_callback, pattern="^report_calendar_pdf$"))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_tag_text))
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
