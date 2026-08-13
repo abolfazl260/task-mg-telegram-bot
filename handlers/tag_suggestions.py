@@ -23,6 +23,7 @@ def install_tag_flow(task_module):
 
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     from services.groq_service import parse_task_request, GroqConfigurationError, GroqRequestError
+    from services.task_capabilities import task_option_enabled, wrap_save_task
     from handlers import ai as ai_module
     import asyncio
     import types
@@ -30,12 +31,12 @@ def install_tag_flow(task_module):
     async def add_mode_entry(update, context):
         context.user_data["new_task"] = {}
         context.user_data["step"] = "add_mode"
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📝 ثبت تکی", callback_data="add_task_single")],
-            [InlineKeyboardButton("📥 ثبت گروهی", callback_data="import_bulk")],
-            [InlineKeyboardButton("🤖 ثبت با هوش مصنوعی", callback_data="ai_task_create")],
-        ])
-        await update.message.reply_text("📝 روش ثبت تسک را انتخاب کنید:", reply_markup=keyboard)
+        rows = [[InlineKeyboardButton("📝 ثبت تکی", callback_data="add_task_single")]]
+        if task_option_enabled(context, "allow_bulk_import"):
+            rows.append([InlineKeyboardButton("📥 ثبت گروهی", callback_data="import_bulk")])
+        if task_option_enabled(context, "allow_ai_task_creation"):
+            rows.append([InlineKeyboardButton("🤖 ثبت با هوش مصنوعی", callback_data="ai_task_create")])
+        await update.message.reply_text("📝 روش ثبت تسک را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(rows))
 
     task_module._ADD_MODE_ENTRY = add_mode_entry
     task_module.add_task.__code__ = _patched_add_task.__code__
@@ -45,10 +46,11 @@ def install_tag_flow(task_module):
         name="_original_save_task", argdefs=task_module.save_task.__defaults__, closure=task_module.save_task.__closure__
     )
     task_module._original_save_task = original_save
+    task_module._capability_save_task = wrap_save_task(original_save)
 
     async def ai_save_interceptor(update, context):
         if context.user_data.get("step") != "ai_add":
-            return await task_module._original_save_task(update, context)
+            return await task_module._capability_save_task(update, context)
         text = (update.effective_message.text or "").strip()
         if not text:
             await update.effective_message.reply_text("⚠️ لطفاً توضیح تسک را ارسال کنید.")
@@ -77,8 +79,8 @@ def install_tag_flow(task_module):
         lines = ["🤖 تسک پیشنهادی هوش مصنوعی", "", f"📌 عنوان: {draft['title']}"]
         if draft.get("deadline"): lines.append(f"🗓 زمان: {draft['deadline']}")
         lines.append(f"🎯 اولویت: {priority_labels.get(draft.get('priority'), '🟢 پایین')}")
-        if draft.get("category"): lines.append(f"📂 دسته‌بندی: {draft['category']}")
-        if draft.get("tags"): lines.append(f"🏷 تگ: {draft['tags']}")
+        if draft.get("category") and task_option_enabled(context, "allow_categories"): lines.append(f"📂 دسته‌بندی: {draft['category']}")
+        if draft.get("tags") and task_option_enabled(context, "allow_tags"): lines.append(f"🏷 تگ: {draft['tags']}")
         if draft.get("description"): lines.append(f"📝 توضیحات: {draft['description']}")
         lines.extend(["", "آیا این تسک ایجاد شود?"])
         keyboard = InlineKeyboardMarkup([
@@ -99,6 +101,9 @@ def install_tag_flow(task_module):
     async def ai_add_callback(update, context):
         query = update.callback_query
         if (query.data or "") == "ai_task_create" and not context.user_data.get("ai_request_draft"):
+            if not task_option_enabled(context, "allow_ai_task_creation"):
+                await query.answer("ایجاد تسک با هوش مصنوعی برای این ربات فعال نیست.", show_alert=True)
+                return
             await query.answer()
             context.user_data["step"] = "ai_add"
             context.user_data["new_task"] = {}
