@@ -1,4 +1,4 @@
-import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -148,7 +148,6 @@ async def test_ai_task_creation_is_blocked_when_disabled():
 
 def test_habit_profile_contains_expected_task_capabilities():
     import json
-    from pathlib import Path
 
     path = Path(__file__).resolve().parents[1] / "bots" / "habits_only.json"
     profile = json.loads(path.read_text(encoding="utf-8"))
