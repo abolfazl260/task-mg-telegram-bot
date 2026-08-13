@@ -33,7 +33,6 @@ def main_menu(context=None):
     for item in menu_items:
         if _feature_enabled(profile, item.get("feature")):
             keyboard.append([InlineKeyboardButton(item["label"], callback_data=item["callback_data"])])
-    keyboard.append([InlineKeyboardButton("🏠 شروع / منوی اصلی", callback_data="start_menu")])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -136,10 +135,6 @@ async def button_handler(update, context):
     await query.answer()
     data = query.data
 
-    # IMPORTANT: this catch-all callback handler is registered before the
-    # report-specific handler in main.py. Route report callbacks here first;
-    # otherwise the generic handler consumes them and the report buttons never
-    # reach handlers.reports.reports_callback.
     if data == "report_calendar_pdf":
         from handlers.calendar_pdf import calendar_pdf_callback
         return await calendar_pdf_callback(update, context)
@@ -153,9 +148,6 @@ async def button_handler(update, context):
             return await ai_habit_callback(update, context)
         return await ai_task_callback(update, context)
 
-    # main.py registers this generic callback handler before the dedicated
-    # habit callback handler. Route every habit callback explicitly here so
-    # habit buttons work for both the main bot and feature-limited bot profiles.
     if data.startswith("habit_"):
         from handlers.habits import handle_habit_callback
         return await handle_habit_callback(update, context)
