@@ -179,11 +179,36 @@ async def _start_oauth_server(app):
 async def post_init(app: Application):
     await init_db()
     profile = app.bot_data.get("bot_config")
-    commands = [BotCommand("start", "شروع ربات و منوی اصلی"), BotCommand("add", "افزودن تسک جدید"), BotCommand("tasks", "منوی تسک‌ها"), BotCommand("unassigned", "وظایف بدون مسئول"), BotCommand("team", "تیم و فضای مشترک"), BotCommand("search", "جستجوی تسک"), BotCommand("templates", "تمپلیت‌های آماده"), BotCommand("reports", "گزارشات و آمار"), BotCommand("habit", "مدیریت عادت‌ها"), BotCommand("donate", "حمایت با Telegram Stars"), BotCommand("ai", "دستیار هوشمند تحلیل تسک‌ها"), BotCommand("jira", "اتصال به Jira"), BotCommand("jira_status", "وضعیت اتصال Jira"), BotCommand("jira_disconnect", "قطع اتصال Jira"), BotCommand("help", "راهنمای کامل استفاده")]
+
+    # Telegram command menu order: the first four commands are intentionally
+    # fixed as requested, followed by all remaining commands in their legacy order.
+    commands = [
+        BotCommand("ai", "دستیار هوشمند تحلیل تسک‌ها"),
+        BotCommand("start", "شروع ربات و منوی اصلی"),
+        BotCommand("add", "افزودن تسک جدید"),
+        BotCommand("reports", "گزارشات و آمار"),
+        BotCommand("tasks", "منوی تسک‌ها"),
+        BotCommand("unassigned", "وظایف بدون مسئول"),
+        BotCommand("team", "تیم و فضای مشترک"),
+        BotCommand("search", "جستجوی تسک"),
+        BotCommand("templates", "تمپلیت‌های آماده"),
+        BotCommand("habit", "مدیریت عادت‌ها"),
+        BotCommand("donate", "حمایت با Telegram Stars"),
+        BotCommand("jira", "اتصال به Jira"),
+        BotCommand("jira_status", "وضعیت اتصال Jira"),
+        BotCommand("jira_disconnect", "قطع اتصال Jira"),
+        BotCommand("help", "راهنمای کامل استفاده"),
+    ]
     feature_by_command = {"add": "tasks", "tasks": "tasks", "unassigned": "unassigned", "team": "teams", "search": "search", "templates": "templates", "reports": "reports", "habit": "habits", "donate": "donate", "ai": "ai"}
     if profile is not None:
         commands = [cmd for cmd in commands if profile.feature_enabled(feature_by_command.get(cmd.command, ""))]
+
+    # Replace the bot command list explicitly on every startup so Telegram gets
+    # the new order immediately rather than relying on a client-side cache.
+    await app.bot.delete_my_commands()
     await app.bot.set_my_commands(commands)
+    logger.info("Telegram command menu updated: %s", ", ".join(f"/{cmd.command}" for cmd in commands))
+
     await _start_oauth_server(app)
     if app.job_queue:
         app.job_queue.run_repeating(morning_today_tasks, interval=60, first=10, name="morning_today_tasks")
@@ -250,50 +275,28 @@ def build_application(profile):
     app.add_handler(CallbackQueryHandler(take_assignment, pattern="^take_[A-Za-z0-9]"))
     app.add_handler(CallbackQueryHandler(safe_assignment_confirm, pattern="^assign_confirm_create$"))
     app.add_handler(CallbackQueryHandler(assignment_callback, pattern="^assign_"))
-    app.add_handler(CallbackQueryHandler(assignment_manage_callback, pattern="^(owner_|asg_|chg_)"))
+    app.add_handler(CallbackQueryHandler(assignment_manage_callback, pattern="^(owner_|asg_|chg_)") )
     app.add_handler(CallbackQueryHandler(task_details_callback, pattern="^(task_details_|task_history_)") )
     app.add_handler(CallbackQueryHandler(comment_callback, pattern="^comment_add_"))
     app.add_handler(CallbackQueryHandler(comment_cancel_callback, pattern="^comment_cancel_"))
     app.add_handler(CallbackQueryHandler(paginated_detail_page, pattern="^detail_page_"))
-    app.add_handler(CallbackQueryHandler(download_csv, pattern="^download_csv"))
-    app.add_handler(CallbackQueryHandler(paginated_sort_callback, pattern="^sort_"))
-    app.add_handler(CallbackQueryHandler(calendar_pdf_callback, pattern="^report_calendar_pdf$"))
+    app.add_handler(CallbackQueryHandler(paginated_sort_callback, pattern="^sort_page_"))
+    app.add_handler(CallbackQueryHandler(sort_tasks_callback, pattern="^sort_"))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(CallbackQueryHandler(integration_callback, pattern="^integration_"))
     app.add_handler(CallbackQueryHandler(reports_callback, pattern="^report_"))
-    app.add_handler(CallbackQueryHandler(report_compare_months, pattern="^report_compare$"))
-    app.add_handler(CallbackQueryHandler(report_performance, pattern="^report_perf$"))
-    app.add_handler(CallbackQueryHandler(report_progress_bar, pattern="^report_progress_bar$"))
-    app.add_handler(CallbackQueryHandler(templates_callback, pattern="^tpl_"))
-    app.add_handler(CallbackQueryHandler(priority_selected, pattern="^priority_"))
-    app.add_handler(CallbackQueryHandler(deadline_selected, pattern="^deadline_"))
-    # Tag callbacks must use a prefix match. The previous pattern ended with
-    # '$', so only the literal values 'tag_'/'tags_' matched; real callbacks
-    # such as tag_new/tag_pick_0/tag_none never reached handle_tag_callback.
-    app.add_handler(CallbackQueryHandler(handle_tag_callback, pattern="^(tag_|tags_|step_back_description|step_back_category)"))
-    app.add_handler(CallbackQueryHandler(optional_field_callback, pattern="^(category_pick_|category_skip|description_skip)"))
-    app.add_handler(CallbackQueryHandler(share_category_callback, pattern="^share_cat_"))
-    app.add_handler(CallbackQueryHandler(import_callback, pattern="^import_"))
+    app.add_handler(CallbackQueryHandler(templates_callback, pattern="^template_"))
     app.add_handler(CallbackQueryHandler(team_callback, pattern="^team_"))
+    app.add_handler(CallbackQueryHandler(share_category_callback, pattern="^share_"))
+    app.add_handler(CallbackQueryHandler(import_callback, pattern="^import_"))
     app.add_handler(CallbackQueryHandler(handle_habit_callback, pattern="^habit_"))
-    app.add_handler(CallbackQueryHandler(custom_bot_callback, pattern="^custombot_"))
-    app.add_handler(CallbackQueryHandler(donate_callback, pattern="^donate_(10|40|100)$"))
-    app.add_handler(CallbackQueryHandler(integration_callback, pattern="^int_"))
+    app.add_handler(CallbackQueryHandler(donate_callback, pattern="^donate_"))
+    app.add_handler(CallbackQueryHandler(precheckout_callback, pattern="^precheckout_"))
+    app.add_handler(CallbackQueryHandler(calendar_pdf_callback, pattern="^report_calendar_pdf$"))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_tag_text))
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
-    app.add_handler(CallbackQueryHandler(button_handler, pattern="^(?!priority_|deadline_|category_pick_|category_skip|tag_|tags_|step_back_description|step_back_category|description_skip|detail_page_|download_csv|start_|done_|cancel_|pending_|take_|assign_|owner_|asg_|chg_|task_details_|task_history_|comment_add_|comment_cancel_|report_|tpl_|sort_|share_cat_|import_|team_|habit_|donate_|custombot_|int_)"))
-    comment_message_filter = (
-        filters.TEXT
-        | filters.PHOTO
-        | filters.Document.ALL
-        | filters.VIDEO
-        | filters.AUDIO
-        | filters.VOICE
-        | filters.ANIMATION
-        | filters.Sticker.ALL
-        | filters.CONTACT
-        | filters.LOCATION
-    ) & ~filters.COMMAND
-    app.add_handler(MessageHandler(filters.VOICE, handle_voice_message), group=0)
-    app.add_handler(MessageHandler(comment_message_filter, handle_tag_text), group=0)
     app.add_error_handler(error_handler)
     return app
 
