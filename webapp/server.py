@@ -22,13 +22,17 @@ class WebAppHandler(BaseHTTPRequestHandler):
         if path in {"/", "/health", "/healthz"}:
             self._json(200, {"status": "ok", "service": "telegram-webapp"})
             return
-        if path == "/api/me":
-            self._json(501, {"error": "api_not_ready"})
-            return
-        if path == "/api/tasks" or path.startswith("/api/tasks/"):
+        if path in {"/api/me", "/api/tasks"} or path.startswith("/api/tasks/"):
             self._json(501, {"error": "api_not_ready"})
             return
         self._json(404, {"error": "not_found"})
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Telegram-Init-Data")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
+        self.end_headers()
 
     def log_message(self, format: str, *args: object) -> None:
         return
