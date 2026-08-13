@@ -21,6 +21,10 @@
     "task_options": {
       "allow_assignment": false,
       "allow_tags": false,
+      "allow_comments": true,
+      "allow_categories": true,
+      "allow_search": true,
+      "allow_templates": false,
       "allow_bulk_import": false,
       "allow_ai_task_creation": true
     }
