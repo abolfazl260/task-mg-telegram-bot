@@ -11,18 +11,26 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import BotCommand, Update
 from services.custom_bot_service import read_custom_bots
 from telegram.ext import Application
-from services.task_capabilities import wrap_save_task, wrap_optional_field_callback, wrap_callback
 
 BASE_DIR = Path(__file__).resolve().parent
 BOTS_DIR = BASE_DIR / "bots"
 
 DEFAULT_FEATURES = {
-    "custom_bots": True, "integrations": True, "tasks": True, "teams": True,
-    "templates": True, "habits": True, "reports": True, "donate": True,
-    "ai": True, "guest_mode": True, "search": True, "bulk_import": True,
+    "custom_bots": True,
+    "integrations": True,
+    "tasks": True,
+    "teams": True,
+    "templates": True,
+    "habits": True,
+    "reports": True,
+    "donate": True,
+    "ai": True,
+    "guest_mode": True,
+    "search": True,
+    "bulk_import": True,
     "unassigned": True,
 }
 
@@ -39,44 +47,27 @@ DEFAULT_MENU = [
 ]
 
 DEFAULT_WORKFLOW = {
-    "statuses": {"pending": "⏳ در انتظار", "in_progress": "🚀 در حال انجام", "done": "✅ انجام شده", "cancelled": "❌ لغو شده"},
-    "actions": {"start": "🚀 شروع", "done": "✅ انجام شد", "cancel": "❌ لغو", "pending": "⏸ بازگشت به انتظار", "owner": "👤 مسئول", "take": "🙋 برعهده گرفتن"},
+    "statuses": {
+        "pending": "⏳ در انتظار",
+        "in_progress": "🚀 در حال انجام",
+        "done": "✅ انجام شده",
+        "cancelled": "❌ لغو شده",
+    },
+    "actions": {
+        "start": "🚀 شروع",
+        "done": "✅ انجام شد",
+        "cancel": "❌ لغو",
+        "pending": "⏸ بازگشت به انتظار",
+        "owner": "👤 مسئول",
+        "take": "🙋 برعهده گرفتن",
+    },
 }
-
-# Shared task handlers are wrapped when registered. The wrappers inspect the
-# active bot profile from context.bot_data, so every bot can use different
-# task capabilities without bot-specific branches in handlers/task.py.
-_ORIGINAL_ADD_HANDLER = Application.add_handler
-_TASK_HANDLER_WRAPPERS = {
-    "save_task": wrap_save_task,
-    "optional_field_callback": wrap_optional_field_callback,
-    "assignment_callback": wrap_callback,
-    "assignment_manage_callback": wrap_callback,
-    "take_assignment": wrap_callback,
-    "take_confirm": wrap_callback,
-    "safe_assignment_confirm": wrap_callback,
-    "comment_callback": wrap_callback,
-    "comment_cancel_callback": wrap_callback,
-    "button_handler": wrap_callback,
-}
-
-
-def _add_handler_with_task_capabilities(self, handler, group: int = 0):
-    callback = getattr(handler, "callback", None)
-    name = getattr(callback, "__name__", "")
-    factory = _TASK_HANDLER_WRAPPERS.get(name)
-    if factory and not getattr(callback, "_task_capability_wrapped", False):
-        wrapped = factory(callback)
-        setattr(wrapped, "_task_capability_wrapped", True)
-        handler.callback = wrapped
-    return _ORIGINAL_ADD_HANDLER(self, handler, group)
-
-
-Application.add_handler = _add_handler_with_task_capabilities
 
 
 @dataclass(frozen=True)
 class BotProfile:
+    """Runtime configuration for one Telegram bot instance."""
+
     key: str
     name: str
     username: str
@@ -109,6 +100,7 @@ def _load_json_profile(path: Path) -> BotProfile:
     username = os.getenv(username_env, raw.get("username", "")).strip().lstrip("@")
     if not username:
         raise RuntimeError(f"Username env var {username_env} or username field is required for bot profile {key}.")
+
     features = DEFAULT_FEATURES.copy()
     features.update(raw.get("features", {}))
     workflow = json.loads(json.dumps(DEFAULT_WORKFLOW))
@@ -117,22 +109,33 @@ def _load_json_profile(path: Path) -> BotProfile:
             workflow[section].update(values)
         else:
             workflow[section] = values
+
     return BotProfile(
-        key=key, name=raw.get("name") or username, username=username, token=token,
-        active=bool(raw.get("active", True)), description=raw.get("description", ""),
-        features=features, settings=raw.get("settings", {}), access=raw.get("access", {}),
-        workflow=workflow, menu=raw.get("menu", DEFAULT_MENU),
+        key=key,
+        name=raw.get("name") or username,
+        username=username,
+        token=token,
+        active=bool(raw.get("active", True)),
+        description=raw.get("description", ""),
+        features=features,
+        settings=raw.get("settings", {}),
+        access=raw.get("access", {}),
+        workflow=workflow,
+        menu=raw.get("menu", DEFAULT_MENU),
     )
 
 
 def _legacy_default_profile() -> BotProfile | None:
+    """Load the original BOT_TOKEN bot when present, even in multi-bot mode."""
     token = os.getenv("BOT_TOKEN", "").strip()
     if not token:
         return None
     return BotProfile(
-        key="default", name=os.getenv("BOT_NAME", "Task Manager Bot"),
+        key="default",
+        name=os.getenv("BOT_NAME", "Task Manager Bot"),
         username=os.getenv("BOT_USERNAME", "TaskManagerpersian_Bot").lstrip("@"),
-        token=token, description=os.getenv("BOT_DESCRIPTION", ""),
+        token=token,
+        description=os.getenv("BOT_DESCRIPTION", ""),
     )
 
 
@@ -141,6 +144,8 @@ def _custom_bot_profiles() -> list[BotProfile]:
     for row in read_custom_bots(include_tokens=True):
         if row.get("status") != "active" or not row.get("bot_token"):
             continue
+        # A custom bot starts with every feature disabled. The selected
+        # features from the management UI are then enabled explicitly.
         features = {name: False for name in DEFAULT_FEATURES}
         selected = [item.strip() for item in row.get("features", "").split(",") if item.strip()]
         for feature in selected:
@@ -154,23 +159,36 @@ def _custom_bot_profiles() -> list[BotProfile]:
             token=row.get("bot_token", ""),
             description="ربات اختصاصی ساخته‌شده توسط کاربر؛ فعلاً رایگان در نسخه بتا.",
             features=features,
-            settings={"pricing_plan": row.get("pricing_plan", "free_beta"), "owner_user_id": row.get("owner_user_id", ""), "habit_only": "habits" in selected and "tasks" not in selected},
+            settings={
+                "pricing_plan": row.get("pricing_plan", "free_beta"),
+                "owner_user_id": row.get("owner_user_id", ""),
+                "habit_only": "habits" in selected and "tasks" not in selected,
+            },
         ))
     return profiles
 
 
 def load_bot_profiles() -> list[BotProfile]:
+    """Load the legacy bot, static profiles, and active self-service custom bots."""
     load_dotenv(BASE_DIR / ".env")
     profile_names = [item.strip() for item in os.getenv("BOT_PROFILES", "").split(",") if item.strip()]
+
+    # BOT_TOKEN remains the original Task Manager bot. It is intentionally
+    # loaded alongside BOT_PROFILES so adding a second bot cannot disable it.
     profiles: list[BotProfile] = []
     legacy_profile = _legacy_default_profile()
     if legacy_profile is not None:
         profiles.append(legacy_profile)
+
     if profile_names:
         profiles.extend(_load_json_profile(BOTS_DIR / f"{name}.json") for name in profile_names)
     elif not profiles:
         raise RuntimeError("Set BOT_TOKEN for one bot or BOT_PROFILES with per-bot token env vars.")
+
     profiles.extend(_custom_bot_profiles())
+
+    # Avoid starting the same profile twice if the legacy/default profile is
+    # also listed explicitly in BOT_PROFILES.
     unique: dict[str, BotProfile] = {}
     for profile in profiles:
         if profile.active:
@@ -179,6 +197,7 @@ def load_bot_profiles() -> list[BotProfile]:
 
 
 async def run_applications(apps: list[Application]) -> None:
+    """Run multiple python-telegram-bot applications in one event loop."""
     for app in apps:
         await app.initialize()
         await app.start()
@@ -192,3 +211,7 @@ async def run_applications(apps: list[Application]) -> None:
                 await app.updater.stop()
             await app.stop()
             await app.shutdown()
+
+
+def bot_logger(profile: BotProfile) -> logging.LoggerAdapter:
+    return logging.LoggerAdapter(logging.getLogger(__name__), {"bot": profile.key})
