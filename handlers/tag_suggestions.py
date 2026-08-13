@@ -2,6 +2,25 @@ from .tag_suggestions_legacy import *
 from .tag_suggestions_legacy import install_tag_flow as _legacy_install_tag_flow
 
 
+async def handle_tag_text(update, context):
+    """Handle a typed tag before delegating to the normal task text flow."""
+    from handlers import task as task_module
+
+    if context.user_data.get("step") != "tags":
+        return await task_module.save_task(update, context)
+
+    task = context.user_data.get("new_task")
+    text = (update.effective_message.text or "").strip()
+    if not isinstance(task, dict) or not text:
+        return await task_module.save_task(update, context)
+
+    task["tags"] = text[:120]
+    context.user_data.pop("tag_suggestions", None)
+    context.user_data.pop("awaiting_tag_input", None)
+    await task_module._ask_description(update.effective_message, context)
+    return True
+
+
 def _patched_add_task(update, context):
     return _ADD_MODE_ENTRY(update, context)
 
