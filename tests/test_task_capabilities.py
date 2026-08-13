@@ -6,6 +6,7 @@ import pytest
 from services.task_capabilities import (
     DEFAULT_TASK_OPTIONS,
     _sanitize_ai_draft,
+    install_task_capabilities,
     task_option_enabled,
     task_options,
     wrap_callback,
@@ -129,6 +130,25 @@ async def test_tags_are_blocked_when_disabled():
 
 
 @pytest.mark.asyncio
+async def test_templates_and_bulk_import_callbacks_are_blocked_when_disabled():
+    for callback_data in ("template_open", "import_bulk"):
+        called = False
+
+        async def original(update, context):
+            nonlocal called
+            called = True
+
+        wrapped = wrap_callback(original)
+        context = DummyContext({"allow_templates": False, "allow_bulk_import": False})
+        update = DummyUpdate(callback_data)
+
+        await wrapped(update, context)
+
+        assert called is False
+        assert update.callback_query.answers
+
+
+@pytest.mark.asyncio
 async def test_ai_task_creation_is_blocked_when_disabled():
     called = False
 
@@ -144,6 +164,22 @@ async def test_ai_task_creation_is_blocked_when_disabled():
 
     assert called is False
     assert update.callback_query.answers
+
+
+def test_install_task_capabilities_is_idempotent_and_application_scoped():
+    async def assignment_callback(update, context):
+        return None
+
+    handler = SimpleNamespace(callback=assignment_callback)
+    app = SimpleNamespace(handlers={0: [handler]})
+
+    install_task_capabilities(app)
+    first = handler.callback
+    install_task_capabilities(app)
+
+    assert getattr(app, "_task_capabilities_installed", False) is True
+    assert first is handler.callback
+    assert getattr(first, "_task_capability_wrapped", False) is True
 
 
 def test_habit_profile_contains_expected_task_capabilities():
@@ -164,8 +200,18 @@ def test_habit_profile_contains_expected_task_capabilities():
     }
 
 
-def test_main_routes_task_options_to_command_features():
-    source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
-    assert '"search": "allow_search"' in source
-    assert '"templates": "allow_templates"' in source
-    assert '"bulk_import": "allow_bulk_import"' in source
+def test_add_flow_and_commands_respect_capabilities():
+    root = Path(__file__).resolve().parents[1]
+    tag_source = (root / "handlers" / "tag_suggestions.py").read_text(encoding="utf-8")
+    main_source = (root / "main.py").read_text(encoding="utf-8")
+    assert 'task_option_enabled(context, "allow_bulk_import")' in tag_source
+    assert 'task_option_enabled(context, "allow_ai_task_creation")' in tag_source
+    assert '"search": "allow_search"' in main_source
+    assert '"templates": "allow_templates"' in main_source
+    assert '"bulk_import": "allow_bulk_import"' in main_source
+    assert "install_task_capabilities(app)" in main_source
+
+
+def test_no_global_application_add_handler_monkeypatch():
+    source = (Path(__file__).resolve().parents[1] / "bot_platform.py").read_text(encoding="utf-8")
+    assert "Application.add_handler =" not in source
