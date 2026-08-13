@@ -11,6 +11,10 @@ from services.groq_service import GroqRequestError, parse_task_request
 
 
 _PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+_PERSIAN_NUMBER_WORDS = {
+    "یک": 1, "دو": 2, "سه": 3, "چهار": 4, "پنج": 5,
+    "شش": 6, "هفت": 7, "هشت": 8, "نه": 9, "ده": 10,
+}
 
 
 def normalize_user_text(text: str) -> str:
@@ -33,16 +37,21 @@ def _date_from_language(text: str, today: date) -> str | None:
         if re.search(pattern, text, flags=re.IGNORECASE):
             return value.isoformat()
 
-    relative = re.search(r"(?:([0-9]+)\s*)?(روز|هفته|ماه)\s*(?:دیگه|دیگر|بعد)", text, re.IGNORECASE)
+    relative = re.search(
+        r"(?:(\d+|یک|دو|سه|چهار|پنج|شش|هفت|هشت|نه|ده)\s*)?"
+        r"(روز|هفته|ماه)\s*(?:دیگه|دیگر|بعد)",
+        text,
+        re.IGNORECASE,
+    )
     if relative:
-        amount = int(relative.group(1) or 1)
+        raw_amount = relative.group(1) or "1"
+        amount = int(raw_amount) if raw_amount.isdigit() else _PERSIAN_NUMBER_WORDS[raw_amount]
         unit = relative.group(2)
         if unit == "روز":
             value = today + timedelta(days=amount)
         elif unit == "هفته":
             value = today + timedelta(days=amount * 7)
         else:
-            # Calendar-month arithmetic without an extra dependency.
             year, month = today.year, today.month + amount
             year += (month - 1) // 12
             month = (month - 1) % 12 + 1
@@ -109,11 +118,7 @@ def _looks_like_explicit_action(text: str) -> bool:
 
 
 def _deterministic_fallback(text: str) -> dict:
-    """Build a safe one-off task when the model returns unusable JSON.
-
-    This is intentionally conservative: non-question input becomes a task,
-    while dates/times are extracted only when explicitly present.
-    """
+    """Build a safe one-off task when the model returns unusable JSON."""
     today = date.today()
     deadline_date = _date_from_language(text, today)
     spoken_time = _time_from_language(text)
@@ -140,10 +145,9 @@ def _deterministic_fallback(text: str) -> dict:
         category = category or "شخصی"
         tags.append("#دادگاه")
 
-    title = text[:200].strip()
     return {
         "action": "CREATE_TASK",
-        "title": title,
+        "title": text[:200].strip(),
         "deadline": deadline,
         "priority": "high" if re.search(r"فوری|ضروری|خیلی\s*مهم|urgent|asap", lower, re.I) else "low",
         "category": category,
@@ -205,8 +209,6 @@ def parse_task_request_smart(user_id: int, request_text: str) -> dict:
     try:
         result = parse_task_request(user_id, normalized)
     except GroqRequestError:
-        # Do not expose a model-format failure for a normal non-question.
-        # A deterministic task draft is safer than dropping an actionable request.
         if _looks_like_question(normalized):
             raise
         result = _deterministic_fallback(normalized)
