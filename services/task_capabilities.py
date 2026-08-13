@@ -21,6 +21,17 @@ DEFAULT_TASK_OPTIONS: dict[str, bool] = {
     "allow_ai_task_creation": True,
 }
 
+_WRAPPABLE_CALLBACKS = {
+    "assignment_callback",
+    "assignment_manage_callback",
+    "take_assignment",
+    "take_confirm",
+    "safe_assignment_confirm",
+    "comment_callback",
+    "comment_cancel_callback",
+    "button_handler",
+}
+
 
 def task_options(profile: Any) -> dict[str, bool]:
     result = DEFAULT_TASK_OPTIONS.copy()
@@ -62,10 +73,6 @@ async def _finalize_without_assignment(update, context) -> None:
     task_id = await handler._finalize_task(update.effective_user.id, task)
     context.user_data.clear()
     await update.effective_message.reply_text(f"✅ تسک ثبت شد\n🆔 {task_id}")
-
-
-def _next_after_category(context):
-    return "tags" if task_option_enabled(context, "allow_tags") else "description"
 
 
 def wrap_save_task(original: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
@@ -164,7 +171,7 @@ def wrap_callback(original: Callable[..., Awaitable[Any]]) -> Callable[..., Awai
                 return
             draft = context.user_data.get("ai_request_draft")
             if isinstance(draft, dict):
-                context.user_data["ai_request_draft"] = _sanitize_ai_draft(context, draft)
+                _sanitize_ai_draft(context, draft)
         if data in {"task_confirm_create", "task_cancel_create"} and not task_option_enabled(context, "allow_assignment"):
             await update.callback_query.answer()
             if data == "task_confirm_create":
@@ -179,8 +186,32 @@ def wrap_callback(original: Callable[..., Awaitable[Any]]) -> Callable[..., Awai
         if data.startswith("comment_") and not task_option_enabled(context, "allow_comments"):
             await update.callback_query.answer("کامنت برای این ربات فعال نیست.", show_alert=True)
             return
-        if data.startswith("tag_") and not task_option_enabled(context, "allow_tags"):
+        if data.startswith(("tag_", "tags_", "step_back_tags")) and not task_option_enabled(context, "allow_tags"):
             await update.callback_query.answer("تگ برای این ربات فعال نیست.", show_alert=True)
+            return
+        if data.startswith("template_") and not task_option_enabled(context, "allow_templates"):
+            await update.callback_query.answer("تمپلیت برای این ربات فعال نیست.", show_alert=True)
+            return
+        if data.startswith("import_") and not task_option_enabled(context, "allow_bulk_import"):
+            await update.callback_query.answer("ثبت گروهی برای این ربات فعال نیست.", show_alert=True)
             return
         return await original(update, context)
     return wrapper
+
+
+def install_task_capabilities(app: Any) -> None:
+    """Wrap registered callbacks once, after the application is fully built."""
+    if getattr(app, "_task_capabilities_installed", False):
+        return
+    for handlers in app.handlers.values():
+        for handler in handlers:
+            callback = getattr(handler, "callback", None)
+            name = getattr(callback, "__name__", "")
+            if name not in _WRAPPABLE_CALLBACKS:
+                continue
+            if getattr(callback, "_task_capability_wrapped", False):
+                continue
+            wrapped = wrap_callback(callback)
+            setattr(wrapped, "_task_capability_wrapped", True)
+            handler.callback = wrapped
+    app._task_capabilities_installed = True
