@@ -7,7 +7,7 @@ non-question must become a task or habit, with conservative habit detection.
 import re
 from datetime import date, timedelta
 
-from services.groq_service import parse_task_request
+from services.groq_service import GroqRequestError, parse_task_request
 
 
 _PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
@@ -32,6 +32,24 @@ def _date_from_language(text: str, today: date) -> str | None:
     for pattern, value in patterns:
         if re.search(pattern, text, flags=re.IGNORECASE):
             return value.isoformat()
+
+    relative = re.search(r"(?:([0-9]+)\s*)?(روز|هفته|ماه)\s*(?:دیگه|دیگر|بعد)", text, re.IGNORECASE)
+    if relative:
+        amount = int(relative.group(1) or 1)
+        unit = relative.group(2)
+        if unit == "روز":
+            value = today + timedelta(days=amount)
+        elif unit == "هفته":
+            value = today + timedelta(days=amount * 7)
+        else:
+            # Calendar-month arithmetic without an extra dependency.
+            year, month = today.year, today.month + amount
+            year += (month - 1) // 12
+            month = (month - 1) % 12 + 1
+            import calendar
+            day = min(today.day, calendar.monthrange(year, month)[1])
+            value = date(year, month, day)
+        return value.isoformat()
     return None
 
 
@@ -90,6 +108,53 @@ def _looks_like_explicit_action(text: str) -> bool:
     return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
 
 
+def _deterministic_fallback(text: str) -> dict:
+    """Build a safe one-off task when the model returns unusable JSON.
+
+    This is intentionally conservative: non-question input becomes a task,
+    while dates/times are extracted only when explicitly present.
+    """
+    today = date.today()
+    deadline_date = _date_from_language(text, today)
+    spoken_time = _time_from_language(text)
+    deadline = ""
+    if deadline_date:
+        deadline = deadline_date + (f" {spoken_time}" if spoken_time else "")
+
+    category = ""
+    tags: list[str] = []
+    lower = text.lower()
+    if re.search(r"خرید|بخر|فروشگاه|سفارش", lower):
+        category = "خرید"
+        tags.append("#خرید")
+    elif re.search(r"جلسه|شرکت|مدیر|پروژه|گزارش|قرارداد", lower):
+        category = "کاری/شغلی"
+    elif re.search(r"پرداخت|فاکتور|هزینه|قبض", lower):
+        category = "مالی"
+    elif re.search(r"خانه|خانواده|سفر|شخصی", lower):
+        category = "شخصی"
+
+    if re.search(r"جلسه|meeting", lower, re.IGNORECASE):
+        tags.append("#جلسه")
+    if re.search(r"دادگاه|court", lower, re.IGNORECASE):
+        category = category or "شخصی"
+        tags.append("#دادگاه")
+
+    title = text[:200].strip()
+    return {
+        "action": "CREATE_TASK",
+        "title": title,
+        "deadline": deadline,
+        "priority": "high" if re.search(r"فوری|ضروری|خیلی\s*مهم|urgent|asap", lower, re.I) else "low",
+        "category": category,
+        "tags": ", ".join(dict.fromkeys(tags)),
+        "description": "",
+        "repeat_type": "",
+        "target": "",
+        "reminder_time": "",
+    }
+
+
 def _enrich(result: dict, text: str) -> dict:
     today = date.today()
     relative_date = _date_from_language(text, today)
@@ -97,7 +162,6 @@ def _enrich(result: dict, text: str) -> dict:
     is_question = _looks_like_question(text)
     is_habit = _looks_like_habit(text)
 
-    # Hard contract: a question is CHAT. Otherwise it must be a task or habit.
     if is_question:
         result["action"] = "CHAT"
         return result
@@ -114,7 +178,6 @@ def _enrich(result: dict, text: str) -> dict:
         if spoken_time and not result.get("reminder_time"):
             result["reminder_time"] = spoken_time
     else:
-        # Any non-question that is not an explicit recurring habit is a one-off task.
         result["action"] = "CREATE_TASK"
 
     if relative_date and result.get("action") == "CREATE_TASK":
@@ -138,5 +201,14 @@ def parse_task_request_smart(user_id: int, request_text: str) -> dict:
     normalized = normalize_user_text(request_text)
     if not normalized:
         raise ValueError("متن درخواست خالی است.")
-    result = parse_task_request(user_id, normalized)
+
+    try:
+        result = parse_task_request(user_id, normalized)
+    except GroqRequestError:
+        # Do not expose a model-format failure for a normal non-question.
+        # A deterministic task draft is safer than dropping an actionable request.
+        if _looks_like_question(normalized):
+            raise
+        result = _deterministic_fallback(normalized)
+
     return _enrich(result, normalized)
