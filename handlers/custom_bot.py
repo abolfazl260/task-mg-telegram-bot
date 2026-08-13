@@ -18,6 +18,7 @@ def _selected(context) -> list[str]:
 def custom_bot_keyboard(context) -> InlineKeyboardMarkup:
     selected = set(_selected(context))
     rows = []
+    rows.append([InlineKeyboardButton("🌱 قالب آماده: فقط عادت + هوش مصنوعی", callback_data="custombot_habit_only")])
     for key, label in FEATURE_OPTIONS.items():
         mark = "✅" if key in selected else "▫️"
         rows.append([InlineKeyboardButton(f"{mark} {label}", callback_data=f"custombot_toggle_{key}")])
@@ -31,6 +32,7 @@ async def show_custom_bot_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         "🤖 ساخت ربات اختصاصی\n\n"
         "توکن API رباتی را که از @BotFather گرفته‌اید به سیستم می‌دهید و قابلیت‌های دلخواه را انتخاب می‌کنید. "
         "در نسخه بتا این امکان رایگان است؛ بعداً ممکن است پلن‌های پولی برای آن فعال شود.\n\n"
+        "🌱 اگر رباتی می‌خواهید که فقط برای مدیریت عادت‌ها باشد، از گزینه «فقط عادت + هوش مصنوعی» استفاده کنید.\n\n"
         "1) امکانات مورد نیازتان را انتخاب کنید.\n"
         "2) روی ثبت بزنید.\n"
         "3) توکن Bot API را ارسال کنید.\n\n"
@@ -44,6 +46,14 @@ async def custom_bot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     data = query.data
+    if data == "custombot_habit_only":
+        context.user_data["custom_bot_features"] = ["habits", "ai"]
+        await query.message.reply_text(
+            "🌱 قالب «فقط عادت + هوش مصنوعی» انتخاب شد.\n\n"
+            "این ربات تسک، تیم، گزارشات تسک و جستجو نخواهد داشت و فقط عادت‌ها و دستیار هوشمند را ارائه می‌کند.",
+            reply_markup=custom_bot_keyboard(context),
+        )
+        return
     if data.startswith("custombot_toggle_"):
         feature = data.replace("custombot_toggle_", "", 1)
         selected = _selected(context)
