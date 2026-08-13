@@ -64,6 +64,10 @@ async def _finalize_without_assignment(update, context) -> None:
     await update.effective_message.reply_text(f"✅ تسک ثبت شد\n🆔 {task_id}")
 
 
+def _next_after_category(context):
+    return "tags" if task_option_enabled(context, "allow_tags") else "description"
+
+
 def wrap_save_task(original: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
     @wraps(original)
     async def wrapper(update, context):
@@ -99,8 +103,19 @@ def wrap_optional_field_callback(original: Callable[..., Awaitable[Any]]) -> Cal
     async def wrapper(update, context):
         data = update.callback_query.data or ""
         task = context.user_data.get("new_task") or {}
-        if data.startswith("category_") and not task_option_enabled(context, "allow_categories"):
-            task["category"] = ""
+        if data.startswith("category_"):
+            if not task_option_enabled(context, "allow_categories"):
+                task["category"] = ""
+            elif data.startswith("category_pick_"):
+                selected = data.replace("category_pick_", "", 1)
+                categories = [
+                    (t.get("category") or "").strip()
+                    for t in await __import__("services.task_service", fromlist=["get_active_tasks_async"]).get_active_tasks_async(update.effective_user.id)
+                    if (t.get("category") or "").strip()
+                ]
+                task["category"] = next((c for c in categories if c[:40] == selected), selected)
+            else:
+                task["category"] = ""
             context.user_data["new_task"] = task
             if task_option_enabled(context, "allow_tags"):
                 handler = __import__("handlers.task", fromlist=["_ask_tags"])
