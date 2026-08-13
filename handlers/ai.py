@@ -1,7 +1,9 @@
 """AI assistant and natural-language task/habit creation."""
 
 import asyncio
+from datetime import datetime
 
+import jdatetime
 from telegram import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
@@ -61,36 +63,63 @@ def _ai_examples_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def _format_deadline_both_calendars(value: str) -> tuple[str, str]:
+    """Return user-facing Gregorian and Jalali representations of a stored deadline."""
+    text = str(value or "").strip()
+    if not text:
+        return "—", "—"
+    parsed = None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            parsed = datetime.strptime(text[:19], fmt)
+            break
+        except ValueError:
+            continue
+    if parsed is None:
+        return text, "—"
+    gregorian = parsed.strftime("%Y/%m/%d")
+    if " " in text:
+        gregorian += f" {parsed:%H:%M}"
+    jalali_date = jdatetime.date.fromgregorian(date=parsed.date()).strftime("%Y/%m/%d")
+    jalali = jalali_date
+    if " " in text:
+        jalali += f" {parsed:%H:%M}"
+    return gregorian, jalali
+
+
 def _draft_text(draft: dict) -> str:
+    """Render every AI draft field consistently, using — for missing values."""
+    missing = "—"
     if draft.get("action") == "CREATE_HABIT":
-        lines = ["🤖 عادت پیشنهادی هوش مصنوعی", "", f"🌱 عنوان: {draft['title']}"]
-        lines.append(f"🔁 تکرار: {_REPEAT_LABEL.get(draft.get('repeat_type'), 'روزانه')}")
-        if draft.get("target"):
-            lines.append(f"🎯 هدف: {draft['target']}")
-        if draft.get("reminder_time"):
-            lines.append(f"⏰ یادآوری: {draft['reminder_time'].replace(',', '، ')}")
-        else:
-            lines.append("⏰ یادآوری: بدون زمان مشخص")
-        if draft.get("category"):
-            lines.append(f"📂 دسته‌بندی: {draft['category']}")
-        if draft.get("tags"):
-            lines.append(f"🏷 تگ: {draft['tags']}")
-        if draft.get("description"):
-            lines.append(f"📝 توضیح: {draft['description']}")
-        lines.extend(["", "این مورد به بخش عادت‌ها اضافه شود؟"])
+        lines = [
+            "🤖 عادت پیشنهادی هوش مصنوعی",
+            "",
+            f"🌱 عنوان: {draft.get('title') or missing}",
+            f"🔁 تکرار: {_REPEAT_LABEL.get(draft.get('repeat_type'), missing)}",
+            f"🎯 هدف: {draft.get('target') or missing}",
+            f"⏰ یادآوری: {(draft.get('reminder_time') or missing).replace(',', '، ') if draft.get('reminder_time') else missing}",
+            f"📂 دسته‌بندی: {draft.get('category') or missing}",
+            f"🏷 تگ: {draft.get('tags') or missing}",
+            f"📝 توضیح: {draft.get('description') or missing}",
+            "",
+            "این مورد به بخش عادت‌ها اضافه شود؟",
+        ]
         return "\n".join(lines)
 
-    lines = ["🤖 تسک پیشنهادی هوش مصنوعی", "", f"📌 عنوان: {draft['title']}"]
-    if draft.get("deadline"):
-        lines.append(f"🗓 موعد: {draft['deadline']}")
-    lines.append(f"🎯 اولویت: {_PRIORITY_LABEL.get(draft.get('priority'), '🟢 پایین')}")
-    if draft.get("category"):
-        lines.append(f"📂 دسته‌بندی: {draft['category']}")
-    if draft.get("tags"):
-        lines.append(f"🏷 تگ: {draft['tags']}")
-    if draft.get("description"):
-        lines.append(f"📝 توضیح: {draft['description']}")
-    lines.extend(["", "آیا این تسک ایجاد شود؟"])
+    gregorian, jalali = _format_deadline_both_calendars(draft.get("deadline", ""))
+    lines = [
+        "🤖 تسک پیشنهادی هوش مصنوعی",
+        "",
+        f"📌 عنوان: {draft.get('title') or missing}",
+        f"🗓 موعد میلادی: {gregorian}",
+        f"📅 موعد شمسی: {jalali}",
+        f"🎯 اولویت: {_PRIORITY_LABEL.get(draft.get('priority'), '🟢 پایین')}",
+        f"📂 دسته‌بندی: {draft.get('category') or missing}",
+        f"🏷 تگ: {draft.get('tags') or missing}",
+        f"📝 توضیح: {draft.get('description') or missing}",
+        "",
+        "آیا این تسک ایجاد شود؟",
+    ]
     return "\n".join(lines)
 
 
@@ -188,9 +217,17 @@ async def ai_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["ai_request_draft"] = draft
         await query.edit_message_text("⚠️ ایجاد تسک با خطا مواجه شد. لطفاً دوباره تلاش کنید.")
         return
+    gregorian, jalali = _format_deadline_both_calendars(draft.get("deadline", ""))
     await query.edit_message_text(
-        f"✅ تسک با موفقیت ایجاد شد.\n\n📌 {draft['title']}\n🆔 {task_id}"
-        + (f"\n🗓 {draft['deadline']}" if draft.get("deadline") else "")
+        "✅ تسک با موفقیت ایجاد شد.\n\n"
+        f"📌 عنوان: {draft.get('title') or '—'}\n"
+        f"🗓 موعد میلادی: {gregorian}\n"
+        f"📅 موعد شمسی: {jalali}\n"
+        f"🎯 اولویت: {_PRIORITY_LABEL.get(draft.get('priority'), '🟢 پایین')}\n"
+        f"📂 دسته‌بندی: {draft.get('category') or '—'}\n"
+        f"🏷 تگ: {draft.get('tags') or '—'}\n"
+        f"📝 توضیح: {draft.get('description') or '—'}\n"
+        f"🆔 شناسه: {task_id}"
     )
 
 
