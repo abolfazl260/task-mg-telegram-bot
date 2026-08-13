@@ -9,10 +9,11 @@ except RuntimeError:
 
 
 # Telegram exposes commands in the order supplied to set_my_commands().
-# Keep the requested primary commands at the top while preserving the
-# existing order of every other command.
+# Keep the requested primary commands at the top, always keep /start visible,
+# remove /templates from the menu, and preserve the legacy order of everything
+# else.
 try:
-    from telegram import Bot
+    from telegram import Bot, BotCommand
 
     _original_set_my_commands = Bot.set_my_commands
 
@@ -21,7 +22,13 @@ try:
 
         @wraps(_original_set_my_commands)
         async def _ordered_set_my_commands(self, commands, *args, **kwargs):
-            commands = list(commands)
+            commands = [command for command in list(commands) if command.command != "templates"]
+
+            # /start must always be present, even when a bot profile's feature
+            # filtering removes commands that are not tied to a feature flag.
+            if not any(command.command == "start" for command in commands):
+                commands.append(BotCommand("start", "شروع ربات و منوی اصلی"))
+
             indexed = list(enumerate(commands))
             indexed.sort(
                 key=lambda item: (
