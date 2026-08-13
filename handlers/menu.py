@@ -136,6 +136,17 @@ async def button_handler(update, context):
     await query.answer()
     data = query.data
 
+    # IMPORTANT: this catch-all callback handler is registered before the
+    # report-specific handler in main.py. Route report callbacks here first;
+    # otherwise the generic handler consumes them and the report buttons never
+    # reach handlers.reports.reports_callback.
+    if data == "report_calendar_pdf":
+        from handlers.calendar_pdf import calendar_pdf_callback
+        return await calendar_pdf_callback(update, context)
+    if data.startswith("report_"):
+        from handlers.reports import reports_callback
+        return await reports_callback(update, context)
+
     if data.startswith(("ai_task_", "ai_habit_")):
         from handlers.ai import ai_habit_callback, ai_task_callback
         if data.startswith("ai_habit_"):
