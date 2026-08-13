@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>مدیریت وظایف</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <div>
+        <p class="eyebrow">مدیریت وظایف</p>
+        <h1 id="greeting">وظایف من</h1>
+      </div>
+      <button id="refresh" class="icon-button" type="button" aria-label="به‌روزرسانی">↻</button>
+    </header>
+
+    <section id="user-card" class="user-card" hidden></section>
+
+    <section class="toolbar">
+      <input id="search" type="search" placeholder="جستجوی وظیفه..." autocomplete="off">
+      <select id="status-filter" aria-label="فیلتر وضعیت">
+        <option value="">همه وضعیت‌ها</option>
+        <option value="pending">در انتظار</option>
+        <option value="in_progress">در حال انجام</option>
+        <option value="done">انجام‌شده</option>
+        <option value="canceled">لغوشده</option>
+      </select>
+    </section>
+
+    <section id="state" class="state">در حال دریافت وظایف...</section>
+    <section id="tasks" class="tasks" aria-live="polite"></section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
