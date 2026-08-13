@@ -1,0 +1,31 @@
+{
+  "key": "habits_only",
+  "name": "Habit Assistant",
+  "username_env": "BOT_HABITS_ONLY_USERNAME",
+  "token_env": "BOT_HABITS_ONLY_TOKEN",
+  "description": "ربات اختصاصی مدیریت عادت‌ها با دستیار هوشمند و پشتیبانی صوتی",
+  "features": {
+    "custom_bots": false,
+    "integrations": false,
+    "tasks": false,
+    "teams": false,
+    "templates": false,
+    "habits": true,
+    "reports": false,
+    "donate": false,
+    "ai": true,
+    "guest_mode": false,
+    "search": false,
+    "bulk_import": false,
+    "unassigned": false
+  },
+  "settings": {
+    "habit_only": true
+  },
+  "menu": [
+    {"label": "🌱 مدیریت عادت‌ها", "callback_data": "habit_menu", "feature": "habits"},
+    {"label": "📖 راهنما", "callback_data": "help"},
+    {"label": "⚙️ تنظیمات", "callback_data": "settings"},
+    {"label": "📞 ارتباط با ما", "callback_data": "contact_us"}
+  ]
+}
