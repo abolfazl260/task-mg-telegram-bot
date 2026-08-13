@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+from .auth import TelegramWebAppAuthError, validate_init_data
 from .config import WEBAPP_HOST, WEBAPP_PORT
 
 
@@ -17,12 +19,25 @@ class WebAppHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _authenticate(self):
+        token = os.getenv("BOT_TOKEN", "")
+        if not token:
+            raise TelegramWebAppAuthError("BOT_TOKEN is not configured")
+        return validate_init_data(self.headers.get("X-Telegram-Init-Data", ""), token)
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path in {"/", "/health", "/healthz"}:
             self._json(200, {"status": "ok", "service": "telegram-webapp"})
             return
-        if path in {"/api/me", "/api/tasks"} or path.startswith("/api/tasks/"):
+        if path == "/api/me":
+            try:
+                user = self._authenticate()
+                self._json(200, {"user": user.__dict__})
+            except TelegramWebAppAuthError:
+                self._json(401, {"error": "unauthorized"})
+            return
+        if path == "/api/tasks" or path.startswith("/api/tasks/"):
             self._json(501, {"error": "api_not_ready"})
             return
         self._json(404, {"error": "not_found"})
