@@ -200,6 +200,9 @@ def load_bot_profiles() -> list[BotProfile]:
 async def run_applications(apps: list[Application]) -> None:
     """Run multiple python-telegram-bot applications in one event loop."""
     for app in apps:
+        # Apply per-profile task options after all handlers are registered.
+        # This keeps the core task handler shared by every bot while allowing
+        # each profile to enable/disable assignment, tags, comments, etc.
         install_task_capabilities(app)
         await app.initialize()
         await app.start()
