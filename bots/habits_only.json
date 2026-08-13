@@ -1,8 +1,19 @@
 {
   "key": "habits_only",
-  "name": "Habit Assistant Bot",
+  "name": "Habit Assistant",
   "username": "byeeeebot",
-  "description": "ربات اختصاصی مدیریت عادت‌ها با هوش مصنوعی و قابلیت تیم",
+  "description": "Your personal habit companion with AI and team support.",
+  "ui": {
+    "start_text": "👋 Welcome to Habit Assistant!\n\nBuild better habits, track your progress, and stay consistent with the help of AI.\n\n🌱 Create and manage habits\n🤖 Get help from AI\n👥 Work with your team\n📖 Learn how everything works\n\nYou can type your request or send a voice message.",
+    "help_text": "📖 Habit Assistant Help\n\nHabit Assistant is focused on habits, progress, AI guidance, and team collaboration.\n\n🌱 Habits — create, edit, track, and review habits\n🤖 AI Assistant — create habits from natural language or voice and ask questions about your habits\n👥 Teams — collaborate with other people\n🎙️ Voice — describe a habit naturally and let AI process it\n\nThis bot does not manage tasks.",
+    "feature_intro": "✨ Everything you need to build and maintain better habits.",
+    "buttons": {
+      "ai": "🤖 AI Assistant",
+      "habits": "🌱 My Habits",
+      "teams": "👥 My Teams",
+      "help": "📖 Help"
+    }
+  },
   "features": {
     "custom_bots": false,
     "integrations": false,
@@ -19,9 +30,9 @@
     "unassigned": false
   },
   "menu": [
-    {"label": "🤖 دستیار هوشمند", "callback_data": "ai_menu", "feature": "ai"},
-    {"label": "🌱 مدیریت عادت‌ها", "callback_data": "habit_menu", "feature": "habits"},
-    {"label": "👥 تیم‌ها", "callback_data": "team_menu", "feature": "teams"},
-    {"label": "📖 راهنما", "callback_data": "help"}
+    {"label": "🤖 AI Assistant", "callback_data": "ai_menu", "feature": "ai"},
+    {"label": "🌱 My Habits", "callback_data": "habit_menu", "feature": "habits"},
+    {"label": "👥 My Teams", "callback_data": "team_menu", "feature": "teams"},
+    {"label": "📖 Help", "callback_data": "help"}
   ]
 }
