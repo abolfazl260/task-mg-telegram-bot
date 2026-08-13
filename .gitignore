@@ -1,0 +1,7 @@
+__pycache__/bot_context.cpython-313.pyc
+data/data.db-wal
+data/data.db
+handlers/__pycache__/__init__.cpython-313.pyc
+__pycache__/
+*.py[cod]
+*.class
