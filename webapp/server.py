@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from threading import Thread
 from urllib.parse import urlparse
 
@@ -12,6 +14,8 @@ from .auth import TelegramWebAppAuthError, validate_init_data
 from .bot_profile import WebAppBotProfileError, set_webapp_bot_context
 from .config import WEBAPP_BOT_TOKEN, WEBAPP_HOST, WEBAPP_PORT
 from .tasks_api import WebAppTaskAccessError, get_task, list_tasks
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 class WebAppAsyncRuntime:
@@ -54,9 +58,34 @@ class WebAppHandler(BaseHTTPRequestHandler):
             raise TelegramWebAppAuthError("WEBAPP_BOT_TOKEN is not configured")
         return validate_init_data(self.headers.get("X-Telegram-Init-Data", ""), WEBAPP_BOT_TOKEN)
 
+    def _serve_static(self, path: str) -> bool:
+        relative = path.removeprefix("/static/") if path.startswith("/static/") else ""
+        if path == "/":
+            relative = "index.html"
+        if not relative or ".." in Path(relative).parts:
+            return False
+        target = (STATIC_DIR / relative).resolve()
+        if STATIC_DIR not in target.parents and target != STATIC_DIR:
+            return False
+        if not target.is_file():
+            return False
+        body = target.read_bytes()
+        content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return True
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
-        if path in {"/", "/health", "/healthz"}:
+        if path in {"/", "/static/index.html"} or path.startswith("/static/"):
+            if self._serve_static(path):
+                return
+            self._json(404, {"error": "not_found"})
+            return
+        if path in {"/health", "/healthz"}:
             self._json(200, {"status": "ok", "service": "telegram-webapp"})
             return
         try:
