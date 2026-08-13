@@ -5,8 +5,8 @@
   "description": "Your personal habit and lightweight task companion with AI and team support.",
   "settings": {
     "ui": {
-      "start_text": "👋 Welcome to Habit Assistant!\n\nBuild better habits, track your progress, manage lightweight tasks, and stay consistent with the help of AI.\n\n🌱 Create and manage habits\n📝 Create and manage tasks\n💬 Add comments to tasks\n📂 Organize tasks with categories\n🔎 Search your tasks\n🤖 Get help from AI\n👥 Work with your team\n📖 Learn how everything works\n\nYou can type your request or send a voice message.",
-      "help_text": "📖 Habit Assistant Help\n\nHabit Assistant supports habits plus a focused set of task-management features.\n\n🌱 Habits — create, edit, track, and review habits\n📝 Tasks — create, view, update, and complete your tasks\n💬 Comments — add text, photos, voice messages, and files to tasks\n📂 Categories — organize tasks without tags\n🔎 Search — find tasks quickly\n🤖 AI Assistant — create habits from natural language or voice and ask questions\n👥 Teams — collaborate with other people\n🎙️ Voice — describe a habit or task naturally and let AI process it\n\nThis bot does not provide task assignment or task templates.",
+      "start_text": "👋 Welcome to Habit Assistant!\n\nBuild better habits, manage lightweight tasks, and stay consistent with the help of AI.\n\n🌱 Create and manage habits\n📝 Create and manage tasks\n💬 Add comments to tasks\n📂 Organize tasks with categories\n🔎 Search your tasks\n🤖 Get help from AI\n👥 Work with your team\n📖 Learn how everything works\n\nYou can type your request or send a voice message.",
+      "help_text": "📖 Habit Assistant Help\n\nHabit Assistant supports habits plus a focused set of task-management features.\n\n🌱 Habits — create, edit, track, and review habits\n📝 Tasks — create, view, update, and complete your tasks\n💬 Comments — add text, photos, voice messages, and files to tasks\n📂 Categories — organize tasks without tags\n🔎 Search — find tasks quickly\n🤖 AI Assistant — create habits or tasks from natural language or voice and ask questions\n👥 Teams — collaborate with other people\n🎙️ Voice — describe a habit or task naturally and let AI process it\n\nThis bot does not provide task assignment, tags, templates, or bulk task import.",
       "feature_intro": "✨ Habits first, plus the essential tools for lightweight task management.",
       "buttons": {
         "ai": "🤖 AI Assistant",
@@ -21,6 +21,10 @@
     "task_options": {
       "allow_assignment": false,
       "allow_tags": false,
+      "allow_comments": true,
+      "allow_categories": true,
+      "allow_search": true,
+      "allow_templates": false,
       "allow_bulk_import": false,
       "allow_ai_task_creation": true
     }
