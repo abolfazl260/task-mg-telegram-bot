@@ -41,6 +41,7 @@ from services import calendar_runtime_extensions
 from services import calendar_reports_v2
 from services import calendar_report_legacy
 from services.database import init_db
+from services.task_capabilities import task_option_enabled
 
 
 task_handler.format_task_card = calendar_runtime_extensions.format_task_card
@@ -118,25 +119,13 @@ def _parse_report_time():
 async def _jira_sync_job(context):
     profile = context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config")
     bot_key = profile.key if profile else "default"
-    try:
-        result = await run_jira_sync(bot_key)
-        if result:
-            changed, connections = result
-            if changed:
-                logger.info("Jira sync bot=%s changed=%s connections=%s", bot_key, changed, connections)
-    except Exception:
-        logger.exception("Jira sync failed for bot=%s", bot_key)
+    await run_jira_sync(bot_key=bot_key)
 
 
 async def _integration_sync_job(context):
-    profile = context.job.data if context.job.data else context.application.bot_data.get("bot_config")
+    profile = context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config")
     bot_key = profile.key if profile else "default"
-    try:
-        results = await run_external_sync(bot_key)
-        if results:
-            logger.info("External task sync bot=%s users=%s", bot_key, len(results))
-    except Exception:
-        logger.exception("External task sync failed for bot=%s", bot_key)
+    await run_external_sync(bot_key=bot_key)
 
 
 async def _oauth_callback(request):
@@ -173,7 +162,6 @@ async def _start_oauth_server(app):
     site = web.TCPSite(runner, host, port)
     await site.start()
     app.bot_data["integration_oauth_runner"] = runner
-    logger.info("External task OAuth callback listening on %s:%s", host, port)
 
 
 async def post_init(app: Application):
@@ -182,7 +170,16 @@ async def post_init(app: Application):
     commands = [BotCommand("ai", "دستیار هوشمند تحلیل تسک‌ها"), BotCommand("start", "شروع ربات و منوی اصلی"), BotCommand("add", "افزودن تسک جدید"), BotCommand("reports", "گزارشات و آمار"), BotCommand("tasks", "منوی تسک‌ها"), BotCommand("unassigned", "وظایف بدون مسئول"), BotCommand("team", "تیم و فضای مشترک"), BotCommand("search", "جستجوی تسک"), BotCommand("templates", "تمپلیت‌های آماده"), BotCommand("habit", "مدیریت عادت‌ها"), BotCommand("donate", "حمایت با Telegram Stars"), BotCommand("jira", "اتصال به Jira"), BotCommand("jira_status", "وضعیت اتصال Jira"), BotCommand("jira_disconnect", "قطع اتصال Jira"), BotCommand("help", "راهنمای کامل استفاده")]
     feature_by_command = {"add": "tasks", "tasks": "tasks", "unassigned": "unassigned", "team": "teams", "search": "search", "templates": "templates", "reports": "reports", "habit": "habits", "donate": "donate", "ai": "ai"}
     if profile is not None:
-        commands = [cmd for cmd in commands if profile.feature_enabled(feature_by_command.get(cmd.command, ""))]
+        filtered = []
+        for cmd in commands:
+            feature = feature_by_command.get(cmd.command, "")
+            if not profile.feature_enabled(feature):
+                continue
+            option = {"search": "allow_search", "templates": "allow_templates"}.get(cmd.command)
+            if option and not task_option_enabled(app, option):
+                continue
+            filtered.append(cmd)
+        commands = filtered
     await app.bot.delete_my_commands()
     await app.bot.set_my_commands(commands)
     logger.info("Telegram command menu updated: %s", ", ".join(f"/{cmd.command}" for cmd in commands))
@@ -196,14 +193,14 @@ async def post_init(app: Application):
         bot_offset = sum(ord(ch) for ch in (profile.key if profile else "default")) % 60
         app.job_queue.run_repeating(_jira_sync_job, interval=60, first=30 + bot_offset, name="jira_sync", data=profile)
         app.job_queue.run_repeating(_integration_sync_job, interval=300, first=60 + bot_offset, name="external_task_sync", data=profile)
-        logging.info("Jobs scheduled: tasks, habit reminders, weekly habit reports, throttled Jira/external sync.")
-    else:
-        logging.warning("JobQueue not available — reminders, Jira sync and external sync disabled.")
 
 
 def _feature(app, name):
     profile = app.bot_data.get("bot_config")
-    return profile is None or profile.feature_enabled(name)
+    if profile is None or not profile.feature_enabled(name):
+        return False
+    option = {"search": "allow_search", "templates": "allow_templates", "bulk_import": "allow_bulk_import"}.get(name)
+    return option is None or task_option_enabled(app, option)
 
 
 def build_application(profile):
