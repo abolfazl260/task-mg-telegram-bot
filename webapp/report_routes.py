@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import json
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
+from bot_context import get_current_bot_key
 from .api import authenticate_telegram_request
 from .config import WEBAPP_BASE_URL
 from .report_tokens import build_report_url, create_report_token
@@ -37,7 +38,7 @@ def monthly_report_html(token: str) -> str:
     return f'''<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>گزارش ماهانه</title><style>
-body{{font-family:system-ui,-apple-system,sans-serif;background:#f5f7fb;margin:0;color:#172033}}main{{max-width:900px;margin:24px auto;padding:16px}}.card{{background:#fff;border-radius:18px;padding:20px;margin:12px 0;box-shadow:0 4px 18px #0000000d}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}}.metric{{font-size:28px;font-weight:700}}.muted{{color:#687386}}table{{width:100%;border-collapse:collapse}}td,th{{padding:10px;border-bottom:1px solid #edf0f5;text-align:right}}.bar{{height:10px;background:#e9edf3;border-radius:8px;overflow:hidden}}.fill{{height:100%;background:#4f46e5}}.error{{color:#b42318}}
+body{{font-family:system-ui,-apple-system,sans-serif;background:#f5f7fb;margin:0;color:#172033}}main{{max-width:900px;margin:24px auto;padding:16px}}.card{{background:#fff;border-radius:18px;padding:20px;margin:12px 0;box-shadow:0 4px 18px #0000000d}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}}.metric{{font-size:28px;font-weight:700}}.muted{{color:#687386}}table{{width:100%;border-collapse:collapse}}td,th{{padding:10px;border-bottom:1px solid #edf0f5;text-align:right}}.error{{color:#b42318}}
 </style></head><body><main><div id="app" class="card">در حال بارگذاری گزارش...</div></main>
 <script>
 const token={safe_token};
@@ -59,7 +60,8 @@ def handle_report_get(handler) -> bool:
         token = path[len("/report/"):].strip("/")
         if not token:
             return False
-        if monthly_report(token) is None:
+        data = monthly_report(token)
+        if data is None:
             _html(handler, 404, "<h2>لینک گزارش معتبر نیست یا منقضی شده است.</h2>")
         else:
             _html(handler, 200, monthly_report_html(token))
@@ -67,7 +69,7 @@ def handle_report_get(handler) -> bool:
 
     if path == "/report-launch":
         _html(handler, 200, """<!doctype html><html lang='fa' dir='rtl'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><body><p>در حال آماده‌سازی گزارش...</p><script src='https://telegram.org/js/telegram-web-app.js'></script><script>
-(async()=>{const w=window.Telegram?.WebApp;w?.ready();const init=w?.initData||'';if(!init){document.body.innerHTML='<p>این گزارش باید از داخل تلگرام باز شود.</p>';return;}const r=await fetch('/api/report-token?type=monthly',{headers:{'X-Telegram-Init-Data':init}});const d=await r.json();if(!r.ok){document.body.innerHTML='<p>امکان ساخت لینک گزارش وجود ندارد.</p>';return;}location.replace(d.url)})().catch(()=>{document.body.innerHTML='<p>خطا در باز کردن گزارش.</p>'});</script></body></html>""")
+(async()=>{const w=window.Telegram?.WebApp;w?.ready();const init=w?.initData||'';if(!init){document.body.innerHTML='<p>این گزارش باید از داخل تلگرام باز شود.</p>';return;}const q=new URLSearchParams(location.search);const botKey=q.get('bot_key')||'';const r=await fetch('/api/report-token?type=monthly&bot_key='+encodeURIComponent(botKey),{headers:{'X-Telegram-Init-Data':init}});const d=await r.json();if(!r.ok){document.body.innerHTML='<p>امکان ساخت لینک گزارش وجود ندارد.</p>';return;}location.replace(d.url)})().catch(()=>{document.body.innerHTML='<p>خطا در باز کردن گزارش.</p>'});</script></body></html>""")
         return True
     return False
 
@@ -77,9 +79,9 @@ def handle_report_api(handler) -> bool:
     if path == "/api/report-token" and handler.command == "GET":
         query = parse_qs(urlparse(handler.path).query)
         report_type = (query.get("type") or ["monthly"])[0]
-        if report_type != "monthly":
-            _json(handler, 400, {"error": "unsupported_report_type"}); return True
-        bot_key = handler._bot_key()
+        bot_key = (query.get("bot_key") or [""])[0].strip()
+        if report_type != "monthly" or not bot_key:
+            _json(handler, 400, {"error": "invalid_report_request"}); return True
         try:
             user = authenticate_telegram_request(handler.headers.get("X-Telegram-Init-Data", ""), bot_key)
         except Exception:
@@ -104,5 +106,6 @@ def add_monthly_web_button(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup
     base = WEBAPP_BASE_URL.rstrip("/")
     if not base:
         return markup
-    rows.insert(0, [InlineKeyboardButton("📊 گزارش ماهانه تحت وب", web_app=WebAppInfo(url=f"{base}/report-launch?report=monthly"))])
+    bot_key = quote(get_current_bot_key(), safe="")
+    rows.insert(0, [InlineKeyboardButton("📊 گزارش ماهانه تحت وب", web_app=WebAppInfo(url=f"{base}/report-launch?report=monthly&bot_key={bot_key}"))])
     return InlineKeyboardMarkup(rows)
