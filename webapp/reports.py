@@ -32,10 +32,42 @@ def _jalali_month(year: int, month: int) -> str:
 def _load_tasks(access: dict) -> tuple[list[dict], str, str]:
     now = datetime.now(timezone.utc).date()
     start, end = _month_bounds(now.year, now.month)
-    end_exclusive = (date.fromisoformat(end).toordinal() + 1)
-    end_exclusive = date.fromordinal(end_exclusive).isoformat()
+    end_exclusive = date.fromordinal(date.fromisoformat(end).toordinal() + 1).isoformat()
     tasks = sync_all("tasks", "bot_key=? AND user_id=? AND created_at>=? AND created_at<?", (access["bot_key"], str(access["user_id"]), start, end_exclusive))
     return tasks, start, end
+
+
+def _habit_report(access: dict, start: str, end: str) -> dict:
+    """Build habit statistics only when the user explicitly requests this section."""
+    uid = str(access["user_id"])
+    habits = sync_all("habits", "user_id=?", (uid,))
+    logs = sync_all("habit_logs", "user_id=? AND done_date>=? AND done_date<=?", (uid, start, end))
+    log_by_habit = Counter(str(x.get("habit_id")) for x in logs)
+    active = [h for h in habits if h.get("active") in (1, True, "1")]
+    rows = []
+    total_completed = 0
+    for habit in active:
+        hid = str(habit.get("id"))
+        completed = log_by_habit.get(hid, 0)
+        total_completed += completed
+        rows.append({
+            "id": hid,
+            "title": habit.get("title") or "بدون عنوان",
+            "category": habit.get("category") or "بدون دسته‌بندی",
+            "target": habit.get("target") or "—",
+            "repeat_type": {"daily": "روزانه", "weekly": "هفتگی", "monthly": "ماهانه"}.get(habit.get("repeat_type"), habit.get("repeat_type") or "—"),
+            "completed": completed,
+            "last_done": max((x.get("done_date") for x in logs if str(x.get("habit_id")) == hid and x.get("done_date")), default="—"),
+        })
+    rows.sort(key=lambda x: (-x["completed"], x["title"]))
+    by_category = Counter(x["category"] for x in rows)
+    by_day = Counter(x.get("done_date") for x in logs if x.get("done_date"))
+    return {
+        "total_habits": len(habits), "active_habits": len(active), "completed_logs": total_completed,
+        "completion_days": len(by_day), "rows": rows,
+        "by_category": [{"label": k, "count": v} for k, v in by_category.most_common()],
+        "daily_activity": [{"date": k, "count": v} for k, v in sorted(by_day.items())],
+    }
 
 
 def monthly_report(token: str, section: str = "summary") -> dict | None:
@@ -57,17 +89,15 @@ def monthly_report(token: str, section: str = "summary") -> dict | None:
     result = {
         "report_type": "monthly",
         "period": {"gregorian": f"{start} تا {end}", "jalali": _jalali_month(datetime.now(timezone.utc).year, datetime.now(timezone.utc).month)},
-        "summary": {
-            "total": total, "done": done, "in_progress": status_counts.get("in_progress", 0),
-            "pending": status_counts.get("pending", 0), "cancelled": status_counts.get("cancelled", status_counts.get("canceled", 0)),
-            "active": active, "overdue": overdue, "with_deadline": with_deadline, "without_deadline": without_deadline,
-            "completion_rate": round(done / total * 100) if total else 0,
-            "average_completed_per_day": round(done / max(1, (date.today() - date.fromisoformat(start)).days + 1), 2),
-        },
-        "by_status": [{"key": key, "label": _status_label(key), "count": count} for key, count in status_counts.most_common()],
-        "by_priority": [{"key": key, "label": _priority_label(key), "count": count} for key, count in priority_counts.most_common()],
-        "by_category": [{"label": key, "count": count} for key, count in category_counts.most_common()],
+        "summary": {"total": total, "done": done, "in_progress": status_counts.get("in_progress", 0), "pending": status_counts.get("pending", 0), "cancelled": status_counts.get("cancelled", status_counts.get("canceled", 0)), "active": active, "overdue": overdue, "with_deadline": with_deadline, "without_deadline": without_deadline, "completion_rate": round(done / total * 100) if total else 0, "average_completed_per_day": round(done / max(1, (date.today() - date.fromisoformat(start)).days + 1), 2)},
+        "by_status": [{"key": k, "label": _status_label(k), "count": v} for k, v in status_counts.most_common()],
+        "by_priority": [{"key": k, "label": _priority_label(k), "count": v} for k, v in priority_counts.most_common()],
+        "by_category": [{"label": k, "count": v} for k, v in category_counts.most_common()],
     }
+
+    if section == "habits":
+        result["habits"] = _habit_report(access, start, end)
+        return result
 
     if section in {"tasks", "deadlines", "categories", "status", "priority"}:
         if section == "tasks":
