@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from bot_context import set_current_bot_key
-from bot_platform import load_bot_profiles
 
 
 class WebAppBotProfileError(ValueError):
@@ -13,6 +12,9 @@ def get_webapp_bot_profile(bot_key: str):
     key = (bot_key or "").strip()
     if not key:
         raise WebAppBotProfileError("bot_key is required")
+    # Import lazily to avoid coupling webapp configuration to bot startup.
+    from bot_platform import load_bot_profiles
+
     for profile in load_bot_profiles():
         if profile.key == key:
             return profile
