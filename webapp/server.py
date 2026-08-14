@@ -10,7 +10,7 @@ from pathlib import Path
 from threading import Thread
 from urllib.parse import parse_qs, urlparse
 
-from .api import authenticate_telegram_request, set_request_bot_context
+from .api import authenticate_telegram_request
 from .auth import TelegramWebAppAuthError
 from .bot_profile import WebAppBotProfileError
 from .config import WEBAPP_HOST, WEBAPP_PORT
@@ -102,14 +102,12 @@ class WebAppHandler(BaseHTTPRequestHandler):
                 self._json(200, {"user": user.__dict__, "bot_key": bot_key})
                 return
             if path == "/api/tasks":
-                set_request_bot_context(bot_key)
-                tasks = self.server.webapp_runtime.submit(list_tasks(user.id))
+                tasks = self.server.webapp_runtime.submit(list_tasks(user.id, bot_key))
                 self._json(200, {"tasks": tasks})
                 return
             if path.startswith("/api/tasks/"):
-                set_request_bot_context(bot_key)
                 task_id = path.rsplit("/", 1)[-1]
-                task = self.server.webapp_runtime.submit(get_task(user.id, task_id))
+                task = self.server.webapp_runtime.submit(get_task(user.id, task_id, bot_key))
                 if task is None:
                     self._json(404, {"error": "task_not_found"})
                 else:
