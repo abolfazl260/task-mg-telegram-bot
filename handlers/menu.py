@@ -4,6 +4,9 @@ from handlers.reports import show_reports_menu
 from handlers.donate import DONATION_AMOUNTS
 from handlers.templates import show_templates_menu
 from handlers.integrations import show_integrations
+from services.habit_service import get_user_habits
+from services.task_service import get_all_user_tasks
+from services.team_service import get_user_teams
 from services.timezone_service import (
     VALID_TIMEZONES,
     build_timezone_keyboard,
@@ -34,6 +37,35 @@ def main_menu(context=None):
         if _feature_enabled(profile, item.get("feature")):
             keyboard.append([InlineKeyboardButton(item["label"], callback_data=item["callback_data"])])
     return InlineKeyboardMarkup(keyboard)
+
+
+def main_menu_summary(user_id):
+    """Compact live status shown above the main menu."""
+    try:
+        active_habits = len(get_user_habits(user_id, active_only=True))
+    except Exception:
+        active_habits = 0
+
+    try:
+        tasks = get_all_user_tasks(user_id)
+        in_progress = sum(
+            1 for task in tasks
+            if str(task.get("status") or "").lower() in {"in_progress", "in progress", "در حال انجام"}
+        )
+    except Exception:
+        in_progress = 0
+
+    try:
+        shared_teams = len(get_user_teams(user_id))
+    except Exception:
+        shared_teams = 0
+
+    return (
+        "📊 **خلاصه وضعیت**\n\n"
+        f"🔄 عادت‌های فعال: **{active_habits}**\n"
+        f"⚡ فعالیت‌های در حال انجام: **{in_progress}**\n"
+        f"👥 تیم‌های مشترک: **{shared_teams}**"
+    )
 
 
 def tasks_options_keyboard(context=None):
@@ -215,7 +247,7 @@ async def button_handler(update, context):
     if data == "contact_us":
         return await query.message.reply_text(contact_text(), reply_markup=contact_keyboard(), parse_mode="Markdown")
     if data == "tasks_back":
-        return await query.message.reply_text("منوی اصلی:", reply_markup=main_menu(context))
+        return await query.message.reply_text(main_menu_summary(update.effective_user.id) + "\n\nمنوی اصلی:", reply_markup=main_menu(context), parse_mode="Markdown")
 
     # Unknown callback: acknowledge it instead of leaving the button spinning.
     await query.answer("این گزینه در نسخه فعلی در دسترس نیست.", show_alert=True)
