@@ -132,9 +132,10 @@ def contact_keyboard():
 
 async def button_handler(update, context):
     query = update.callback_query
-    await query.answer()
     data = query.data
 
+    # These callback families have their own dedicated handlers. Do not answer
+    # them here first; their handlers own the callback acknowledgement.
     if data == "report_calendar_pdf":
         from handlers.calendar_pdf import calendar_pdf_callback
         return await calendar_pdf_callback(update, context)
@@ -158,3 +159,63 @@ async def button_handler(update, context):
         "templates": "templates", "habit_menu": "habits", "stats": "reports",
         "import_bulk": "bulk_import", "custom_bot": "custom_bots",
     }
+    feature = feature_by_callback.get(data)
+    if feature and not _feature_enabled(profile, feature):
+        await query.answer("این قابلیت برای این ربات فعال نیست.", show_alert=True)
+        return
+
+    await query.answer()
+
+    if data == "add_task":
+        from handlers.task import add_task
+        return await add_task(update, context)
+    if data == "tasks":
+        return await query.message.reply_text("📋 **منوی تسک‌ها**", reply_markup=tasks_options_keyboard(context), parse_mode="Markdown")
+    if data == "tasks_list":
+        from handlers.task_pagination import paginated_list_tasks
+        return await paginated_list_tasks(update, context)
+    if data == "teams":
+        from handlers.team import team_command
+        return await team_command(update, context)
+    if data == "templates":
+        return await show_templates_menu(update, context)
+    if data == "habit_menu":
+        from handlers.habits import show_habit_menu
+        return await show_habit_menu(update, context)
+    if data == "stats":
+        return await show_reports_menu(update, context)
+    if data == "help":
+        from handlers.help import help_command
+        return await help_command(update, context)
+    if data == "settings":
+        return await query.message.reply_text("⚙️ **تنظیمات**", reply_markup=settings_keyboard(context), parse_mode="Markdown")
+    if data == "settings_timezone":
+        return await query.message.reply_text(timezone_text(update.effective_user.id), reply_markup=timezone_keyboard(update.effective_user.id), parse_mode="Markdown")
+    if data == "settings_date_format":
+        return await query.message.reply_text(date_format_text(update.effective_user.id), reply_markup=date_format_keyboard(update.effective_user.id), parse_mode="Markdown")
+    if data == "settings_language":
+        return await query.message.reply_text("🌐 **تغییر زبان**\n\nزبان مورد نظر خود را انتخاب کنید:", reply_markup=language_keyboard(), parse_mode="Markdown")
+    if data in {"date_format_jalali", "date_format_gregorian"}:
+        set_user_date_format(update.effective_user.id, "jalali" if data.endswith("jalali") else "gregorian")
+        return await query.message.reply_text(date_format_text(update.effective_user.id), reply_markup=date_format_keyboard(update.effective_user.id), parse_mode="Markdown")
+    if data in {"language_fa", "language_en"}:
+        await query.answer("تغییر زبان در نسخه فعلی هنوز فعال نشده است.", show_alert=True)
+        return
+    if data == "integrations":
+        return await show_integrations(update, context)
+    if data == "custom_bot":
+        from handlers.custom_bot import custom_bot_callback
+        return await custom_bot_callback(update, context)
+    if data == "import_bulk":
+        from handlers.import_bulk import import_callback
+        return await import_callback(update, context)
+    if data == "download_csv":
+        from handlers.task import download_csv
+        return await download_csv(update, context)
+    if data == "contact_us":
+        return await query.message.reply_text(contact_text(), reply_markup=contact_keyboard(), parse_mode="Markdown")
+    if data == "tasks_back":
+        return await query.message.reply_text("منوی اصلی:", reply_markup=main_menu(context))
+
+    # Unknown callback: acknowledge it instead of leaving the button spinning.
+    await query.answer("این گزینه در نسخه فعلی در دسترس نیست.", show_alert=True)
