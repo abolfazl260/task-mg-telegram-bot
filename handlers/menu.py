@@ -36,6 +36,21 @@ def main_menu(context=None):
     for item in menu_items:
         if _feature_enabled(profile, item.get("feature")):
             keyboard.append([InlineKeyboardButton(item["label"], callback_data=item["callback_data"])])
+
+    # The default home menu is intentionally three columns wide. Keep custom
+    # bot menus unchanged when they explicitly provide their own menu.
+    if profile is None or menu_items == __import__("bot_platform").DEFAULT_MENU:
+        rows = [
+            [InlineKeyboardButton("➕ افزودن تسک", callback_data="add_task"), InlineKeyboardButton("📋 تسک‌ها", callback_data="tasks")],
+            [InlineKeyboardButton("🌱 عادت من", callback_data="habit_menu"), InlineKeyboardButton("📊 گزارش", callback_data="stats"), InlineKeyboardButton("📖 راهنما", callback_data="help")],
+            [InlineKeyboardButton("⚙️ تنظیمات", callback_data="settings"), InlineKeyboardButton("📞 ارتباط با ما", callback_data="contact_us")],
+        ]
+        rows = [
+            [button for button in row if not (button.callback_data == "habit_menu" and not _feature_enabled(profile, "habits"))]
+            for row in rows
+        ]
+        return InlineKeyboardMarkup([row for row in rows if row])
+
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -66,6 +81,16 @@ def main_menu_summary(user_id):
         f"⚡ فعالیت‌های در حال انجام: **{in_progress}**\n"
         f"👥 تیم‌های مشترک: **{shared_teams}**"
     )
+
+
+def add_task_keyboard(context=None):
+    """Entry point for task creation; templates live under adding a task."""
+    profile = _bot_profile(context)
+    rows = [[InlineKeyboardButton("✍️ ثبت تسک جدید", callback_data="add_task_manual")]]
+    if _feature_enabled(profile, "templates"):
+        rows.append([InlineKeyboardButton("🧩 انتخاب از تمپلیت‌ها", callback_data="add_task_template")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="tasks_back")])
+    return InlineKeyboardMarkup(rows)
 
 
 def tasks_options_keyboard(context=None):
@@ -166,8 +191,6 @@ async def button_handler(update, context):
     query = update.callback_query
     data = query.data
 
-    # These callback families have their own dedicated handlers. Do not answer
-    # them here first; their handlers own the callback acknowledgement.
     if data == "report_calendar_pdf":
         from handlers.calendar_pdf import calendar_pdf_callback
         return await calendar_pdf_callback(update, context)
@@ -199,8 +222,14 @@ async def button_handler(update, context):
     await query.answer()
 
     if data == "add_task":
+        return await query.message.reply_text("➕ **افزودن تسک**\n\nروش ثبت تسک را انتخاب کنید:", reply_markup=add_task_keyboard(context), parse_mode="Markdown")
+    if data == "add_task_manual":
         from handlers.task import add_task
-        return await add_task(update, context)
+        context.user_data['new_task'] = {}
+        context.user_data['step'] = 'title'
+        return await query.message.reply_text('📝 عنوان تسک را وارد کنید:')
+    if data == "add_task_template":
+        return await show_templates_menu(update, context)
     if data == "tasks":
         return await query.message.reply_text("📋 **منوی تسک‌ها**", reply_markup=tasks_options_keyboard(context), parse_mode="Markdown")
     if data == "tasks_list":
@@ -249,5 +278,4 @@ async def button_handler(update, context):
     if data == "tasks_back":
         return await query.message.reply_text(main_menu_summary(update.effective_user.id) + "\n\nمنوی اصلی:", reply_markup=main_menu(context), parse_mode="Markdown")
 
-    # Unknown callback: acknowledge it instead of leaving the button spinning.
     await query.answer("این گزینه در نسخه فعلی در دسترس نیست.", show_alert=True)
