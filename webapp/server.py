@@ -1,4 +1,4 @@
-"""HTTP server for the Telegram Web App and temporary admin dashboard."""
+"""HTTP server for the Telegram Web App and admin dashboard."""
 from __future__ import annotations
 import asyncio, json, mimetypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10,9 +10,13 @@ from .api import authenticate_telegram_request
 from .auth import TelegramWebAppAuthError
 from .bot_profile import WebAppBotProfileError
 from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, create_task, update_task, change_status
-from .admin_api import dashboard_stats, task_creation
+from .admin_api import dashboard_stats, task_creation, list_users, get_user_profile, list_user_tasks
+from config import ADMIN_IDS
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+def _admin_ids() -> set[str]:
+    return {str(value).strip() for value in ADMIN_IDS if str(value).strip().isdigit()}
 
 class WebAppAsyncRuntime:
     def __init__(self): self.loop=asyncio.new_event_loop(); self.thread=Thread(target=self._run,name="telegram-webapp-async",daemon=True)
@@ -36,6 +40,10 @@ class WebAppHandler(BaseHTTPRequestHandler):
         body=json.dumps(payload,ensure_ascii=False,default=str).encode(); self.send_response(status); self.send_header("Content-Type","application/json; charset=utf-8"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
     def _bot_key(self): return (parse_qs(urlparse(self.path).query).get("bot_key") or [""])[0].strip()
     def _authenticate(self,bot_key): return authenticate_telegram_request(self.headers.get("X-Telegram-Init-Data",""),bot_key)
+    def _authenticate_admin(self,bot_key):
+        user=self._authenticate(bot_key)
+        if str(user.id) not in _admin_ids(): raise PermissionError("admin_required")
+        return user
     def _serve_static(self,path):
         relative=path.removeprefix("/static/") if path.startswith("/static/") else ""
         if path=="/": relative="index.html"
@@ -47,14 +55,28 @@ class WebAppHandler(BaseHTTPRequestHandler):
     def _handle_admin(self,method):
         path=urlparse(self.path).path
         if method != "GET": return self._json(405,{"error":"method_not_allowed"})
-        query=parse_qs(urlparse(self.path).query)
-        bot_key=(query.get("bot_key") or [""])[0].strip()
+        query=parse_qs(urlparse(self.path).query); bot_key=(query.get("bot_key") or [""])[0].strip()
+        self._authenticate_admin(bot_key)
         if path=="/api/admin/dashboard": return self._json(200,self.server.webapp_runtime.submit(dashboard_stats(bot_key)))
         if path=="/api/admin/tasks/creation":
             try: days=int((query.get("days") or ["7"])[0])
             except ValueError: return self._json(400,{"error":"invalid_days"})
             if days not in (7,30): return self._json(400,{"error":"days_must_be_7_or_30"})
             return self._json(200,self.server.webapp_runtime.submit(task_creation(days,bot_key)))
+        if path=="/api/admin/users":
+            try: limit=int((query.get("limit") or ["50"])[0]); offset=int((query.get("offset") or ["0"])[0])
+            except ValueError: return self._json(400,{"error":"invalid_pagination"})
+            return self._json(200,self.server.webapp_runtime.submit(list_users(bot_key,(query.get("search") or [""])[0],limit,offset)))
+        if path.startswith("/api/admin/users/"):
+            remainder=path[len("/api/admin/users/"):]
+            if remainder.endswith("/tasks"):
+                user_id=remainder[:-6].rstrip("/")
+                if not user_id: return self._json(400,{"error":"invalid_user_id"})
+                return self._json(200,{"tasks":self.server.webapp_runtime.submit(list_user_tasks(user_id,bot_key))})
+            user_id=remainder.strip("/")
+            if not user_id: return self._json(400,{"error":"invalid_user_id"})
+            profile=self.server.webapp_runtime.submit(get_user_profile(user_id,bot_key))
+            return self._json(200,{"user":profile}) if profile else self._json(404,{"error":"user_not_found"})
         return self._json(404,{"error":"not_found"})
     def _handle_api(self,method):
         path=urlparse(self.path).path; bot_key=self._bot_key(); user=self._authenticate(bot_key)
@@ -87,6 +109,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
         except TelegramWebAppAuthError: return self._json(401,{"error":"unauthorized"})
         except WebAppBotProfileError: return self._json(400,{"error":"invalid_bot_profile"})
         except WebAppTaskAccessError: return self._json(403,{"error":"forbidden"})
+        except PermissionError: return self._json(403,{"error":"admin_required"})
         except ValueError as e: return self._json(400,{"error":str(e)})
         except Exception: return self._json(500,{"error":"internal_server_error"})
     def do_GET(self):
