@@ -1,4 +1,4 @@
-"""HTTP server for the Telegram Web App foundation and task API."""
+"""HTTP server for the Telegram Web App and temporary admin dashboard."""
 from __future__ import annotations
 import asyncio, json, mimetypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -8,8 +8,9 @@ from urllib.parse import parse_qs, urlparse
 from .api import authenticate_telegram_request
 from .auth import TelegramWebAppAuthError
 from .bot_profile import WebAppBotProfileError
-from .config import WEBAPP_HOST, WEBAPP_PORT
 from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, create_task, update_task, change_status
+from .admin_api import dashboard_stats, task_creation
+
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 class WebAppAsyncRuntime:
@@ -37,10 +38,23 @@ class WebAppHandler(BaseHTTPRequestHandler):
     def _serve_static(self,path):
         relative=path.removeprefix("/static/") if path.startswith("/static/") else ""
         if path=="/": relative="index.html"
+        if path=="/admin" or path=="/admin/": relative="admin/index.html"
         if not relative or ".." in Path(relative).parts: return False
         target=(STATIC_DIR/relative).resolve()
         if STATIC_DIR not in target.parents and target!=STATIC_DIR or not target.is_file(): return False
         body=target.read_bytes(); self.send_response(200); self.send_header("Content-Type",mimetypes.guess_type(target.name)[0] or "application/octet-stream"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body); return True
+    def _handle_admin(self,method):
+        path=urlparse(self.path).path
+        if method != "GET": return self._json(405,{"error":"method_not_allowed"})
+        query=parse_qs(urlparse(self.path).query)
+        bot_key=(query.get("bot_key") or [""])[0].strip()
+        if path=="/api/admin/dashboard": return self._json(200,self.server.webapp_runtime.submit(dashboard_stats(bot_key)))
+        if path=="/api/admin/tasks/creation":
+            try: days=int((query.get("days") or ["7"])[0])
+            except ValueError: return self._json(400,{"error":"invalid_days"})
+            if days not in (7,30): return self._json(400,{"error":"days_must_be_7_or_30"})
+            return self._json(200,self.server.webapp_runtime.submit(task_creation(days,bot_key)))
+        return self._json(404,{"error":"not_found"})
     def _handle_api(self,method):
         path=urlparse(self.path).path; bot_key=self._bot_key(); user=self._authenticate(bot_key)
         if path=="/api/me" and method=="GET": return self._json(200,{"user":user.__dict__,"bot_key":bot_key})
@@ -65,7 +79,10 @@ class WebAppHandler(BaseHTTPRequestHandler):
                 return self._json(200,{"task":self.server.webapp_runtime.submit(get_task(user.id,task_id,bot_key))})
         return self._json(404,{"error":"not_found"})
     def _dispatch(self,method):
-        try: return self._handle_api(method)
+        try:
+            path=urlparse(self.path).path
+            if path.startswith("/api/admin/"): return self._handle_admin(method)
+            return self._handle_api(method)
         except TelegramWebAppAuthError: return self._json(401,{"error":"unauthorized"})
         except WebAppBotProfileError: return self._json(400,{"error":"invalid_bot_profile"})
         except WebAppTaskAccessError: return self._json(403,{"error":"forbidden"})
@@ -73,7 +90,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
         except Exception: return self._json(500,{"error":"internal_server_error"})
     def do_GET(self):
         path=urlparse(self.path).path
-        if path in {"/","/static/index.html"} or path.startswith("/static/"): return self._serve_static(path) or self._json(404,{"error":"not_found"})
+        if path in {"/","/admin","/admin/","/static/index.html"} or path.startswith("/static/"): return self._serve_static(path) or self._json(404,{"error":"not_found"})
         if path in {"/health","/healthz"}: return self._json(200,{"status":"ok","service":"telegram-webapp"})
         return self._dispatch("GET")
     def do_POST(self): return self._dispatch("POST")
