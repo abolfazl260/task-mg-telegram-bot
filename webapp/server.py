@@ -1,7 +1,6 @@
 """HTTP server for the Telegram Web App foundation and task API."""
 from __future__ import annotations
 import asyncio, json, mimetypes
-from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
@@ -18,19 +17,11 @@ class WebAppAsyncRuntime:
         self.loop=asyncio.new_event_loop(); self.thread=Thread(target=self._run,name="telegram-webapp-async",daemon=True)
     def _run(self): asyncio.set_event_loop(self.loop); self.loop.run_forever()
     def start(self): self.thread.start()
-    def submit(self, coroutine): return FutureResult(asyncio.run_coroutine_threadsafe(coroutine,self.loop).result())
+    def submit(self, coroutine): return asyncio.run_coroutine_threadsafe(coroutine,self.loop).result()
     def stop(self):
         if self.loop.is_closed(): return
         self.loop.call_soon_threadsafe(self.loop.stop); self.thread.join(timeout=5)
         if not self.loop.is_closed(): self.loop.close()
-
-class FutureResult:
-    def __init__(self,value): self.value=value
-    def __getattr__(self,name): return getattr(self.value,name)
-    def __iter__(self): return iter(self.value)
-    def __bool__(self): return bool(self.value)
-    def __getitem__(self,key): return self.value[key]
-    def __repr__(self): return repr(self.value)
 
 def _json_body(handler):
     length=int(handler.headers.get("Content-Length","0") or 0)
@@ -55,29 +46,29 @@ class WebAppHandler(BaseHTTPRequestHandler):
     def _handle_api(self,method):
         parsed=urlparse(self.path); path=parsed.path; bot_key=self._bot_key(); user=self._authenticate(bot_key)
         if path=="/api/me" and method=="GET": return self._json(200,{"user":user.__dict__,"bot_key":bot_key})
-        if path=="/api/tasks" and method=="GET": return self._json(200,{"tasks":self.server.webapp_runtime.submit(list_tasks(user.id,bot_key)).value})
+        if path=="/api/tasks" and method=="GET": return self._json(200,{"tasks":self.server.webapp_runtime.submit(list_tasks(user.id,bot_key))})
         if path=="/api/tasks" and method=="POST":
             data=_json_body(self); title=str(data.get("title") or "").strip()
             if not title or len(title)>500: return self._json(400,{"error":"invalid_title"})
-            tid=self.server.webapp_runtime.submit(create_task(user.id,bot_key,title=title,priority=str(data.get("priority") or "medium"),deadline=str(data.get("deadline") or ""),category=str(data.get("category") or ""),tags=data.get("tags") if isinstance(data.get("tags"),str) else ", ".join(data.get("tags") or []),description=str(data.get("description") or ""),team_id=str(data.get("team_id") or "")).value
-            task=self.server.webapp_runtime.submit(get_task(user.id,tid,bot_key)).value
+            tid=self.server.webapp_runtime.submit(create_task(user.id,bot_key,title=title,priority=str(data.get("priority") or "medium"),deadline=str(data.get("deadline") or ""),category=str(data.get("category") or ""),tags=data.get("tags") if isinstance(data.get("tags"),str) else ", ".join(data.get("tags") or []),description=str(data.get("description") or ""),team_id=str(data.get("team_id") or ""))
+            task=self.server.webapp_runtime.submit(get_task(user.id,tid,bot_key))
             return self._json(201,{"task":task})
         if path.startswith("/api/tasks/"):
             task_id=path.rsplit("/",1)[-1]
             if not task_id: return self._json(400,{"error":"invalid_task_id"})
             if method=="GET":
-                task=self.server.webapp_runtime.submit(get_task(user.id,task_id,bot_key)).value
+                task=self.server.webapp_runtime.submit(get_task(user.id,task_id,bot_key))
                 return self._json(200,{"task":task}) if task else self._json(404,{"error":"task_not_found"})
             if method=="PATCH":
                 data=_json_body(self)
                 if "status" in data:
-                    ok=self.server.webapp_runtime.submit(change_status(user.id,task_id,str(data["status"]),bot_key)).value
+                    ok=self.server.webapp_runtime.submit(change_status(user.id,task_id,str(data["status"]),bot_key))
                 else:
                     allowed={k:data[k] for k in ("title","description","priority","deadline","category","tags") if k in data}
                     if "tags" in allowed and isinstance(allowed["tags"],list): allowed["tags"]=", ".join(str(x) for x in allowed["tags"])
-                    ok=self.server.webapp_runtime.submit(update_task(user.id,task_id,bot_key,**allowed)).value
+                    ok=self.server.webapp_runtime.submit(update_task(user.id,task_id,bot_key,**allowed))
                 if not ok: return self._json(404,{"error":"task_not_found_or_forbidden"})
-                return self._json(200,{"task":self.server.webapp_runtime.submit(get_task(user.id,task_id,bot_key)).value})
+                return self._json(200,{"task":self.server.webapp_runtime.submit(get_task(user.id,task_id,bot_key))})
         return self._json(404,{"error":"not_found"})
     def do_GET(self):
         path=urlparse(self.path).path
