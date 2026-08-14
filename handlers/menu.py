@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from handlers.reports import show_reports_menu
@@ -31,8 +33,9 @@ def main_menu(context=None):
         from bot_platform import DEFAULT_MENU
         menu_items = DEFAULT_MENU
     keyboard = []
-    if WEBAPP_BASE_URL:
-        keyboard.append([InlineKeyboardButton("🌐 مدیریت وظایف در وب", web_app=WebAppInfo(url=WEBAPP_BASE_URL))])
+    if WEBAPP_BASE_URL and profile is not None:
+        webapp_url = f"{WEBAPP_BASE_URL}?bot_key={quote(profile.key, safe='')}"
+        keyboard.append([InlineKeyboardButton("🌐 مدیریت وظایف در وب", web_app=WebAppInfo(url=webapp_url))])
     for item in menu_items:
         if _feature_enabled(profile, item.get("feature")):
             keyboard.append([InlineKeyboardButton(item["label"], callback_data=item["callback_data"])])
