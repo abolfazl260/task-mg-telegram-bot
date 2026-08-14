@@ -64,7 +64,9 @@ def _add_calendar_pdf_button(markup):
     rows=[list(row) for row in markup.inline_keyboard]
     if not any(button.callback_data=="report_calendar_pdf" for row in rows for button in row):rows.insert(-1,[InlineKeyboardButton("📄 خروجی PDF تقویم ماهانه",callback_data="report_calendar_pdf")])
     from telegram import InlineKeyboardMarkup
-    return InlineKeyboardMarkup(rows)
+    markup=InlineKeyboardMarkup(rows)
+    from webapp.report_routes import add_monthly_web_button
+    return add_monthly_web_button(markup)
 reports_handler.reports_menu_keyboard=_add_calendar_pdf_button(reports_handler.reports_menu_keyboard()) if hasattr(reports_handler,"reports_menu_keyboard") else None
 if reports_handler.reports_menu_keyboard is not None:
     _original_reports_menu_keyboard=reports_handler.reports_menu_keyboard
