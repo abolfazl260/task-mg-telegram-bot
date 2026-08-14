@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import calendar
 from collections import Counter
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import jdatetime
 
@@ -29,12 +29,66 @@ def _jalali_month(year: int, month: int) -> str:
     return jdatetime.date.fromgregorian(year=year, month=month, day=1).strftime("%B %Y")
 
 
+def _jalali_day(value: date) -> str:
+    return jdatetime.date.fromgregorian(year=value.year, month=value.month, day=value.day).strftime("%-d %B %Y")
+
+
 def _load_tasks(access: dict) -> tuple[list[dict], str, str]:
     now = datetime.now(timezone.utc).date()
     start, end = _month_bounds(now.year, now.month)
     end_exclusive = date.fromordinal(date.fromisoformat(end).toordinal() + 1).isoformat()
     tasks = sync_all("tasks", "bot_key=? AND user_id=? AND created_at>=? AND created_at<?", (access["bot_key"], str(access["user_id"]), start, end_exclusive))
     return tasks, start, end
+
+
+def _week_report(access: dict) -> dict:
+    """Return the next seven calendar days grouped by task deadline.
+
+    This is deliberately a lazy section: it is only called when the weekly
+    schedule is requested. Tasks are grouped by their *deadline*, not by
+    creation time. The assignee stored on each task is included in every row.
+    """
+    today = datetime.now(timezone.utc).date()
+    week_end = today + timedelta(days=6)
+    start = today.isoformat()
+    end_exclusive = (week_end + timedelta(days=1)).isoformat()
+    tasks = sync_all(
+        "tasks",
+        "bot_key=? AND user_id=? AND deadline>=? AND deadline<?",
+        (access["bot_key"], str(access["user_id"]), start, end_exclusive),
+    )
+
+    buckets = []
+    day_names = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]
+    for offset in range(7):
+        current = today + timedelta(days=offset)
+        rows = []
+        for task in tasks:
+            raw_deadline = str(task.get("deadline") or "")
+            if not raw_deadline[:10] == current.isoformat():
+                continue
+            rows.append({
+                "id": task.get("id"),
+                "title": task.get("title") or "بدون عنوان",
+                "priority": task.get("priority") or "medium",
+                "priority_label": _priority_label(task.get("priority") or "medium"),
+                "status": task.get("status") or "pending",
+                "status_label": _status_label(task.get("status") or "pending"),
+                "deadline": raw_deadline,
+                "category": task.get("category") or "—",
+                "assignee": task.get("assignee_name") or task.get("assignee_username") or "بدون مسئول",
+            })
+        rows.sort(key=lambda x: (x["deadline"], x["title"]))
+        buckets.append({
+            "offset": offset,
+            "date": current.isoformat(),
+            "jalali": _jalali_day(current),
+            "weekday": day_names[current.weekday() % 7],
+            "label": "برنامه امروز" if offset == 0 else ("برنامه فردا" if offset == 1 else f"برنامه {day_names[current.weekday() % 7]}"),
+            "rows": rows,
+            "count": len(rows),
+        })
+    return {"start": start, "end": week_end.isoformat(), "days": buckets, "total": len(tasks)}
 
 
 def _habit_report(access: dict, start: str, end: str) -> dict:
@@ -75,6 +129,10 @@ def monthly_report(token: str, section: str = "summary") -> dict | None:
     if not access or access.get("report_type") != "monthly":
         return None
 
+    # Keep the weekly schedule lazy: do not load it while rendering the summary.
+    if section == "week":
+        return {"report_type": "weekly_schedule", "week": _week_report(access)}
+
     tasks, start, end = _load_tasks(access)
     status_counts = Counter((task.get("status") or "pending") for task in tasks)
     priority_counts = Counter((task.get("priority") or "medium") for task in tasks)
@@ -101,9 +159,9 @@ def monthly_report(token: str, section: str = "summary") -> dict | None:
 
     if section in {"tasks", "deadlines", "categories", "status", "priority"}:
         if section == "tasks":
-            result["rows"] = [{"id": t.get("id"), "title": t.get("title", ""), "status_label": _status_label(t.get("status", "")), "priority_label": _priority_label(t.get("priority", "")), "deadline": t.get("deadline") or "", "category": t.get("category") or ""} for t in sorted(tasks, key=lambda x: x.get("deadline") or "9999-99-99")]
+            result["rows"] = [{"id": t.get("id"), "title": t.get("title", ""), "status_label": _status_label(t.get("status", "")), "priority_label": _priority_label(t.get("priority", "")), "deadline": t.get("deadline") or "", "category": t.get("category") or "", "assignee": t.get("assignee_name") or t.get("assignee_username") or "بدون مسئول"} for t in sorted(tasks, key=lambda x: x.get("deadline") or "9999-99-99")]
         elif section == "deadlines":
-            result["rows"] = [{"title": t.get("title", ""), "deadline": t.get("deadline") or "", "status_label": _status_label(t.get("status", "")), "priority_label": _priority_label(t.get("priority", ""))} for t in sorted(tasks, key=lambda x: x.get("deadline") or "9999-99-99") if t.get("deadline")]
+            result["rows"] = [{"title": t.get("title", ""), "deadline": t.get("deadline") or "", "status_label": _status_label(t.get("status", "")), "priority_label": _priority_label(t.get("priority", "")), "assignee": t.get("assignee_name") or t.get("assignee_username") or "بدون مسئول"} for t in sorted(tasks, key=lambda x: x.get("deadline") or "9999-99-99") if t.get("deadline")]
         elif section == "categories":
             result["rows"] = [{"category": k, "count": v} for k, v in category_counts.most_common()]
         elif section == "status":
