@@ -32,11 +32,6 @@ def main_menu(context=None):
     if not menu_items:
         from bot_platform import DEFAULT_MENU
         menu_items = DEFAULT_MENU
-    keyboard = []
-    for item in menu_items:
-        if _feature_enabled(profile, item.get("feature")):
-            keyboard.append([InlineKeyboardButton(item["label"], callback_data=item["callback_data"])])
-
     if profile is None or menu_items == __import__("bot_platform").DEFAULT_MENU:
         rows = [
             [InlineKeyboardButton("➕ افزودن تسک", callback_data="add_task"), InlineKeyboardButton("📋 تسک‌ها", callback_data="tasks")],
@@ -49,6 +44,10 @@ def main_menu(context=None):
         ]
         return InlineKeyboardMarkup([row for row in rows if row])
 
+    keyboard = []
+    for item in menu_items:
+        if _feature_enabled(profile, item.get("feature")):
+            keyboard.append([InlineKeyboardButton(item["label"], callback_data=item["callback_data"])])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -58,21 +57,15 @@ def main_menu_summary(user_id):
         active_habits = len(get_user_habits(user_id, active_only=True))
     except Exception:
         active_habits = 0
-
     try:
         tasks = get_all_user_tasks(user_id)
-        in_progress = sum(
-            1 for task in tasks
-            if str(task.get("status") or "").lower() in {"in_progress", "in progress", "در حال انجام"}
-        )
+        in_progress = sum(1 for task in tasks if str(task.get("status") or "").lower() in {"in_progress", "in progress", "در حال انجام"})
     except Exception:
         in_progress = 0
-
     try:
         shared_teams = len(get_user_teams(user_id))
     except Exception:
         shared_teams = 0
-
     return (
         "📊 **خلاصه وضعیت**\n\n"
         f"🔄 عادت‌های فعال: **{active_habits}**\n"
@@ -81,8 +74,23 @@ def main_menu_summary(user_id):
     )
 
 
+def add_task_options_keyboard(context=None):
+    """Options shown after pressing «افزودن تسک»; keep all existing creation flows."""
+    profile = _bot_profile(context)
+    rows = [
+        [InlineKeyboardButton("📝 ثبت تسک جدید", callback_data="add_task_manual")],
+    ]
+    if _feature_enabled(profile, "bulk_import"):
+        rows.append([InlineKeyboardButton("📥 ثبت گروهی", callback_data="import_bulk")])
+    if _feature_enabled(profile, "ai"):
+        rows.append([InlineKeyboardButton("🤖 ثبت با هوش مصنوعی", callback_data="ai_task_start")])
+    if _feature_enabled(profile, "templates"):
+        rows.append([InlineKeyboardButton("🧩 انتخاب از تمپلیت‌ها", callback_data="templates")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="tasks_back")])
+    return InlineKeyboardMarkup(rows)
+
+
 def tasks_options_keyboard(context=None):
-    """Compact Tasks submenu: one full-width row, then paired rows, then back."""
     profile = _bot_profile(context)
     rows = [
         [InlineKeyboardButton("📋 لیست تسک‌های فعال", callback_data="tasks_list")],
@@ -98,7 +106,6 @@ def tasks_options_keyboard(context=None):
 
 
 def settings_keyboard(context=None):
-    """Top-level settings categories; detailed settings open only after selection."""
     profile = _bot_profile(context)
     rows = []
     if _feature_enabled(profile, "integrations"):
@@ -126,11 +133,7 @@ def date_format_keyboard(user_id):
     current = get_user_date_format(user_id)
     jalali = "✅ شمسی 🇮🇷" if current == "jalali" else "شمسی 🇮🇷"
     gregorian = "✅ میلادی 🌐" if current == "gregorian" else "میلادی 🌐"
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(jalali, callback_data="date_format_jalali")],
-        [InlineKeyboardButton(gregorian, callback_data="date_format_gregorian")],
-        [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="settings")],
-    ])
+    return InlineKeyboardMarkup([[InlineKeyboardButton(jalali, callback_data="date_format_jalali")], [InlineKeyboardButton(gregorian, callback_data="date_format_gregorian")], [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="settings")]])
 
 
 def date_format_text(user_id):
@@ -140,11 +143,7 @@ def date_format_text(user_id):
 
 
 def language_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🇮🇷 فارسی", callback_data="language_fa")],
-        [InlineKeyboardButton("🇬🇧 English", callback_data="language_en")],
-        [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="settings")],
-    ])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی", callback_data="language_fa")], [InlineKeyboardButton("🇬🇧 English", callback_data="language_en")], [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="settings")]])
 
 
 def contact_text():
@@ -185,22 +184,19 @@ async def button_handler(update, context):
     if data.startswith("report_"):
         from handlers.reports import reports_callback
         return await reports_callback(update, context)
-
     if data.startswith(("ai_task_", "ai_habit_")):
         from handlers.ai import ai_habit_callback, ai_task_callback
         if data.startswith("ai_habit_"):
             return await ai_habit_callback(update, context)
         return await ai_task_callback(update, context)
-
     if data.startswith("habit_"):
         from handlers.habits import handle_habit_callback
         return await handle_habit_callback(update, context)
 
     profile = _bot_profile(context)
     feature_by_callback = {
-        "add_task": "tasks", "tasks": "tasks", "teams": "teams",
-        "templates": "templates", "habit_menu": "habits", "stats": "reports",
-        "import_bulk": "bulk_import", "custom_bot": "custom_bots",
+        "add_task": "tasks", "tasks": "tasks", "teams": "teams", "templates": "templates",
+        "habit_menu": "habits", "stats": "reports", "import_bulk": "bulk_import", "custom_bot": "custom_bots",
     }
     feature = feature_by_callback.get(data)
     if feature and not _feature_enabled(profile, feature):
@@ -210,8 +206,13 @@ async def button_handler(update, context):
     await query.answer()
 
     if data == "add_task":
+        return await query.message.reply_text("➕ **افزودن تسک**\n\nروش ثبت تسک را انتخاب کنید:", reply_markup=add_task_options_keyboard(context), parse_mode="Markdown")
+    if data == "add_task_manual":
         from handlers.task import add_task
         return await add_task(update, context)
+    if data == "ai_task_start":
+        from handlers.ai import ai_command
+        return await ai_command(update, context)
     if data == "tasks":
         return await query.message.reply_text("📋 **منوی تسک‌ها**", reply_markup=tasks_options_keyboard(context), parse_mode="Markdown")
     if data == "tasks_list":
