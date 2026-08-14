@@ -4,6 +4,10 @@ from weakref import WeakKeyDictionary
 
 from telegram.ext import Application, CallbackQueryHandler
 
+# Install the reports UI navigation before main.py imports the report handlers.
+# This changes presentation/navigation only; individual report implementations remain intact.
+from handlers import report_ui as _report_ui  # noqa: F401,E402
+
 _original_add_handler = Application.add_handler
 _bootstrapped_applications = WeakKeyDictionary()
 
