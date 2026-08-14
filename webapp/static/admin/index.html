@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>داشبورد مدیریت</title>
+  <link rel="stylesheet" href="/static/admin/admin.css">
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <div><div class="eyebrow">پنل مدیریت</div><h1>داشبورد</h1></div>
+      <select id="botFilter" aria-label="انتخاب ربات"><option value="">همه ربات‌ها</option></select>
+    </header>
+
+    <section class="cards" id="cards">
+      <article class="card"><span>👥 کل کاربران</span><strong id="totalUsers">—</strong></article>
+      <article class="card"><span>🆕 کاربران جدید</span><strong id="newUsers">—</strong><small>۷ روز اخیر</small></article>
+      <article class="card"><span>🟢 کاربران فعال</span><strong id="activeUsers">—</strong><small>۳۰ روز اخیر</small></article>
+      <article class="card"><span>📋 کل وظایف</span><strong id="totalTasks">—</strong></article>
+    </section>
+
+    <section class="grid">
+      <article class="panel"><div class="panel-title"><h2>تعداد کاربران هر ربات</h2></div><div id="bots" class="bars"></div></article>
+      <article class="panel"><div class="panel-title"><h2>آخرین کاربران اضافه‌شده</h2></div><div id="latestUsers" class="users"></div></article>
+    </section>
+
+    <section class="panel chart-panel">
+      <div class="panel-title"><h2>ایجاد وظیفه</h2><div class="segmented"><button class="active" data-days="7">۷ روز</button><button data-days="30">۳۰ روز</button></div></div>
+      <div id="chart" class="chart" aria-label="نمودار ایجاد وظیفه"></div>
+    </section>
+    <p id="error" class="error" hidden></p>
+  </main>
+  <script src="/static/admin/admin.js"></script>
+</body>
+</html>
