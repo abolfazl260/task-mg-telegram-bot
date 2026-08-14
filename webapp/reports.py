@@ -1,13 +1,14 @@
 """Web report data access, scoped by an opaque report token.
 
-The web report is an all-tasks dashboard, not a monthly report. The initial
-payload contains only aggregates; detailed tables/kanban/calendar data are
-loaded only when the user selects a section.
+The web report is an all-tasks dashboard. Detailed sections are loaded only
+when selected by the user. The monthly heatmap is a lightweight aggregate
+query grouped by task creation date.
 """
 from __future__ import annotations
 
+import calendar
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 
 from services.database import DB_PATH
 from .report_tokens import resolve_report_token
@@ -43,7 +44,6 @@ def _query(sql, params=(), *, scalar=False):
 
 
 def monthly_report(token):
-    """Return the lightweight dashboard summary for all tasks of the user."""
     a = _access(token)
     if not a:
         return None
@@ -65,17 +65,41 @@ def monthly_report(token):
         "by_status": [{"key": r["key"], "label": _status_label(r["key"]), "count": r["count"]} for r in statuses],
         "by_priority": [{"key": r["key"], "label": _priority_label(r["key"]), "count": r["count"]} for r in priorities],
         "by_category": [{"label": r["label"], "count": r["count"]} for r in cats],
-        "sections": ["tasks", "kanban", "calendar", "deadlines", "status", "priority", "category"],
+        "sections": ["tasks", "kanban", "calendar", "deadlines", "status", "priority", "category", "heatmap"],
     }
+
+
+def _heatmap(token, a):
+    """Build the current-month activity heatmap using one grouped aggregate query."""
+    where, args = _scope(a)
+    today = date.today()
+    year, month = today.year, today.month
+    month_start = date(year, month, 1).isoformat()
+    next_year = year + (1 if month == 12 else 0)
+    next_month = 1 if month == 12 else month + 1
+    month_end = date(next_year, next_month, 1).isoformat()
+    rows = _query(
+        "SELECT substr(created_at,1,10) day, COUNT(*) count "
+        "FROM tasks WHERE " + where + " AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<? "
+        "GROUP BY day ORDER BY day",
+        args + (month_start, month_end),
+    )
+    counts = {r["day"]: int(r["count"]) for r in rows if r.get("day")}
+    days = calendar.monthrange(year, month)[1]
+    values = [{"day": d, "date": f"{year:04d}-{month:02d}-{d:02d}", "count": counts.get(f"{year:04d}-{month:02d}-{d:02d}", 0)} for d in range(1, days + 1)]
+    maximum = max((v["count"] for v in values), default=0)
+    return {"section": "heatmap", "year": year, "month": month, "month_label": f"{year:04d}/{month:02d}", "days": values, "max_count": maximum, "total": sum(v["count"] for v in values)}
 
 
 def report_section(token, section, page=1, page_size=25):
     a = _access(token)
     if not a:
         return None
-    allowed = {"tasks", "kanban", "calendar", "deadlines", "status", "priority", "category"}
+    allowed = {"tasks", "kanban", "calendar", "deadlines", "status", "priority", "category", "heatmap"}
     if section not in allowed:
         return {"error": "invalid_section"}
+    if section == "heatmap":
+        return _heatmap(token, a)
     page = max(1, int(page))
     page_size = min(50, max(1, int(page_size)))
     where, args = _scope(a)
@@ -91,12 +115,12 @@ def report_section(token, section, page=1, page_size=25):
             key = r.get("status") or "pending"
             if key in ("canceled", "cancelled"):
                 key = "cancelled"
-            columns.setdefault(key, []).append({"id": r.get("id"), "title": r.get("title", ""), "status_label": _status_label(r.get("status", "")), "priority_label": _priority_label(r.get("priority", "")), "deadline": r.get("deadline") or "", "category": r.get("category") or ""})
+            columns.setdefault(key, []).append({"id": r.get("id"), "title": r.get("title", ""), "status_label": _status_label(r.get("status", "")), "priority_label": _priority_label(r.get("priority", "")), "priority": r.get("priority", ""), "deadline": r.get("deadline") or "", "category": r.get("category") or ""})
         for key in columns:
             columns[key] = columns[key][:50]
-        return {"section": section, "columns": columns, "limited": len(rows) >= 200}
+        return {"section": section, "columns": columns, "limited": len(rows) >= 200, "total": sum(len(v) for v in columns.values())}
     offset = (page - 1) * page_size
     order = {"deadlines": "deadline ASC,id DESC", "status": "status ASC,id DESC", "priority": "priority ASC,id DESC", "category": "category ASC,id DESC", "tasks": "created_at DESC,id DESC"}[section]
     total = _query("SELECT COUNT(*) FROM tasks WHERE " + where, args, scalar=True)
     rows = _query("SELECT id,title,status,priority,deadline,category FROM tasks WHERE " + where + f" ORDER BY {order} LIMIT ? OFFSET ?", tuple(args) + (page_size, offset))
-    return {"section": section, "page": page, "page_size": page_size, "total": total, "pages": max(1, (total + page_size - 1) // page_size), "rows": [{"id": r.get("id"), "title": r.get("title", ""), "status_label": _status_label(r.get("status", "")), "priority_label": _priority_label(r.get("priority", "")), "deadline": r.get("deadline") or "", "category": r.get("category") or ""} for r in rows]}
+    return {"section": section, "page": page, "page_size": page_size, "total": total, "pages": max(1, (total + page_size - 1) // page_size), "rows": [{"id": r.get("id"), "title": r.get("title", ""), "status_label": _status_label(r.get("status", "")), "priority": r.get("priority", ""), "priority_label": _priority_label(r.get("priority", "")), "deadline": r.get("deadline") or "", "category": r.get("category") or ""} for r in rows]}
