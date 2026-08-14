@@ -56,16 +56,18 @@ catch(e){{document.getElementById('app').innerHTML='<h1>گزارش ماهانه<
 
 def handle_report_get(handler) -> bool:
     path = urlparse(handler.path).path
-    if path.startswith("/report/"):
-        token = path[len("/report/"):].strip("/")
-        if not token:
-            return False
-        data = monthly_report(token)
-        if data is None:
-            _html(handler, 404, "<h2>لینک گزارش معتبر نیست یا منقضی شده است.</h2>")
-        else:
-            _html(handler, 200, monthly_report_html(token))
-        return True
+
+    # The public report URL is deliberately just /<random-secret-token>.
+    # The token itself is the only identifier; user IDs are never exposed.
+    if path and path != "/" and not path.startswith("/api/") and path != "/report-launch":
+        token = path.strip("/")
+        if "/" not in token and len(token) >= 40:
+            data = monthly_report(token)
+            if data is None:
+                _html(handler, 404, "<h2>لینک گزارش معتبر نیست یا منقضی شده است.</h2>")
+            else:
+                _html(handler, 200, monthly_report_html(token))
+            return True
 
     if path == "/report-launch":
         _html(handler, 200, """<!doctype html><html lang='fa' dir='rtl'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><body><p>در حال آماده‌سازی گزارش...</p><script src='https://telegram.org/js/telegram-web-app.js'></script><script>
