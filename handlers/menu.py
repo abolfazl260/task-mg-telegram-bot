@@ -7,12 +7,7 @@ from handlers.integrations import show_integrations
 from services.habit_service import get_user_habits
 from services.task_service import get_all_user_tasks
 from services.team_service import get_user_teams
-from services.timezone_service import (
-    VALID_TIMEZONES,
-    build_timezone_keyboard,
-    build_timezone_text,
-    set_user_timezone,
-)
+from services.timezone_service import build_timezone_keyboard, build_timezone_text
 from services.user_service import get_user_date_format, set_user_date_format
 
 
@@ -38,12 +33,8 @@ def main_menu(context=None):
             [InlineKeyboardButton("🌱 عادت من", callback_data="habit_menu"), InlineKeyboardButton("📊 گزارش", callback_data="stats"), InlineKeyboardButton("📖 راهنما", callback_data="help")],
             [InlineKeyboardButton("⚙️ تنظیمات", callback_data="settings"), InlineKeyboardButton("📞 ارتباط با ما", callback_data="contact_us")],
         ]
-        rows = [
-            [button for button in row if not (button.callback_data == "habit_menu" and not _feature_enabled(profile, "habits"))]
-            for row in rows
-        ]
+        rows = [[button for button in row if not (button.callback_data == "habit_menu" and not _feature_enabled(profile, "habits"))] for row in rows]
         return InlineKeyboardMarkup([row for row in rows if row])
-
     keyboard = []
     for item in menu_items:
         if _feature_enabled(profile, item.get("feature")):
@@ -66,20 +57,12 @@ def main_menu_summary(user_id):
         shared_teams = len(get_user_teams(user_id))
     except Exception:
         shared_teams = 0
-    return (
-        "📊 **خلاصه وضعیت**\n\n"
-        f"🔄 عادت‌های فعال: **{active_habits}**\n"
-        f"⚡ فعالیت‌های در حال انجام: **{in_progress}**\n"
-        f"👥 تیم‌های مشترک: **{shared_teams}**"
-    )
+    return f"📊 **خلاصه وضعیت**\n\n🔄 عادت‌های فعال: **{active_habits}**\n⚡ فعالیت‌های در حال انجام: **{in_progress}**\n👥 تیم‌های مشترک: **{shared_teams}**"
 
 
 def add_task_options_keyboard(context=None):
-    """Options shown after pressing «افزودن تسک»; keep all existing creation flows."""
     profile = _bot_profile(context)
-    rows = [
-        [InlineKeyboardButton("📝 ثبت تسک جدید", callback_data="add_task_manual")],
-    ]
+    rows = [[InlineKeyboardButton("📝 ثبت تسک جدید", callback_data="add_task_manual")]]
     if _feature_enabled(profile, "bulk_import"):
         rows.append([InlineKeyboardButton("📥 ثبت گروهی", callback_data="import_bulk")])
     if _feature_enabled(profile, "ai"):
@@ -177,7 +160,6 @@ def contact_keyboard():
 async def button_handler(update, context):
     query = update.callback_query
     data = query.data
-
     if data == "report_calendar_pdf":
         from handlers.calendar_pdf import calendar_pdf_callback
         return await calendar_pdf_callback(update, context)
@@ -192,27 +174,21 @@ async def button_handler(update, context):
     if data.startswith("habit_"):
         from handlers.habits import handle_habit_callback
         return await handle_habit_callback(update, context)
-
     profile = _bot_profile(context)
-    feature_by_callback = {
-        "add_task": "tasks", "tasks": "tasks", "teams": "teams", "templates": "templates",
-        "habit_menu": "habits", "stats": "reports", "import_bulk": "bulk_import", "custom_bot": "custom_bots",
-    }
+    feature_by_callback = {"add_task":"tasks", "tasks":"tasks", "teams":"teams", "templates":"templates", "habit_menu":"habits", "stats":"reports", "import_bulk":"bulk_import", "custom_bot":"custom_bots"}
     feature = feature_by_callback.get(data)
     if feature and not _feature_enabled(profile, feature):
         await query.answer("این قابلیت برای این ربات فعال نیست.", show_alert=True)
         return
-
     await query.answer()
-
     if data == "add_task":
         return await query.message.reply_text("➕ **افزودن تسک**\n\nروش ثبت تسک را انتخاب کنید:", reply_markup=add_task_options_keyboard(context), parse_mode="Markdown")
     if data == "add_task_manual":
         from handlers.task import add_task
         return await add_task(update, context)
     if data == "ai_task_start":
-        from handlers.ai import ai_command
-        return await ai_command(update, context)
+        from handlers.ai import _ai_examples_text, _ai_examples_keyboard
+        return await query.message.reply_text(_ai_examples_text(), reply_markup=_ai_examples_keyboard(), parse_mode="Markdown")
     if data == "tasks":
         return await query.message.reply_text("📋 **منوی تسک‌ها**", reply_markup=tasks_options_keyboard(context), parse_mode="Markdown")
     if data == "tasks_list":
@@ -260,5 +236,4 @@ async def button_handler(update, context):
         return await query.message.reply_text(contact_text(), reply_markup=contact_keyboard(), parse_mode="Markdown")
     if data == "tasks_back":
         return await query.message.reply_text(main_menu_summary(update.effective_user.id) + "\n\nمنوی اصلی:", reply_markup=main_menu(context), parse_mode="Markdown")
-
     await query.answer("این گزینه در نسخه فعلی در دسترس نیست.", show_alert=True)
