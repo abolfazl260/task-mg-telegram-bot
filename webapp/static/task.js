@@ -2,23 +2,28 @@
   const tg = window.Telegram?.WebApp;
   if (tg) { tg.ready(); tg.expand(); }
 
-  const id = new URLSearchParams(window.location.search).get('id');
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get('id');
+  const botKey = params.get('bot_key') || '';
   const titleEl = document.getElementById('task-title');
   const taskEl = document.getElementById('task');
   const stateEl = document.getElementById('state');
   const backEl = document.getElementById('back');
   const headers = tg?.initData ? { 'X-Telegram-Init-Data': tg.initData } : {};
+  const apiUrl = (path) => `${path}?bot_key=${encodeURIComponent(botKey)}`;
 
   function text(value) {
     return String(value ?? '').replace(/[&<>\"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[ch]));
   }
 
-  backEl.addEventListener('click', () => window.location.href = '/');
+  backEl.addEventListener('click', () => {
+    window.location.href = `/?bot_key=${encodeURIComponent(botKey)}`;
+  });
 
   async function load() {
-    if (!id) { stateEl.textContent = 'شناسه وظیفه مشخص نشده است.'; return; }
+    if (!id || !botKey) { stateEl.textContent = 'اطلاعات لازم برای دریافت وظیفه مشخص نشده است.'; return; }
     try {
-      const response = await fetch(`/api/tasks/${encodeURIComponent(id)}`, { headers });
+      const response = await fetch(apiUrl(`/api/tasks/${encodeURIComponent(id)}`), { headers });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       const task = data.task;
