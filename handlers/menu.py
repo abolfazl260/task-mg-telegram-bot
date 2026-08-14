@@ -134,7 +134,8 @@ async def button_handler(update, context):
     query = update.callback_query
     data = query.data
 
-    # Dedicated callback families own their callback acknowledgement.
+    # These callback families have their own dedicated handlers. Do not answer
+    # them here first; their handlers own the callback acknowledgement.
     if data == "report_calendar_pdf":
         from handlers.calendar_pdf import calendar_pdf_callback
         return await calendar_pdf_callback(update, context)
