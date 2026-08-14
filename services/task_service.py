@@ -9,6 +9,7 @@ from services.database import fetch_all, fetch_one, execute, transaction, sync_a
 from services.team_service import aget_user_teams, acan_edit, ais_member, aget_team
 
 VALID_STATUSES = {"pending", "in_progress", "done", "cancelled"}
+VALID_PRIORITIES = {"low", "medium", "high"}
 
 def _now(): return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
 def _bot(): return get_current_bot_key() or "default"
@@ -20,26 +21,11 @@ async def _ensure_user_async(uid):
 async def read_tasks_async(): return await fetch_all("tasks","bot_key=?",(_bot(),))
 
 async def get_task_dashboard_counts_async(user_id: int) -> dict[str, int]:
-    """Return lightweight /tasks dashboard counts without loading task objects."""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     db = await get_db()
-    query = """
-        SELECT
-            SUM(CASE WHEN status IN ('pending', 'in_progress') THEN 1 ELSE 0 END) AS count_active,
-            SUM(CASE WHEN substr(COALESCE(deadline, ''), 1, 10) = ?
-                      AND status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END) AS count_today,
-            SUM(CASE WHEN substr(COALESCE(deadline, ''), 1, 10) < ?
-                      AND status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END) AS count_overdue
-        FROM tasks
-        WHERE bot_key = ? AND user_id = ?
-    """
-    async with db.conn.execute(query, (today, today, _bot(), str(user_id))) as cursor:
-        row = await cursor.fetchone()
-    return {
-        "count_active": int((row[0] if row else 0) or 0),
-        "count_today": int((row[1] if row else 0) or 0),
-        "count_overdue": int((row[2] if row else 0) or 0),
-    }
+    query = """SELECT SUM(CASE WHEN status IN ('pending', 'in_progress') THEN 1 ELSE 0 END), SUM(CASE WHEN substr(COALESCE(deadline, ''), 1, 10) = ? AND status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END), SUM(CASE WHEN substr(COALESCE(deadline, ''), 1, 10) < ? AND status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END) FROM tasks WHERE bot_key = ? AND user_id = ?"""
+    async with db.conn.execute(query, (today, today, _bot(), str(user_id))) as cursor: row = await cursor.fetchone()
+    return {"count_active": int((row[0] if row else 0) or 0), "count_today": int((row[1] if row else 0) or 0), "count_overdue": int((row[2] if row else 0) or 0)}
 
 async def save_task_async(data):
     v=list(data)+[""]*20; task_id=str(v[0] or uuid.uuid4().hex[:8]); user_id=str(v[1] or "")
@@ -55,6 +41,7 @@ async def update_task_status_async(task_id,new_status):
     await execute("UPDATE tasks SET status=?,completed_at=? WHERE id=? AND bot_key=?",(new_status,_now() if new_status=="done" else "",task_id,_bot())); return True
 
 async def create_task_async(user_id,title,priority,deadline,category,tags,description="",team_id="",assignee=None):
+    if priority not in VALID_PRIORITIES: raise ValueError("invalid priority")
     await _ensure_user_async(user_id); tid=str(uuid.uuid4())[:8]
     if team_id and not category:
         team=await aget_team(team_id); category=team.get("name","") if team else category
@@ -63,6 +50,17 @@ async def create_task_async(user_id,title,priority,deadline,category,tags,descri
     now=_now(); statements=[("""INSERT INTO tasks(id,bot_key,user_id,title,priority,status,deadline,category,tags,description,created_at,team_id,assignee_id,assignee_name,assignee_username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(tid,_bot(),str(user_id),title,priority,"pending",deadline or "",category or "",tags or "",description or "",now,team_id or None,aid,(assignee or {}).get("display_name") or "",(assignee or {}).get("username") or ""))]
     if assignee: statements.append(("""INSERT INTO task_assignment_history(task_id,actor_id,action,old_assignee_name,new_assignee_name,created_at) VALUES(?,?,?,?,?,?)""",(tid,str(user_id),"assigned","",(assignee or {}).get("display_name") or "",now)))
     await transaction(statements); return tid
+
+async def update_task_async(task_id,user_id,**changes):
+    task=await get_task_by_id_async(task_id)
+    if not task or not await user_can_modify_task_async(user_id,task): return False
+    allowed={"title","description","priority","deadline","category","tags"}
+    values={k:v for k,v in changes.items() if k in allowed and v is not None}
+    if "priority" in values and values["priority"] not in VALID_PRIORITIES: raise ValueError("invalid priority")
+    if not values: return True
+    assignments=", ".join(f"{key}=?" for key in values)
+    await execute(f"UPDATE tasks SET {assignments} WHERE id=? AND bot_key=?",tuple(values.values())+(task_id,_bot()))
+    return True
 
 async def _visible_async(user_id,team_id=None,active=False):
     if team_id:
@@ -85,7 +83,7 @@ async def search_tasks_async(user_id,query):
 async def get_all_user_ids_async(): return sorted({str(t.get("user_id")) for t in await read_tasks_async() if t.get("user_id")})
 async def assign_task_async(task_id,assignee,actor_id,action="assigned"):
     t=await get_task_by_id_async(task_id)
-    if not t: return False
+    if not t or not await user_can_modify_task_async(actor_id,t): return False
     aid=str((assignee or {}).get("user_id") or "") or None
     if aid: await _ensure_user_async(aid)
     await _ensure_user_async(actor_id); now=_now()
@@ -112,22 +110,12 @@ async def link_team_name_category_for_owner_async(team_id):
     team=await aget_team(team_id); return await link_user_category_to_team_async(team["owner_id"],team["name"],team_id) if team else 0
 async def get_assignment_history_async(task_id): return await fetch_all("task_assignment_history","task_id=? ORDER BY id",(task_id,))
 
-
-def _run(coro):
-    """Use the database module's persistent sync-to-async bridge.
-
-    Do not call asyncio.run() here: the scheduler invokes these synchronous
-    wrappers repeatedly, and asyncio.run() creates a fresh event loop for each
-    call. The database module already owns a single persistent loop/connection
-    for legacy synchronous calls.
-    """
-    return db_run(coro)
-
-
+def _run(coro): return db_run(coro)
 def read_tasks(): return sync_all("tasks","bot_key=?",(_bot(),))
 def save_task(data): return _run(save_task_async(data))
 def update_task_status(task_id,new_status): return _run(update_task_status_async(task_id,new_status))
 def create_task(*a,**k): return _run(create_task_async(*a,**k))
+def update_task(*a,**k): return _run(update_task_async(*a,**k))
 def get_active_tasks(*a,**k): return _run(get_active_tasks_async(*a,**k))
 def get_all_user_tasks(*a,**k): return _run(get_all_user_tasks_async(*a,**k))
 def get_team_tasks(*a,**k): return _run(get_team_tasks_async(*a,**k))
