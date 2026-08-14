@@ -35,6 +35,7 @@ import handlers.task as task_handler,handlers.reports as reports_handler,handler
 from services import calendar_runtime,calendar_runtime_extensions,calendar_reports_v2,calendar_report_legacy
 from services.database import init_db
 from services.task_capabilities import install_task_capabilities,task_option_enabled
+from webapp.runtime import start_webapp_server
 
 task_handler.format_task_card=calendar_runtime_extensions.format_task_card
 task_handler.build_full_report=calendar_runtime_extensions.build_full_report
@@ -64,11 +65,13 @@ def _add_calendar_pdf_button(markup):
     if not any(button.callback_data=="report_calendar_pdf" for row in rows for button in row):rows.insert(-1,[InlineKeyboardButton("📄 خروجی PDF تقویم ماهانه",callback_data="report_calendar_pdf")])
     from telegram import InlineKeyboardMarkup
     return InlineKeyboardMarkup(rows)
-reports_handler.reports_menu_keyboard=_add_calendar_pdf_button(reports_handler.reports_menu_keyboard()) if hasattr(reports_handler,"reports_menu_keyboard") else None
-if reports_handler.reports_menu_keyboard is not None:
+
+if hasattr(reports_handler,"reports_menu_keyboard"):
     _original_reports_menu_keyboard=reports_handler.reports_menu_keyboard
-    def _reports_menu_keyboard_with_pdf():return _original_reports_menu_keyboard
-    reports_handler.reports_menu_keyboard=_reports_menu_keyboard_with_pdf
+    def _reports_menu_keyboard_with_pdf_and_web():
+        from webapp.report_routes import add_monthly_web_button
+        return add_monthly_web_button(_add_calendar_pdf_button(_original_reports_menu_keyboard()))
+    reports_handler.reports_menu_keyboard=_reports_menu_keyboard_with_pdf_and_web
 logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING);logging.getLogger("httpcore").setLevel(logging.WARNING);logger=logging.getLogger(__name__)
 
@@ -107,7 +110,7 @@ async def post_init(app:Application):
     feature_by_command={"add":"tasks","tasks":"tasks","unassigned":"unassigned","team":"teams","search":"search","templates":"templates","reports":"reports","habit":"habits","donate":"donate","ai":"ai"}
     if profile is not None:
         commands=[cmd for cmd in commands if profile.feature_enabled(feature_by_command.get(cmd.command,"")) and not ({"search":"allow_search","templates":"allow_templates"}.get(cmd.command) and not task_option_enabled(app,{"search":"allow_search","templates":"allow_templates"}[cmd.command]))]
-    await app.bot.delete_my_commands();await app.bot.set_my_commands(commands);logger.info("Telegram command menu updated: %s",", ".join(f"/{cmd.command}" for cmd in commands));await _start_oauth_server(app)
+    await app.bot.delete_my_commands();await app.bot.set_my_commands(commands);logger.info("Telegram command menu updated: %s",", ".join(f"/{cmd.command}" for cmd in commands));await _start_oauth_server(app);start_webapp_server()
     if app.job_queue:
         app.job_queue.run_repeating(morning_today_tasks,interval=60,first=10,name="morning_today_tasks");app.job_queue.run_repeating(midday_summary_and_weekly,interval=60,first=20,name="midday_summary_weekly");app.job_queue.run_repeating(habit_reminders,interval=60,first=10,name="habit_reminders");app.job_queue.run_repeating(weekly_habit_reports,interval=60,first=40,name="weekly_habit_reports");app.job_queue.run_daily(daily_admin_report,time=_parse_report_time(),name="daily_admin_report");bot_offset=sum(ord(ch) for ch in (profile.key if profile else "default"))%60;app.job_queue.run_repeating(_jira_sync_job,interval=60,first=30+bot_offset,name="jira_sync",data=profile);app.job_queue.run_repeating(_integration_sync_job,interval=300,first=60+bot_offset,name="external_task_sync",data=profile)
 def _feature(app,name):

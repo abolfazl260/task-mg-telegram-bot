@@ -5,3 +5,5 @@ handlers/__pycache__/__init__.cpython-313.pyc
 __pycache__/
 *.py[cod]
 *.class
+.env
+data/data.db-shm
