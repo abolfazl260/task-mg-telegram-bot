@@ -59,7 +59,7 @@ def _week_report(access: dict) -> dict:
     )
 
     buckets = []
-    day_names = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]
+    day_names = ["دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه", "یکشنبه"]
     for offset in range(7):
         current = today + timedelta(days=offset)
         rows = []
@@ -83,8 +83,8 @@ def _week_report(access: dict) -> dict:
             "offset": offset,
             "date": current.isoformat(),
             "jalali": _jalali_day(current),
-            "weekday": day_names[current.weekday() % 7],
-            "label": "برنامه امروز" if offset == 0 else ("برنامه فردا" if offset == 1 else f"برنامه {day_names[current.weekday() % 7]}"),
+            "weekday": day_names[current.weekday()],
+            "label": "برنامه امروز" if offset == 0 else ("برنامه فردا" if offset == 1 else f"برنامه {day_names[current.weekday()]}"),
             "rows": rows,
             "count": len(rows),
         })
@@ -129,7 +129,6 @@ def monthly_report(token: str, section: str = "summary") -> dict | None:
     if not access or access.get("report_type") != "monthly":
         return None
 
-    # Keep the weekly schedule lazy: do not load it while rendering the summary.
     if section == "week":
         return {"report_type": "weekly_schedule", "week": _week_report(access)}
 
