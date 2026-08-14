@@ -11,12 +11,9 @@ from .auth import TelegramWebAppAuthError
 from .bot_profile import WebAppBotProfileError
 from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, create_task, update_task, change_status
 from .admin_api import dashboard_stats, task_creation, list_users, get_user_profile, list_user_tasks
-from config import ADMIN_IDS
 
+ADMIN_PATH = "/adminNhduwqh3409iwejewed"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-
-def _admin_ids() -> set[str]:
-    return {str(value).strip() for value in ADMIN_IDS if str(value).strip().isdigit()}
 
 class WebAppAsyncRuntime:
     def __init__(self): self.loop=asyncio.new_event_loop(); self.thread=Thread(target=self._run,name="telegram-webapp-async",daemon=True)
@@ -40,14 +37,10 @@ class WebAppHandler(BaseHTTPRequestHandler):
         body=json.dumps(payload,ensure_ascii=False,default=str).encode(); self.send_response(status); self.send_header("Content-Type","application/json; charset=utf-8"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
     def _bot_key(self): return (parse_qs(urlparse(self.path).query).get("bot_key") or [""])[0].strip()
     def _authenticate(self,bot_key): return authenticate_telegram_request(self.headers.get("X-Telegram-Init-Data",""),bot_key)
-    def _authenticate_admin(self,bot_key):
-        user=self._authenticate(bot_key)
-        if str(user.id) not in _admin_ids(): raise PermissionError("admin_required")
-        return user
     def _serve_static(self,path):
         relative=path.removeprefix("/static/") if path.startswith("/static/") else ""
         if path=="/": relative="index.html"
-        if path=="/admin" or path=="/admin/": relative="admin/index.html"
+        if path in {ADMIN_PATH, ADMIN_PATH+"/"}: relative="admin/index.html"
         if not relative or ".." in Path(relative).parts: return False
         target=(STATIC_DIR/relative).resolve()
         if STATIC_DIR not in target.parents and target!=STATIC_DIR or not target.is_file(): return False
@@ -56,7 +49,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
         path=urlparse(self.path).path
         if method != "GET": return self._json(405,{"error":"method_not_allowed"})
         query=parse_qs(urlparse(self.path).query); bot_key=(query.get("bot_key") or [""])[0].strip()
-        self._authenticate_admin(bot_key)
+        # Admin WebApp intentionally has no Telegram/admin authentication.
         if path=="/api/admin/dashboard": return self._json(200,self.server.webapp_runtime.submit(dashboard_stats(bot_key)))
         if path=="/api/admin/tasks/creation":
             try: days=int((query.get("days") or ["7"])[0])
@@ -109,12 +102,11 @@ class WebAppHandler(BaseHTTPRequestHandler):
         except TelegramWebAppAuthError: return self._json(401,{"error":"unauthorized"})
         except WebAppBotProfileError: return self._json(400,{"error":"invalid_bot_profile"})
         except WebAppTaskAccessError: return self._json(403,{"error":"forbidden"})
-        except PermissionError: return self._json(403,{"error":"admin_required"})
         except ValueError as e: return self._json(400,{"error":str(e)})
         except Exception: return self._json(500,{"error":"internal_server_error"})
     def do_GET(self):
         path=urlparse(self.path).path
-        if path in {"/","/admin","/admin/","/static/index.html"} or path.startswith("/static/"): return self._serve_static(path) or self._json(404,{"error":"not_found"})
+        if path in {"/","/static/index.html",ADMIN_PATH,ADMIN_PATH+"/"} or path.startswith("/static/"): return self._serve_static(path) or self._json(404,{"error":"not_found"})
         if path in {"/health","/healthz"}: return self._json(200,{"status":"ok","service":"telegram-webapp"})
         return self._dispatch("GET")
     def do_POST(self): return self._dispatch("POST")
