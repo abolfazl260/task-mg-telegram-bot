@@ -19,7 +19,7 @@ def _task_rows(a,where="",params=()):
     base="bot_key=? AND user_id=?"; return sync_all("tasks",base+(" AND "+where if where else ""),(a["bot_key"],str(a["user_id"]))+tuple(params))
 
 def _week(a):
-    today=datetime.now(timezone.utc).date(); end=today+timedelta(days=6); tasks=_task_rows(a,"deadline>=? AND deadline<?",(today.isoformat(),(end+timedelta(days=1)).isoformat())); names=["شنبه","یکشنبه","دوشنبه","سه‌شنبه","چهارشنبه","پنجشنبه","جمعه"]; days=[]
+    today=datetime.now(timezone.utc).date(); end=today+timedelta(days=6); tasks=_task_rows(a,"deadline>=? AND deadline<?",(today.isoformat(),(end+timedelta(days=1)).isoformat())); names=["دوشنبه","سه‌شنبه","چهارشنبه","پنجشنبه","جمعه","شنبه","یکشنبه"]; days=[]
     for i in range(7):
         d=today+timedelta(days=i); rows=[]
         for t in tasks:
