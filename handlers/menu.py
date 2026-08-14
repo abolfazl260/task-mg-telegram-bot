@@ -54,6 +54,17 @@ def add_task_options_keyboard(context=None):
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="tasks_back")])
     return InlineKeyboardMarkup(rows)
 
+async def show_add_task_menu(update, context):
+    """Single entry point for /add and the main-menu add-task button."""
+    message = update.effective_message
+    if message is None and update.callback_query:
+        message = update.callback_query.message
+    if message is None:
+        return
+    if update.callback_query:
+        await update.callback_query.answer()
+    await message.reply_text("➕ **افزودن تسک**\n\nروش ثبت تسک را انتخاب کنید:", reply_markup=add_task_options_keyboard(context), parse_mode="Markdown")
+
 def tasks_options_keyboard(context=None):
     profile = _bot_profile(context)
     rows = [
@@ -103,7 +114,7 @@ async def button_handler(update, context):
     profile=_bot_profile(context); feature_by_callback={"add_task":"tasks","tasks":"tasks","teams":"teams","templates":"templates","habit_menu":"habits","stats":"reports","import_bulk":"bulk_import","custom_bot":"custom_bots"}; feature=feature_by_callback.get(data)
     if feature and not _feature_enabled(profile,feature): await query.answer("این قابلیت برای این ربات فعال نیست.",show_alert=True); return
     await query.answer()
-    if data=="add_task": return await query.message.reply_text("➕ **افزودن تسک**\n\nروش ثبت تسک را انتخاب کنید:",reply_markup=add_task_options_keyboard(context),parse_mode="Markdown")
+    if data=="add_task": return await show_add_task_menu(update,context)
     if data=="add_task_manual":
         from handlers.task import add_task; return await add_task(update,context)
     if data=="ai_start":
