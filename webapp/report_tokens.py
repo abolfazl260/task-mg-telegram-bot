@@ -29,12 +29,8 @@ def ensure_report_token_table() -> None:
             revoked INTEGER NOT NULL DEFAULT 0
         )"""
     )
-    sync_execute(
-        "CREATE INDEX IF NOT EXISTS idx_web_report_tokens_lookup ON web_report_tokens(token_hash, revoked, expires_at)"
-    )
-    sync_execute(
-        "CREATE INDEX IF NOT EXISTS idx_web_report_tokens_owner ON web_report_tokens(bot_key, user_id, report_type)"
-    )
+    sync_execute("CREATE INDEX IF NOT EXISTS idx_web_report_tokens_lookup ON web_report_tokens(token_hash, revoked, expires_at)")
+    sync_execute("CREATE INDEX IF NOT EXISTS idx_web_report_tokens_owner ON web_report_tokens(bot_key, user_id, report_type)")
 
 
 def create_report_token(bot_key: str, user_id: str, report_type: str = "monthly", ttl_days: int = DEFAULT_TTL_DAYS) -> str:
@@ -53,12 +49,11 @@ def resolve_report_token(token: str) -> dict | None:
     if not token or len(token) < 40:
         return None
     ensure_report_token_table()
-    row = sync_one(
+    return sync_one(
         "web_report_tokens",
         "token_hash=? AND revoked=0 AND expires_at>?",
         (_hash(token), datetime.now(timezone.utc).isoformat()),
     )
-    return row
 
 
 def revoke_report_token(token: str) -> None:
@@ -69,4 +64,4 @@ def revoke_report_token(token: str) -> None:
 
 
 def build_report_url(base_url: str, token: str) -> str:
-    return f"{base_url.rstrip('/')}/report/{quote(token, safe='')}"
+    return f"{base_url.rstrip('/')}/{quote(token, safe='')}"
