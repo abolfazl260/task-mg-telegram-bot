@@ -8,11 +8,12 @@ from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
-from .auth import TelegramWebAppAuthError, validate_init_data
-from .bot_profile import WebAppBotProfileError, set_webapp_bot_context
-from .config import WEBAPP_BOT_TOKEN, WEBAPP_HOST, WEBAPP_PORT
+from .api import authenticate_telegram_request, set_request_bot_context
+from .auth import TelegramWebAppAuthError
+from .bot_profile import WebAppBotProfileError
+from .config import WEBAPP_HOST, WEBAPP_PORT
 from .tasks_api import WebAppTaskAccessError, get_task, list_tasks
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -53,10 +54,15 @@ class WebAppHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _authenticate(self):
-        if not WEBAPP_BOT_TOKEN:
-            raise TelegramWebAppAuthError("WEBAPP_BOT_TOKEN is not configured")
-        return validate_init_data(self.headers.get("X-Telegram-Init-Data", ""), WEBAPP_BOT_TOKEN)
+    def _bot_key(self) -> str:
+        query = parse_qs(urlparse(self.path).query)
+        return (query.get("bot_key") or [""])[0].strip()
+
+    def _authenticate(self, bot_key: str):
+        return authenticate_telegram_request(
+            self.headers.get("X-Telegram-Init-Data", ""),
+            bot_key,
+        )
 
     def _serve_static(self, path: str) -> bool:
         relative = path.removeprefix("/static/") if path.startswith("/static/") else ""
@@ -79,7 +85,8 @@ class WebAppHandler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path in {"/", "/static/index.html"} or path.startswith("/static/"):
             if self._serve_static(path):
                 return
@@ -89,17 +96,18 @@ class WebAppHandler(BaseHTTPRequestHandler):
             self._json(200, {"status": "ok", "service": "telegram-webapp"})
             return
         try:
-            user = self._authenticate()
+            bot_key = self._bot_key()
+            user = self._authenticate(bot_key)
             if path == "/api/me":
-                self._json(200, {"user": user.__dict__})
+                self._json(200, {"user": user.__dict__, "bot_key": bot_key})
                 return
             if path == "/api/tasks":
-                set_webapp_bot_context()
+                set_request_bot_context(bot_key)
                 tasks = self.server.webapp_runtime.submit(list_tasks(user.id))
                 self._json(200, {"tasks": tasks})
                 return
             if path.startswith("/api/tasks/"):
-                set_webapp_bot_context()
+                set_request_bot_context(bot_key)
                 task_id = path.rsplit("/", 1)[-1]
                 task = self.server.webapp_runtime.submit(get_task(user.id, task_id))
                 if task is None:
@@ -111,7 +119,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
         except TelegramWebAppAuthError:
             self._json(401, {"error": "unauthorized"})
         except WebAppBotProfileError:
-            self._json(500, {"error": "webapp_bot_profile_not_configured"})
+            self._json(400, {"error": "invalid_bot_profile"})
         except WebAppTaskAccessError:
             self._json(403, {"error": "forbidden"})
         except Exception:
