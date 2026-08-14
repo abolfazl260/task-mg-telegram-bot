@@ -66,6 +66,7 @@ def monthly_report(token):
 
 
 def _heatmap(token, a):
+    """Build activity heatmap from task deadlines, not task creation timestamps."""
     where, args = _scope(a)
     today = date.today()
     year, month = today.year, today.month
@@ -73,7 +74,11 @@ def _heatmap(token, a):
     next_year = year + (1 if month == 12 else 0)
     next_month = 1 if month == 12 else month + 1
     month_end = date(next_year, next_month, 1).isoformat()
-    rows = _query("SELECT substr(created_at,1,10) day, COUNT(*) count FROM tasks WHERE " + where + " AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<? GROUP BY day ORDER BY day", args + (month_start, month_end))
+    rows = _query(
+        "SELECT substr(deadline,1,10) day, COUNT(*) count FROM tasks WHERE "
+        + where + " AND deadline IS NOT NULL AND deadline!='' AND substr(deadline,1,10)>=? AND substr(deadline,1,10)<? GROUP BY day ORDER BY day",
+        args + (month_start, month_end),
+    )
     counts = {r["day"]: int(r["count"]) for r in rows if r.get("day")}
     days = calendar.monthrange(year, month)[1]
     values = [{"day": d, "date": f"{year:04d}-{month:02d}-{d:02d}", "count": counts.get(f"{year:04d}-{month:02d}-{d:02d}", 0)} for d in range(1, days + 1)]
@@ -82,26 +87,10 @@ def _heatmap(token, a):
 
 
 def _recent_changes(token, a, limit=100):
-    """Return recent activity from existing comment and assignment history tables.
-
-    This is deliberately read-only and lazy-loaded. Status changes are shown when
-    they have been recorded as activity by the task workflow; older rows without
-    an audit event are not fabricated.
-    """
     where, args = _scope(a)
     task_filter = "t.bot_key=? AND t.user_id=?"
-    comments = _query(
-        "SELECT c.id,c.task_id,c.author_id,c.author_name,c.author_username,c.content_json,c.created_at,t.title "
-        "FROM task_comments c JOIN tasks t ON t.id=c.task_id "
-        "WHERE " + task_filter + " ORDER BY c.created_at DESC,c.id DESC LIMIT ?",
-        args + (limit,),
-    )
-    assignments = _query(
-        "SELECT h.id,h.task_id,h.actor_id,h.action,h.old_assignee_name,h.new_assignee_name,h.created_at,t.title "
-        "FROM task_assignment_history h JOIN tasks t ON t.id=h.task_id "
-        "WHERE " + task_filter + " ORDER BY h.created_at DESC,h.id DESC LIMIT ?",
-        args + (limit,),
-    )
+    comments = _query("SELECT c.id,c.task_id,c.author_id,c.author_name,c.author_username,c.content_json,c.created_at,t.title FROM task_comments c JOIN tasks t ON t.id=c.task_id WHERE " + task_filter + " ORDER BY c.created_at DESC,c.id DESC LIMIT ?", args + (limit,))
+    assignments = _query("SELECT h.id,h.task_id,h.actor_id,h.action,h.old_assignee_name,h.new_assignee_name,h.created_at,t.title FROM task_assignment_history h JOIN tasks t ON t.id=h.task_id WHERE " + task_filter + " ORDER BY h.created_at DESC,h.id DESC LIMIT ?", args + (limit,))
     events = []
     for r in comments:
         try: content = json.loads(r.get("content_json") or "{}")
@@ -114,14 +103,11 @@ def _recent_changes(token, a, limit=100):
     for r in assignments:
         action = r.get("action") or "assigned"
         if action in ("unassigned", "removed"):
-            title = "مسئولیت تسک را حذف کرد"
-            text = f"مسئول قبلی: {r.get('old_assignee_name') or '—'}"
+            title = "مسئولیت تسک را حذف کرد"; text = f"مسئول قبلی: {r.get('old_assignee_name') or '—'}"
         elif action in ("claimed", "self_assigned"):
-            title = "تسک را برای خود برداشت"
-            text = f"مسئول: {r.get('new_assignee_name') or '—'}"
+            title = "تسک را برای خود برداشت"; text = f"مسئول: {r.get('new_assignee_name') or '—'}"
         else:
-            title = "مسئول تسک را تغییر داد"
-            text = f"{r.get('old_assignee_name') or 'بدون مسئول'} ← {r.get('new_assignee_name') or 'بدون مسئول'}"
+            title = "مسئول تسک را تغییر داد"; text = f"{r.get('old_assignee_name') or 'بدون مسئول'} ← {r.get('new_assignee_name') or 'بدون مسئول'}"
         events.append({"id": f"assignment-{r['id']}", "kind":"assignment", "icon":"👤", "title":title, "task_id":r.get("task_id"), "task_title":r.get("title") or "بدون عنوان", "actor":r.get("actor_id") or "کاربر", "actor_username":"", "text":text, "created_at":r.get("created_at") or ""})
     events.sort(key=lambda x: (x.get("created_at") or "", x.get("id") or ""), reverse=True)
     return {"section":"recent_changes", "total":len(events), "events":events[:limit]}
