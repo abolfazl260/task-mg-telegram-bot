@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>داشبورد مدیریت</title>
   <link rel="stylesheet" href="/static/admin/admin.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
   <main class="container">
@@ -18,6 +19,20 @@
       <article class="card"><span>🆕 کاربران جدید</span><strong id="newUsers">—</strong><small>۷ روز اخیر</small></article>
       <article class="card"><span>🟢 کاربران فعال</span><strong id="activeUsers">—</strong><small>۳۰ روز اخیر</small></article>
       <article class="card"><span>📋 کل وظایف</span><strong id="totalTasks">—</strong></article>
+    </section>
+
+    <section class="panel users-panel">
+      <div class="panel-title"><h2>مدیریت کاربران</h2><span id="usersTotal" class="user-meta"></span></div>
+      <div class="user-tools"><input id="userSearch" type="search" placeholder="جستجو: نام، نام خانوادگی، Username یا Telegram ID" autocomplete="off"><button id="searchButton">جستجو</button></div>
+      <div id="usersList" class="users-table"></div>
+      <div class="pagination"><button id="prevUsers" disabled>قبلی</button><span id="pageInfo">صفحه ۱</span><button id="nextUsers" disabled>بعدی</button></div>
+    </section>
+
+    <section id="userDetails" class="panel details-panel" hidden>
+      <div class="panel-title"><h2>پروفایل کاربر</h2><button id="closeDetails">بستن</button></div>
+      <div id="profile"></div>
+      <div class="panel-title task-title"><h2>تسک‌های کاربر</h2></div>
+      <div id="userTasks" class="user-tasks"></div>
     </section>
 
     <section class="grid">
