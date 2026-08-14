@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
 from urllib.parse import parse_qs, urlparse
+from .config import WEBAPP_HOST, WEBAPP_PORT
 from .api import authenticate_telegram_request
 from .auth import TelegramWebAppAuthError
 from .bot_profile import WebAppBotProfileError
