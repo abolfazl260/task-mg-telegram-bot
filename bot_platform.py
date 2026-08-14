@@ -35,13 +35,12 @@ DEFAULT_FEATURES = {
     "unassigned": True,
 }
 
+# Main menu: keep every existing capability, but make the home screen compact.
 DEFAULT_MENU = [
     {"label": "➕ افزودن تسک", "callback_data": "add_task", "feature": "tasks"},
     {"label": "📋 تسک‌ها", "callback_data": "tasks", "feature": "tasks"},
-    {"label": "👥 تیم‌ها", "callback_data": "teams", "feature": "teams"},
-    {"label": "🧩 تمپلیت‌ها", "callback_data": "templates", "feature": "templates"},
-    {"label": "🌱 مدیریت عادت‌ها", "callback_data": "habit_menu", "feature": "habits"},
-    {"label": "📊 گزارشات", "callback_data": "stats", "feature": "reports"},
+    {"label": "🌱 عادت من", "callback_data": "habit_menu", "feature": "habits"},
+    {"label": "📊 گزارش", "callback_data": "stats", "feature": "reports"},
     {"label": "📖 راهنما", "callback_data": "help"},
     {"label": "⚙️ تنظیمات", "callback_data": "settings"},
     {"label": "📞 ارتباط با ما", "callback_data": "contact_us"},
@@ -145,8 +144,6 @@ def _custom_bot_profiles() -> list[BotProfile]:
     for row in read_custom_bots(include_tokens=True):
         if row.get("status") != "active" or not row.get("bot_token"):
             continue
-        # A custom bot starts with every feature disabled. The selected
-        # features from the management UI are then enabled explicitly.
         features = {name: False for name in DEFAULT_FEATURES}
         selected = [item.strip() for item in row.get("features", "").split(",") if item.strip()]
         for feature in selected:
@@ -173,23 +170,15 @@ def load_bot_profiles() -> list[BotProfile]:
     """Load the legacy bot, static profiles, and active self-service custom bots."""
     load_dotenv(BASE_DIR / ".env")
     profile_names = [item.strip() for item in os.getenv("BOT_PROFILES", "").split(",") if item.strip()]
-
-    # BOT_TOKEN remains the original Task Manager bot. It is intentionally
-    # loaded alongside BOT_PROFILES so adding a second bot cannot disable it.
     profiles: list[BotProfile] = []
     legacy_profile = _legacy_default_profile()
     if legacy_profile is not None:
         profiles.append(legacy_profile)
-
     if profile_names:
         profiles.extend(_load_json_profile(BOTS_DIR / f"{name}.json") for name in profile_names)
     elif not profiles:
         raise RuntimeError("Set BOT_TOKEN for one bot or BOT_PROFILES with per-bot token env vars.")
-
     profiles.extend(_custom_bot_profiles())
-
-    # Avoid starting the same profile twice if the legacy/default profile is
-    # also listed explicitly in BOT_PROFILES.
     unique: dict[str, BotProfile] = {}
     for profile in profiles:
         if profile.active:
@@ -200,9 +189,6 @@ def load_bot_profiles() -> list[BotProfile]:
 async def run_applications(apps: list[Application]) -> None:
     """Run multiple python-telegram-bot applications in one event loop."""
     for app in apps:
-        # Apply per-profile task options after all handlers are registered.
-        # This keeps the core task handler shared by every bot while allowing
-        # each profile to enable/disable assignment, tags, comments, etc.
         install_task_capabilities(app)
         await app.initialize()
         await app.start()
