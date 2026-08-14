@@ -1,14 +1,18 @@
 """Web report data access, scoped by an opaque report token.
 
 The dashboard loads aggregates only. Detailed views are loaded on demand.
+This module intentionally uses a short-lived read-only SQLite connection so
+it does not require changes to the shared database service API.
 """
 from __future__ import annotations
 
 import calendar
+import sqlite3
 from datetime import date, datetime, timezone
+
 import jdatetime
 
-from services.database import sync_scalar, sync_query
+from services.database import DB_PATH
 from .report_tokens import resolve_report_token
 
 
@@ -41,6 +45,19 @@ def _jalali_month(y, m):
     return jdatetime.date.fromgregorian(year=y, month=m, day=1).strftime("%B %Y")
 
 
+def _query(sql, params=(), *, scalar=False):
+    """Run a short-lived read query without changing services/database.py."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=10000")
+        cur = conn.execute(sql, tuple(params))
+        if scalar:
+            row = cur.fetchone()
+            return row[0] if row else 0
+        return [dict(row) for row in cur.fetchall()]
+
+
 def monthly_report(token):
     """Dashboard payload only; never returns task rows."""
     a = _access(token)
@@ -48,16 +65,16 @@ def monthly_report(token):
         return None
     start, end, args = _scope(a)
     where = "bot_key=? AND user_id=? AND created_at>=? AND created_at<?"
-    total = sync_scalar("SELECT COUNT(*) FROM tasks WHERE " + where, args)
-    done = sync_scalar("SELECT COUNT(*) FROM tasks WHERE " + where + " AND status='done'", args)
-    in_progress = sync_scalar("SELECT COUNT(*) FROM tasks WHERE " + where + " AND status='in_progress'", args)
-    pending = sync_scalar("SELECT COUNT(*) FROM tasks WHERE " + where + " AND status='pending'", args)
-    cancelled = sync_scalar("SELECT COUNT(*) FROM tasks WHERE " + where + " AND status IN ('cancelled','canceled')", args)
-    with_deadline = sync_scalar("SELECT COUNT(*) FROM tasks WHERE " + where + " AND deadline IS NOT NULL AND deadline!=''", args)
-    overdue = sync_scalar("SELECT COUNT(*) FROM tasks WHERE " + where + " AND deadline IS NOT NULL AND deadline!='' AND deadline<? AND status NOT IN ('done','cancelled','canceled')", args + (date.today().isoformat(),))
-    statuses = sync_query("SELECT COALESCE(NULLIF(status,''),'pending') key,COUNT(*) count FROM tasks WHERE " + where + " GROUP BY key ORDER BY count DESC", args)
-    priorities = sync_query("SELECT COALESCE(NULLIF(priority,''),'medium') key,COUNT(*) count FROM tasks WHERE " + where + " GROUP BY key ORDER BY count DESC", args)
-    cats = sync_query("SELECT COALESCE(NULLIF(TRIM(category),''),'بدون دسته‌بندی') label,COUNT(*) count FROM tasks WHERE " + where + " GROUP BY label ORDER BY count DESC", args)
+    total = _query("SELECT COUNT(*) FROM tasks WHERE " + where, args, scalar=True)
+    done = _query("SELECT COUNT(*) FROM tasks WHERE " + where + " AND status='done'", args, scalar=True)
+    in_progress = _query("SELECT COUNT(*) FROM tasks WHERE " + where + " AND status='in_progress'", args, scalar=True)
+    pending = _query("SELECT COUNT(*) FROM tasks WHERE " + where + " AND status='pending'", args, scalar=True)
+    cancelled = _query("SELECT COUNT(*) FROM tasks WHERE " + where + " AND status IN ('cancelled','canceled')", args, scalar=True)
+    with_deadline = _query("SELECT COUNT(*) FROM tasks WHERE " + where + " AND deadline IS NOT NULL AND deadline!=''", args, scalar=True)
+    overdue = _query("SELECT COUNT(*) FROM tasks WHERE " + where + " AND deadline IS NOT NULL AND deadline!='' AND deadline<? AND status NOT IN ('done','cancelled','canceled')", args + (date.today().isoformat(),), scalar=True)
+    statuses = _query("SELECT COALESCE(NULLIF(status,''),'pending') key,COUNT(*) count FROM tasks WHERE " + where + " GROUP BY key ORDER BY count DESC", args)
+    priorities = _query("SELECT COALESCE(NULLIF(priority,''),'medium') key,COUNT(*) count FROM tasks WHERE " + where + " GROUP BY key ORDER BY count DESC", args)
+    cats = _query("SELECT COALESCE(NULLIF(TRIM(category),''),'بدون دسته‌بندی') label,COUNT(*) count FROM tasks WHERE " + where + " GROUP BY label ORDER BY count DESC", args)
     return {
         "report_type": "web",
         "period": {"gregorian": f"{start} تا {date.fromisoformat(end).fromordinal(date.fromisoformat(end).toordinal()-1)}", "jalali": _jalali_month(datetime.now(timezone.utc).year, datetime.now(timezone.utc).month)},
@@ -83,12 +100,10 @@ def report_section(token, section, page=1, page_size=25):
     if section == "deadlines":
         where += " AND deadline IS NOT NULL AND deadline!=''"
     if section == "calendar":
-        # Calendar is intentionally loaded only after the user clicks it.
-        rows = sync_query("SELECT id,title,status,priority,deadline,category FROM tasks WHERE " + where + " AND deadline IS NOT NULL AND deadline!='' ORDER BY deadline ASC,id DESC LIMIT 200", args)
+        rows = _query("SELECT id,title,status,priority,deadline,category FROM tasks WHERE " + where + " AND deadline IS NOT NULL AND deadline!='' ORDER BY deadline ASC,id DESC LIMIT 200", args)
         return {"section": section, "rows": [{"id": r.get("id"), "title": r.get("title", ""), "status": r.get("status", ""), "status_label": _status_label(r.get("status", "")), "priority_label": _priority_label(r.get("priority", "")), "deadline": r.get("deadline") or "", "category": r.get("category") or ""} for r in rows]}
     if section == "kanban":
-        # Kanban is also lazy-loaded. Limit each board to 50 cards.
-        rows = sync_query("SELECT id,title,status,priority,deadline,category FROM tasks WHERE " + where + " ORDER BY id DESC LIMIT 200", args)
+        rows = _query("SELECT id,title,status,priority,deadline,category FROM tasks WHERE " + where + " ORDER BY id DESC LIMIT 200", args)
         columns = {"pending": [], "in_progress": [], "done": [], "cancelled": []}
         for r in rows:
             key = r.get("status") or "pending"
@@ -100,6 +115,6 @@ def report_section(token, section, page=1, page_size=25):
         return {"section": section, "columns": columns, "limited": len(rows) >= 200}
     offset = (page - 1) * page_size
     order = {"deadlines": "deadline ASC,id DESC", "status": "status ASC,id DESC", "priority": "priority ASC,id DESC", "category": "category ASC,id DESC", "tasks": "deadline ASC,id DESC"}[section]
-    total = sync_scalar("SELECT COUNT(*) FROM tasks WHERE " + where, args)
-    rows = sync_query("SELECT id,title,status,priority,deadline,category FROM tasks WHERE " + where + f" ORDER BY {order} LIMIT ? OFFSET ?", tuple(args) + (page_size, offset))
+    total = _query("SELECT COUNT(*) FROM tasks WHERE " + where, args, scalar=True)
+    rows = _query("SELECT id,title,status,priority,deadline,category FROM tasks WHERE " + where + f" ORDER BY {order} LIMIT ? OFFSET ?", tuple(args) + (page_size, offset))
     return {"section": section, "page": page, "page_size": page_size, "total": total, "pages": max(1, (total + page_size - 1) // page_size), "rows": [{"id": r.get("id"), "title": r.get("title", ""), "status_label": _status_label(r.get("status", "")), "priority_label": _priority_label(r.get("priority", "")), "deadline": r.get("deadline") or "", "category": r.get("category") or ""} for r in rows]}
