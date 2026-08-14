@@ -1,5 +1,3 @@
-from urllib.parse import quote
-
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from handlers.reports import show_reports_menu
