@@ -11,6 +11,7 @@ from .api import authenticate_telegram_request
 from .config import WEBAPP_BASE_URL
 from .report_tokens import build_report_url, create_report_token
 from .reports import monthly_report
+from services.calendar_runtime_extensions import viewer_id
 
 
 def _json(handler, status: int, payload: dict) -> None:
@@ -68,8 +69,14 @@ def handle_report_api(handler) -> bool:
 
 
 def add_monthly_web_button(markup: InlineKeyboardMarkup, user_id=None) -> InlineKeyboardMarkup:
-    """Use a normal URL button because Telegram WebAppInfo requires HTTPS."""
-    if user_id is None:return markup
-    token=create_report_token(get_current_bot_key(),str(user_id),"monthly");url=build_report_url(WEBAPP_BASE_URL,token)
-    rows=[list(row) for row in markup.inline_keyboard];rows.insert(0,[InlineKeyboardButton("📊 گزارش ماهانه تحت وب",url=url)])
+    """Add a normal URL button. It is intentionally NOT a Telegram Web App button."""
+    if user_id is None:
+        user_id = viewer_id()
+    if not user_id:
+        return markup
+    token=create_report_token(get_current_bot_key(),str(user_id),"monthly")
+    url=build_report_url(WEBAPP_BASE_URL,token)
+    rows=[list(row) for row in markup.inline_keyboard]
+    if not any(button.text == "📊 گزارش ماهانه تحت وب" for row in rows for button in row):
+        rows.insert(0,[InlineKeyboardButton("📊 گزارش ماهانه تحت وب",url=url)])
     return InlineKeyboardMarkup(rows)
