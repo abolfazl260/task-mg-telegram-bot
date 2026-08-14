@@ -1,25 +1,16 @@
 """Web report data access, scoped by an opaque report token.
 
-The dashboard loads aggregates only. Detailed views are loaded on demand.
-This module intentionally uses a short-lived read-only SQLite connection so
-it does not require changes to the shared database service API.
+The web report is an all-tasks dashboard, not a monthly report. The initial
+payload contains only aggregates; detailed tables/kanban/calendar data are
+loaded only when the user selects a section.
 """
 from __future__ import annotations
 
-import calendar
 import sqlite3
-from datetime import date, datetime, timezone
-
-import jdatetime
+from datetime import date
 
 from services.database import DB_PATH
 from .report_tokens import resolve_report_token
-
-
-def _month_bounds(year, month):
-    first = date(year, month, 1)
-    last = date(year, month, calendar.monthrange(year, month)[1])
-    return first.isoformat(), last.fromordinal(last.toordinal() + 1).isoformat()
 
 
 def _status_label(s):
@@ -36,17 +27,10 @@ def _access(token):
 
 
 def _scope(a):
-    now = datetime.now(timezone.utc).date()
-    start, end = _month_bounds(now.year, now.month)
-    return start, end, (a["bot_key"], str(a["user_id"]), start, end)
-
-
-def _jalali_month(y, m):
-    return jdatetime.date.fromgregorian(year=y, month=m, day=1).strftime("%B %Y")
+    return "bot_key=? AND user_id=?", (str(a["bot_key"]), str(a["user_id"]))
 
 
 def _query(sql, params=(), *, scalar=False):
-    """Run a short-lived read query without changing services/database.py."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(DB_PATH, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
@@ -59,25 +43,24 @@ def _query(sql, params=(), *, scalar=False):
 
 
 def monthly_report(token):
-    """Dashboard payload only; never returns task rows."""
+    """Return the lightweight dashboard summary for all tasks of the user."""
     a = _access(token)
     if not a:
         return None
-    start, end, args = _scope(a)
-    where = "bot_key=? AND user_id=? AND created_at>=? AND created_at<?"
+    where, args = _scope(a)
     total = _query("SELECT COUNT(*) FROM tasks WHERE " + where, args, scalar=True)
     done = _query("SELECT COUNT(*) FROM tasks WHERE " + where + " AND status='done'", args, scalar=True)
     in_progress = _query("SELECT COUNT(*) FROM tasks WHERE " + where + " AND status='in_progress'", args, scalar=True)
     pending = _query("SELECT COUNT(*) FROM tasks WHERE " + where + " AND status='pending'", args, scalar=True)
     cancelled = _query("SELECT COUNT(*) FROM tasks WHERE " + where + " AND status IN ('cancelled','canceled')", args, scalar=True)
     with_deadline = _query("SELECT COUNT(*) FROM tasks WHERE " + where + " AND deadline IS NOT NULL AND deadline!=''", args, scalar=True)
-    overdue = _query("SELECT COUNT(*) FROM tasks WHERE " + where + " AND deadline IS NOT NULL AND deadline!='' AND deadline<? AND status NOT IN ('done','cancelled','canceled')", args + (date.today().isoformat(),), scalar=True)
+    overdue = _query("SELECT COUNT(*) FROM tasks WHERE " + where + " AND deadline IS NOT NULL AND deadline!='' AND substr(deadline,1,10)<? AND status NOT IN ('done','cancelled','canceled')", args + (date.today().isoformat(),), scalar=True)
     statuses = _query("SELECT COALESCE(NULLIF(status,''),'pending') key,COUNT(*) count FROM tasks WHERE " + where + " GROUP BY key ORDER BY count DESC", args)
     priorities = _query("SELECT COALESCE(NULLIF(priority,''),'medium') key,COUNT(*) count FROM tasks WHERE " + where + " GROUP BY key ORDER BY count DESC", args)
     cats = _query("SELECT COALESCE(NULLIF(TRIM(category),''),'بدون دسته‌بندی') label,COUNT(*) count FROM tasks WHERE " + where + " GROUP BY label ORDER BY count DESC", args)
     return {
         "report_type": "web",
-        "period": {"gregorian": f"{start} تا {date.fromisoformat(end).fromordinal(date.fromisoformat(end).toordinal()-1)}", "jalali": _jalali_month(datetime.now(timezone.utc).year, datetime.now(timezone.utc).month)},
+        "period": {"label": "همه وظایف", "gregorian": "از ابتدای ثبت اطلاعات تا امروز"},
         "summary": {"total": total, "done": done, "in_progress": in_progress, "pending": pending, "cancelled": cancelled, "completion_rate": round(done / total * 100) if total else 0, "with_deadline": with_deadline, "without_deadline": total - with_deadline, "overdue": overdue},
         "by_status": [{"key": r["key"], "label": _status_label(r["key"]), "count": r["count"]} for r in statuses],
         "by_priority": [{"key": r["key"], "label": _priority_label(r["key"]), "count": r["count"]} for r in priorities],
@@ -95,8 +78,7 @@ def report_section(token, section, page=1, page_size=25):
         return {"error": "invalid_section"}
     page = max(1, int(page))
     page_size = min(50, max(1, int(page_size)))
-    start, end, args = _scope(a)
-    where = "bot_key=? AND user_id=? AND created_at>=? AND created_at<?"
+    where, args = _scope(a)
     if section == "deadlines":
         where += " AND deadline IS NOT NULL AND deadline!=''"
     if section == "calendar":
@@ -114,7 +96,7 @@ def report_section(token, section, page=1, page_size=25):
             columns[key] = columns[key][:50]
         return {"section": section, "columns": columns, "limited": len(rows) >= 200}
     offset = (page - 1) * page_size
-    order = {"deadlines": "deadline ASC,id DESC", "status": "status ASC,id DESC", "priority": "priority ASC,id DESC", "category": "category ASC,id DESC", "tasks": "deadline ASC,id DESC"}[section]
+    order = {"deadlines": "deadline ASC,id DESC", "status": "status ASC,id DESC", "priority": "priority ASC,id DESC", "category": "category ASC,id DESC", "tasks": "created_at DESC,id DESC"}[section]
     total = _query("SELECT COUNT(*) FROM tasks WHERE " + where, args, scalar=True)
     rows = _query("SELECT id,title,status,priority,deadline,category FROM tasks WHERE " + where + f" ORDER BY {order} LIMIT ? OFFSET ?", tuple(args) + (page_size, offset))
     return {"section": section, "page": page, "page_size": page_size, "total": total, "pages": max(1, (total + page_size - 1) // page_size), "rows": [{"id": r.get("id"), "title": r.get("title", ""), "status_label": _status_label(r.get("status", "")), "priority_label": _priority_label(r.get("priority", "")), "deadline": r.get("deadline") or "", "category": r.get("category") or ""} for r in rows]}
