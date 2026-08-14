@@ -4,7 +4,7 @@ from functools import partial
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from handlers.menu import main_menu
+from handlers.menu import main_menu, main_menu_summary
 from services.team_service import join_team_by_code, find_team_by_code
 
 
@@ -107,4 +107,8 @@ a
         data={"chat_id": update.effective_chat.id, "rich_message": {"markdown": text}},
     )
 
-    await update.message.reply_text("منوی اصلی:", reply_markup=main_menu(context))
+    await update.message.reply_text(
+        main_menu_summary(user.id) + "\n\nمنوی اصلی:",
+        reply_markup=main_menu(context),
+        parse_mode="Markdown",
+    )
