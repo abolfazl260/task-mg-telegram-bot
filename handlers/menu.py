@@ -7,7 +7,7 @@ from services.habit_service import get_user_habits
 from services.task_service import get_all_user_tasks
 from services.team_service import get_user_teams
 from services.timezone_service import build_timezone_keyboard, build_timezone_text
-from services.user_service import get_user_date_format, set_user_date_format
+from services.user_service import get_user_date_format, set_user_date_format, validate_timezone, set_user_timezone
 
 def _bot_profile(context=None):
     return context.bot_data.get("bot_config") if context is not None else None
@@ -45,24 +45,17 @@ def main_menu_summary(user_id):
 def add_task_options_keyboard(context=None):
     profile = _bot_profile(context)
     rows = [[InlineKeyboardButton("📝 ثبت تسک جدید", callback_data="add_task_manual")]]
-    if _feature_enabled(profile, "bulk_import"):
-        rows.append([InlineKeyboardButton("📥 ثبت گروهی", callback_data="import_bulk")])
-    if _feature_enabled(profile, "ai"):
-        rows.append([InlineKeyboardButton("🤖 ثبت با هوش مصنوعی", callback_data="ai_start")])
-    if _feature_enabled(profile, "templates"):
-        rows.append([InlineKeyboardButton("🧩 انتخاب از تمپلیت‌ها", callback_data="templates")])
+    if _feature_enabled(profile, "bulk_import"): rows.append([InlineKeyboardButton("📥 ثبت گروهی", callback_data="import_bulk")])
+    if _feature_enabled(profile, "ai"): rows.append([InlineKeyboardButton("🤖 ثبت با هوش مصنوعی", callback_data="ai_start")])
+    if _feature_enabled(profile, "templates"): rows.append([InlineKeyboardButton("🧩 انتخاب از تمپلیت‌ها", callback_data="templates")])
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="tasks_back")])
     return InlineKeyboardMarkup(rows)
 
 async def show_add_task_menu(update, context):
-    """Single entry point for /add and the main-menu add-task button."""
     message = update.effective_message
-    if message is None and update.callback_query:
-        message = update.callback_query.message
-    if message is None:
-        return
-    if update.callback_query:
-        await update.callback_query.answer()
+    if message is None and update.callback_query: message = update.callback_query.message
+    if message is None: return
+    if update.callback_query: await update.callback_query.answer()
     await message.reply_text("➕ **افزودن تسک**\n\nروش ثبت تسک را انتخاب کنید:", reply_markup=add_task_options_keyboard(context), parse_mode="Markdown")
 
 def tasks_options_keyboard(context=None):
@@ -116,12 +109,9 @@ async def button_handler(update, context):
     await query.answer()
     if data=="add_task": return await show_add_task_menu(update,context)
     if data=="add_task_manual":
-        context.user_data["new_task"] = {}
-        context.user_data["step"] = "title"
-        return await query.message.reply_text("📝 عنوان تسک را وارد کنید:")
+        context.user_data["new_task"] = {}; context.user_data["step"] = "title"; return await query.message.reply_text("📝 عنوان تسک را وارد کنید:")
     if data=="ai_start":
-        from handlers.ai import _ai_examples_text,_ai_examples_keyboard
-        return await query.message.reply_text(_ai_examples_text(),reply_markup=_ai_examples_keyboard(),parse_mode="Markdown")
+        from handlers.ai import _ai_examples_text,_ai_examples_keyboard; return await query.message.reply_text(_ai_examples_text(),reply_markup=_ai_examples_keyboard(),parse_mode="Markdown")
     if data=="tasks": return await query.message.reply_text("📋 **منوی تسک‌ها**",reply_markup=tasks_options_keyboard(context),parse_mode="Markdown")
     if data=="tasks_list":
         from handlers.task_pagination import paginated_list_tasks; return await paginated_list_tasks(update,context)
@@ -137,6 +127,14 @@ async def button_handler(update, context):
     if data=="settings_timezone": return await query.message.reply_text(timezone_text(update.effective_user.id),reply_markup=timezone_keyboard(update.effective_user.id),parse_mode="Markdown")
     if data=="settings_date_format": return await query.message.reply_text(date_format_text(update.effective_user.id),reply_markup=date_format_keyboard(update.effective_user.id),parse_mode="Markdown")
     if data=="settings_language": return await query.message.reply_text("🌐 **تغییر زبان**\n\nزبان مورد نظر خود را انتخاب کنید:",reply_markup=language_keyboard(),parse_mode="Markdown")
+    if data.startswith("timezone_set_"):
+        tz_name=data[len("timezone_set_"):]
+        if not validate_timezone(tz_name):
+            await query.answer("منطقه زمانی نامعتبر است.",show_alert=True); return
+        if not set_user_timezone(update.effective_user.id,tz_name):
+            await query.answer("ذخیره منطقه زمانی انجام نشد.",show_alert=True); return
+        await query.answer("منطقه زمانی ذخیره شد.")
+        return await query.message.edit_text(timezone_text(update.effective_user.id),reply_markup=timezone_keyboard(update.effective_user.id),parse_mode="Markdown")
     if data in {"date_format_jalali","date_format_gregorian"}:
         set_user_date_format(update.effective_user.id,"jalali" if data.endswith("jalali") else "gregorian"); return await query.message.reply_text(date_format_text(update.effective_user.id),reply_markup=date_format_keyboard(update.effective_user.id),parse_mode="Markdown")
     if data in {"language_fa","language_en"}: await query.answer("تغییر زبان در نسخه فعلی هنوز فعال نشده است.",show_alert=True); return
