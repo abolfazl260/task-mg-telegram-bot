@@ -8,6 +8,7 @@ from services.database import get_db
 from bot_context import get_current_bot_key
 
 logger = logging.getLogger(__name__)
+MAX_TAG_LENGTH = 30
 
 
 async def recent_tag_keyboard(user_id: int, limit: int = 3):
@@ -30,7 +31,7 @@ async def recent_tag_keyboard(user_id: int, limit: int = 3):
     recent_tags, seen = [], set()
     for row in rows:
         for tag in str(row[0] or "").replace("\n", ",").replace("،", ",").split(","):
-            tag = tag.strip().lstrip("#")
+            tag = tag.strip().lstrip("#")[:MAX_TAG_LENGTH]
             if not tag or tag.casefold() in seen:
                 continue
             seen.add(tag.casefold())
