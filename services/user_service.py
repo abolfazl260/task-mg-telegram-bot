@@ -3,7 +3,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from services.database import fetch_all, fetch_one, execute, get_db, init_db, _run
 
-DEFAULT_TIMEZONE = "UTC"
+# All users start with Tehran time. Users can explicitly change this in Settings.
+DEFAULT_TIMEZONE = "Asia/Tehran"
 DEFAULT_DATE_FORMAT = "jalali"
 
 async def init_users():
@@ -15,6 +16,7 @@ async def read_users_async():
         row["user_id"] = str(row.get("user_id", ""))
         row["messages_count"] = str(row.get("messages_count") or 0)
         row["date_format"] = row.get("date_format") or DEFAULT_DATE_FORMAT
+        row["timezone"] = row.get("timezone") or DEFAULT_TIMEZONE
     return rows
 
 def read_users():
@@ -28,7 +30,7 @@ def validate_timezone(tz_name: str) -> bool:
         return False
 
 async def record_user_async(user, increment_usage=True):
-    """Atomic user upsert with correct new-user detection."""
+    """Atomic user upsert with Tehran as the default timezone."""
     if not user:
         return False
     uid = str(user.id)
@@ -54,7 +56,6 @@ async def record_user_async(user, increment_usage=True):
     return is_new
 
 def record_user(user, increment_usage=True):
-    """Legacy sync facade. Async handlers should await record_user_async()."""
     return _run(record_user_async(user, increment_usage))
 
 async def set_user_timezone_async(user_id, tz_name: str) -> bool:
