@@ -15,7 +15,6 @@ try:
     _original_set_my_commands = Bot.set_my_commands
     if not getattr(_original_set_my_commands, "_taskmg_ordered", False):
         _command_priority = {"ai": 0, "start": 1, "add": 2, "reports": 3}
-
         @wraps(_original_set_my_commands)
         async def _ordered_set_my_commands(self, commands, *args, **kwargs):
             commands = [c for c in list(commands) if c.command != "templates"]
@@ -24,7 +23,6 @@ try:
             indexed = list(enumerate(commands))
             indexed.sort(key=lambda item: (_command_priority.get(item[1].command, 1000), item[0]))
             return await _original_set_my_commands(self, [c for _, c in indexed], *args, **kwargs)
-
         _ordered_set_my_commands._taskmg_ordered = True
         Bot.set_my_commands = _ordered_set_my_commands
 except Exception:
@@ -35,7 +33,6 @@ def _install_safe_category_flow(task_handler):
     """Use stable numeric category callback IDs without changing tag callbacks."""
     if getattr(task_handler, "_safe_category_flow_installed", False):
         return
-
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     async def _category_options(user_id, limit=10):
@@ -53,10 +50,7 @@ def _install_safe_category_flow(task_handler):
 
     async def _category_keyboard(user_id):
         categories = await _category_options(user_id)
-        rows = [
-            [InlineKeyboardButton(f"📂 {category}", callback_data=f"category_pick_{index}")]
-            for index, category in enumerate(categories)
-        ]
+        rows = [[InlineKeyboardButton(f"📂 {category}", callback_data=f"category_pick_{index}")] for index, category in enumerate(categories)]
         rows.append([InlineKeyboardButton("⏭ رد کردن", callback_data="category_skip")])
         return InlineKeyboardMarkup(rows)
 
@@ -73,31 +67,31 @@ def _install_safe_category_flow(task_handler):
         data = query.data or ""
         if not data.startswith("category_pick_"):
             return await _taskmg_original_optional_field_callback(update, context)
-
         task = context.user_data.get("new_task")
         if not isinstance(task, dict):
             await query.answer("فرایند ایجاد تسک فعال نیست.", show_alert=True)
             return
-
         try:
             index = int(data[len("category_pick_"):])
         except (TypeError, ValueError):
             await query.answer("دسته‌بندی انتخاب‌شده معتبر نیست.", show_alert=True)
             return
-
         categories = await _taskmg_category_options(update.effective_user.id)
         if index < 0 or index >= len(categories):
             await query.answer("این دسته‌بندی دیگر در دسترس نیست.", show_alert=True)
             return
-
         await query.answer()
         task["category"] = categories[index]
-        await task_handler._ask_tags(query.message, context)
+        await _taskmg_task_handler._ask_tags(query.message, context)
 
+    # The dispatcher above intentionally has no closure variables so its code
+    # object can safely replace the function object already imported by main.py.
     task_handler._taskmg_category_options = _category_options
+    task_handler._taskmg_task_handler = task_handler
     task_handler._safe_category_optional_callback = _safe_optional_dispatch
     task_handler.optional_field_callback.__globals__["_taskmg_original_optional_field_callback"] = task_handler._taskmg_original_optional_field_callback
     task_handler.optional_field_callback.__globals__["_taskmg_category_options"] = _category_options
+    task_handler.optional_field_callback.__globals__["_taskmg_task_handler"] = task_handler
     task_handler.optional_field_callback.__code__ = _safe_optional_dispatch.__code__
     task_handler._category_keyboard = _category_keyboard
     task_handler._safe_category_flow_installed = True
@@ -107,16 +101,13 @@ def _wrap_tag_flow_installer(tag_module):
     original = getattr(tag_module, "install_tag_flow", None)
     if original is None or getattr(original, "_taskmg_wrapped", False):
         return
-
     @wraps(original)
     def _wrapped_install_tag_flow(task_module):
         result = original(task_module)
         _install_safe_category_flow(task_module)
         return result
-
     _wrapped_install_tag_flow._taskmg_wrapped = True
     tag_module.install_tag_flow = _wrapped_install_tag_flow
-
 
 try:
     _original_import = builtins.__import__
@@ -134,7 +125,6 @@ try:
             except Exception:
                 pass
             return module
-
         _taskmg_import._taskmg_import_hook = True
         builtins.__import__ = _taskmg_import
 except Exception:
@@ -152,7 +142,6 @@ try:
                 if safe_callback is not None:
                     callback = safe_callback
             return _original_callback_handler_init(self, callback, pattern, *args, **kwargs)
-
         _category_safe_callback_handler_init._taskmg_category_handler = True
         CallbackQueryHandler.__init__ = _category_safe_callback_handler_init
 except Exception:
