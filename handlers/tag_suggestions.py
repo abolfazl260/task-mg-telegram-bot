@@ -1,6 +1,8 @@
 from .tag_suggestions_legacy import *
 from .tag_suggestions_legacy import install_tag_flow as _legacy_install_tag_flow
 
+MAX_TASK_FIELD_LENGTH = 30
+
 
 async def handle_tag_text(update, context):
     """Handle a typed tag before delegating to the normal task text flow."""
@@ -14,7 +16,14 @@ async def handle_tag_text(update, context):
     if not isinstance(task, dict) or not text:
         return await task_module.save_task(update, context)
 
-    task["tags"] = text[:120]
+    if len(text) > MAX_TASK_FIELD_LENGTH:
+        await update.effective_message.reply_text(
+            f"⚠️ تگ نمی‌تواند بیشتر از {MAX_TASK_FIELD_LENGTH} کاراکتر باشد.\n"
+            "لطفاً تگ کوتاه‌تری وارد کنید."
+        )
+        return True
+
+    task["tags"] = text
     context.user_data.pop("tag_suggestions", None)
     context.user_data.pop("awaiting_tag_input", None)
     await task_module._ask_description(update.effective_message, context)
@@ -31,6 +40,34 @@ def _patched_save_task(update, context):
 
 def _patched_ai_task_callback(update, context):
     return _AI_ADD_CALLBACK(update, context)
+
+
+def _truncate_field(value):
+    return str(value or "").strip()[:MAX_TASK_FIELD_LENGTH]
+
+
+def _patched_category_keyboard_factory(task_module):
+    async def category_keyboard(user_id):
+        categories = []
+        seen = set()
+        for task in await task_module.get_active_tasks_async(user_id):
+            category = (task.get("category") or "").strip()
+            key = category.casefold()
+            if category and key not in seen:
+                seen.add(key)
+                categories.append(_truncate_field(category))
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        rows = [
+            [InlineKeyboardButton(f"📂 {category}", callback_data=f"category_pick_{category}")]
+            for category in categories[:10]
+        ]
+        rows.append([InlineKeyboardButton("⏭ رد کردن", callback_data="category_skip")])
+        return InlineKeyboardMarkup(rows)
+    return category_keyboard
+
+
+async def _patched_handle_tag_text(update, context):
+    return await handle_tag_text(update, context)
 
 
 def install_tag_flow(task_module):
@@ -55,8 +92,7 @@ def install_tag_flow(task_module):
         if message is None:
             return
 
-        # The manual-task button enters the same task flow used after /add,
-        # but starts at the title step instead of reopening the method menu.
+        # The single-task button enters the same flow used by /add.
         if query is not None and query.data == "add_task_manual":
             context.user_data["new_task"] = {}
             context.user_data["step"] = "title"
@@ -65,7 +101,7 @@ def install_tag_flow(task_module):
 
         context.user_data["new_task"] = {}
         context.user_data["step"] = "add_mode"
-        rows = [[InlineKeyboardButton("📝 ثبت دستی", callback_data="add_task_manual")]]
+        rows = [[InlineKeyboardButton("📝 ثبت تکی", callback_data="add_task_manual")]]
         if task_option_enabled(context, "allow_bulk_import"):
             rows.append([InlineKeyboardButton("📥 ثبت گروهی", callback_data="import_bulk")])
         if task_option_enabled(context, "allow_ai_task_creation"):
@@ -83,9 +119,21 @@ def install_tag_flow(task_module):
     task_module._capability_save_task = wrap_save_task(original_save)
 
     async def ai_save_interceptor(update, context):
-        if context.user_data.get("step") != "ai_add":
-            return await task_module._capability_save_task(update, context)
+        step = context.user_data.get("step")
         text = (update.effective_message.text or "").strip()
+
+        # Enforce the same limit for manual category/tag input and do not
+        # silently truncate user input.
+        if step in ("category", "tags") and len(text) > MAX_TASK_FIELD_LENGTH:
+            field_name = "دسته‌بندی" if step == "category" else "تگ"
+            await update.effective_message.reply_text(
+                f"⚠️ {field_name} نمی‌تواند بیشتر از {MAX_TASK_FIELD_LENGTH} کاراکتر باشد.\n"
+                f"لطفاً {field_name} کوتاه‌تری وارد کنید."
+            )
+            return
+
+        if step != "ai_add":
+            return await task_module._capability_save_task(update, context)
         if not text:
             await update.effective_message.reply_text("⚠️ لطفاً توضیح تسک را ارسال کنید.")
             return
@@ -111,11 +159,15 @@ def install_tag_flow(task_module):
         context.user_data["step"] = "ai_add_confirm"
         priority_labels = {"high": "🔴 بالا", "medium": "🟠 متوسط", "low": "🟢 پایین"}
         lines = ["🤖 تسک پیشنهادی هوش مصنوعی", "", f"📌 عنوان: {draft['title']}"]
-        if draft.get("deadline"): lines.append(f"🗓 زمان: {draft['deadline']}")
+        if draft.get("deadline"):
+            lines.append(f"🗓 زمان: {draft['deadline']}")
         lines.append(f"🎯 اولویت: {priority_labels.get(draft.get('priority'), '🟢 پایین')}")
-        if draft.get("category") and task_option_enabled(context, "allow_categories"): lines.append(f"📂 دسته‌بندی: {draft['category']}")
-        if draft.get("tags") and task_option_enabled(context, "allow_tags"): lines.append(f"🏷 تگ: {draft['tags']}")
-        if draft.get("description"): lines.append(f"📝 توضیحات: {draft['description']}")
+        if draft.get("category") and task_option_enabled(context, "allow_categories"):
+            lines.append(f"📂 دسته‌بندی: {_truncate_field(draft['category'])}")
+        if draft.get("tags") and task_option_enabled(context, "allow_tags"):
+            lines.append(f"🏷 تگ: {_truncate_field(draft['tags'])}")
+        if draft.get("description"):
+            lines.append(f"📝 توضیحات: {draft['description']}")
         lines.extend(["", "آیا این تسک ایجاد شود?"])
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ ایجاد تسک", callback_data="ai_task_create")],
@@ -125,6 +177,22 @@ def install_tag_flow(task_module):
 
     task_module._AI_SAVE_INTERCEPTOR = ai_save_interceptor
     task_module.save_task.__code__ = _patched_save_task.__code__
+
+    # Always render previously-used tags when entering the tag step.
+    async def ask_tags_with_suggestions(message, context):
+        context.user_data["step"] = "tags"
+        user = getattr(message, "from_user", None)
+        user_id = getattr(user, "id", 0)
+        keyboard, tags = await recent_tag_keyboard(user_id, limit=3)
+        context.user_data["tag_suggestions"] = tags
+        await message.reply_text(
+            "🏷 تگ را انتخاب کنید یا تگ جدید را وارد کنید:",
+            reply_markup=keyboard,
+        )
+
+    task_module._ask_tags = ask_tags_with_suggestions
+    task_module._category_keyboard = _patched_category_keyboard_factory(task_module)
+    task_module._handle_tag_text = _patched_handle_tag_text
 
     original_ai_callback = types.FunctionType(
         ai_module.ai_task_callback.__code__, ai_module.ai_task_callback.__globals__,
