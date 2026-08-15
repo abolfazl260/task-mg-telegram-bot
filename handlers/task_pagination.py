@@ -37,6 +37,7 @@ def tasks_view_menu_keyboard():
 async def paginated_list_tasks(update, context):
     """Handle /tasks by showing the dynamic mini dashboard and filter menu only."""
     context.user_data.pop("tasks_filter", None)
+    context.user_data.pop("tasks_filter_options", None)
     stats = await get_task_dashboard_counts_async(update.effective_user.id)
 
     text = (
@@ -73,7 +74,7 @@ def _unique_values(tasks, field):
 
 
 async def _show_filter_choices(update, context, kind):
-    """Show a second-level selector; task cards are still not fetched/rendered until a choice is made."""
+    """Show a second-level selector using short index-based callback_data."""
     query = update.callback_query
     await query.answer()
     tasks = await get_active_tasks_async(update.effective_user.id)
@@ -84,7 +85,6 @@ async def _show_filter_choices(update, context, kind):
     if kind == "priority":
         options = [("🔴 بالا", "high"), ("🟠 متوسط", "medium"), ("🟢 پایین", "low")]
         title = "🎯 اولویت موردنظر را انتخاب کنید:"
-        callback_prefix = "tasks_filter_priority_"
     elif kind == "status":
         options = [
             ("⏳ در انتظار", "pending"),
@@ -93,17 +93,14 @@ async def _show_filter_choices(update, context, kind):
             ("❌ لغو شده", "cancelled"),
         ]
         title = "📊 وضعیت موردنظر را انتخاب کنید:"
-        callback_prefix = "tasks_filter_status_"
     elif kind == "category":
         values = _unique_values(tasks, "category")[:20]
         options = [(f"📂 {value}", value) for value in values]
         title = "📂 دسته‌بندی موردنظر را انتخاب کنید:"
-        callback_prefix = "tasks_filter_category_"
     elif kind == "tag":
         values = _unique_values(tasks, "tags")[:20]
         options = [(f"🏷 {value}", value) for value in values]
         title = "🏷 تگ موردنظر را انتخاب کنید:"
-        callback_prefix = "tasks_filter_tag_"
     elif kind == "assignee":
         assignees = []
         seen = set()
@@ -116,7 +113,6 @@ async def _show_filter_choices(update, context, kind):
                 assignees.append(value)
         options = [("⏭ بدون مسئول" if value == "none" else f"👤 {value}", value) for value in assignees[:20]]
         title = "👤 مسئول موردنظر را انتخاب کنید:"
-        callback_prefix = "tasks_filter_assignee_"
     else:
         return
 
@@ -124,12 +120,13 @@ async def _show_filter_choices(update, context, kind):
         await query.edit_message_text("موردی برای این فیلتر پیدا نشد.")
         return
 
+    context.user_data.setdefault("tasks_filter_options", {})[kind] = [value for _, value in options]
+
     rows = []
     for index in range(0, len(options), 2):
         row = []
-        for label, value in options[index:index + 2]:
-            safe_value = str(value)[:35]
-            row.append(InlineKeyboardButton(label[:30], callback_data=f"{callback_prefix}{safe_value}"))
+        for option_index, (label, _value) in enumerate(options[index:index + 2], start=index):
+            row.append(InlineKeyboardButton(label[:30], callback_data=f"tasks_filter_{kind}_{option_index}"))
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت به فیلترها", callback_data="view_tasks_menu")])
     await query.edit_message_text(title, reply_markup=InlineKeyboardMarkup(rows))
@@ -166,20 +163,28 @@ async def tasks_view_callback(update, context):
             await _show_filter_choices(update, context, kind)
             return
 
-    prefixes = {
-        "tasks_filter_priority_": "priority",
-        "tasks_filter_status_": "status",
-        "tasks_filter_category_": "category",
-        "tasks_filter_tag_": "tag",
-        "tasks_filter_assignee_": "assignee",
-    }
-    for prefix, kind in prefixes.items():
-        if data.startswith(prefix):
-            await query.answer()
-            value = data[len(prefix):]
-            context.user_data["tasks_filter"] = {"type": kind, "value": value}
-            await _render_filtered(update, context, kind, value)
+    if data.startswith("tasks_filter_"):
+        remainder = data[len("tasks_filter_"):]
+        try:
+            kind, index_text = remainder.rsplit("_", 1)
+            index = int(index_text)
+        except (ValueError, TypeError):
+            await query.answer("گزینه فیلتر نامعتبر است.", show_alert=True)
             return
+
+        if kind not in ("priority", "status", "category", "tag", "assignee"):
+            return
+
+        values = context.user_data.get("tasks_filter_options", {}).get(kind, [])
+        if index < 0 or index >= len(values):
+            await query.answer("این گزینه منقضی شده است؛ دوباره فیلتر را انتخاب کنید.", show_alert=True)
+            return
+
+        value = values[index]
+        await query.answer()
+        context.user_data["tasks_filter"] = {"type": kind, "value": value}
+        await _render_filtered(update, context, kind, value)
+        return
 
 
 async def _render_filtered(update, context, kind, value):
@@ -193,7 +198,7 @@ async def _render_filtered(update, context, kind, value):
     elif kind == "status":
         tasks = [t for t in tasks if t.get("status", "pending") == value]
     elif kind == "category":
-        tasks = [t for t in tasks if (t.get("category") or "").strip()[:35] == value]
+        tasks = [t for t in tasks if (t.get("category") or "").strip() == value]
     elif kind == "tag":
         tasks = [t for t in tasks if value.casefold() in {
             p.strip().lstrip("#").casefold()
