@@ -18,6 +18,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  TESTING: "true"
+
 jobs:
   tests:
     name: Tests (Python ${{ matrix.python-version }})
