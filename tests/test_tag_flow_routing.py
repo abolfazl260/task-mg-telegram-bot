@@ -57,5 +57,27 @@ def test_tag_suggestions_use_existing_tasks_table_and_no_tag_table():
 def test_tag_text_flow_sets_tag_and_moves_to_description():
     source = (ROOT / "handlers" / "tag_suggestions.py").read_text(encoding="utf-8")
     assert 'context.user_data.get("step") != "tags"' in source
-    assert 'task["tags"] = text[:120]' in source
+    assert 'task["tags"] = text' in source
+    assert "MAX_TASK_FIELD_LENGTH = 30" in source
     assert 'await task_module._ask_description(update.effective_message, context)' in source
+
+
+def test_manual_add_label_is_single_task():
+    source = (ROOT / "handlers" / "tag_suggestions.py").read_text(encoding="utf-8")
+    assert 'InlineKeyboardButton("📝 ثبت تکی", callback_data="add_task_manual")' in source
+    assert "ثبت دستی" not in source
+
+
+def test_category_and_tag_input_have_30_character_limit():
+    source = (ROOT / "handlers" / "tag_suggestions.py").read_text(encoding="utf-8")
+    assert 'step in ("category", "tags")' in source
+    assert 'MAX_TASK_FIELD_LENGTH = 30' in source
+    assert "دسته‌بندی" in source
+    assert "تگ" in source
+
+
+def test_tag_suggestions_are_rendered_when_entering_tag_step():
+    source = (ROOT / "handlers" / "tag_suggestions.py").read_text(encoding="utf-8")
+    assert "recent_tag_keyboard(user_id, limit=3)" in source
+    assert 'context.user_data["tag_suggestions"] = tags' in source
+    assert '"🏷 تگ را انتخاب کنید یا تگ جدید را وارد کنید:"' in source
