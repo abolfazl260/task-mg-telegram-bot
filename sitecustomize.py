@@ -1,12 +1,8 @@
-"""Runtime compatibility helpers for the Telegram bot.
-
-This module keeps the production task flow intact. The only task-specific
-compatibility layer is the short callback id used by category buttons; the
-normal tag-suggestion installer is deliberately allowed to run first.
-"""
+"""Runtime compatibility helpers for the Telegram bot."""
 import asyncio
 import builtins
 import sys
+import types
 from functools import wraps
 
 try:
@@ -14,7 +10,6 @@ try:
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
-# Keep Telegram command ordering stable and always expose /start.
 try:
     from telegram import Bot, BotCommand
     _original_set_my_commands = Bot.set_my_commands
@@ -37,7 +32,7 @@ except Exception:
 
 
 def _install_safe_category_flow(task_handler):
-    """Install only the category adapter, without replacing tag handling."""
+    """Use stable numeric category callback IDs without changing tag callbacks."""
     if getattr(task_handler, "_safe_category_flow_installed", False):
         return
 
@@ -65,45 +60,50 @@ def _install_safe_category_flow(task_handler):
         rows.append([InlineKeyboardButton("⏭ رد کردن", callback_data="category_skip")])
         return InlineKeyboardMarkup(rows)
 
-    # Preserve the real optional-field callback (including tags/description).
-    # Only category_pick_* is intercepted here.
     original_optional = task_handler.optional_field_callback
+    if not hasattr(task_handler, "_taskmg_original_optional_field_callback"):
+        task_handler._taskmg_original_optional_field_callback = types.FunctionType(
+            original_optional.__code__, original_optional.__globals__,
+            name="_taskmg_original_optional_field_callback",
+            argdefs=original_optional.__defaults__, closure=original_optional.__closure__,
+        )
 
-    async def _safe_optional_field_callback(update, context):
+    async def _safe_optional_dispatch(update, context):
         query = update.callback_query
         data = query.data or ""
         if not data.startswith("category_pick_"):
-            return await original_optional(update, context)
+            return await _taskmg_original_optional_field_callback(update, context)
 
         task = context.user_data.get("new_task")
         if not isinstance(task, dict):
             await query.answer("فرایند ایجاد تسک فعال نیست.", show_alert=True)
             return
+
         try:
             index = int(data[len("category_pick_"):])
         except (TypeError, ValueError):
             await query.answer("دسته‌بندی انتخاب‌شده معتبر نیست.", show_alert=True)
             return
 
-        categories = await _category_options(update.effective_user.id)
+        categories = await _taskmg_category_options(update.effective_user.id)
         if index < 0 or index >= len(categories):
             await query.answer("این دسته‌بندی دیگر در دسترس نیست.", show_alert=True)
             return
 
         await query.answer()
         task["category"] = categories[index]
-        # _ask_tags is intentionally resolved at click time. By this point
-        # handlers.tag_suggestions.install_tag_flow has already installed the
-        # DB-backed tag suggestion keyboard.
         await task_handler._ask_tags(query.message, context)
 
+    task_handler._taskmg_category_options = _category_options
+    task_handler._safe_category_optional_callback = _safe_optional_dispatch
+    task_handler.optional_field_callback.__globals__["_taskmg_original_optional_field_callback"] = task_handler._taskmg_original_optional_field_callback
+    task_handler.optional_field_callback.__globals__["_taskmg_category_options"] = _category_options
+    task_handler.optional_field_callback.__code__ = _safe_optional_dispatch.__code__
     task_handler._category_keyboard = _category_keyboard
-    task_handler._safe_category_optional_callback = _safe_optional_field_callback
     task_handler._safe_category_flow_installed = True
 
 
 def _wrap_tag_flow_installer(tag_module):
-    """Ensure the normal tag flow installs before category interception."""
     original = getattr(tag_module, "install_tag_flow", None)
     if original is None or getattr(original, "_taskmg_wrapped", False):
         return
@@ -118,7 +118,6 @@ def _wrap_tag_flow_installer(tag_module):
     tag_module.install_tag_flow = _wrapped_install_tag_flow
 
 
-# Import hook: after the real modules finish importing, install the adapters.
 try:
     _original_import = builtins.__import__
     if not getattr(_original_import, "_taskmg_import_hook", False):
@@ -133,7 +132,6 @@ try:
                 if tag_module is not None and (name == "handlers.tag_suggestions" or (name == "handlers" and "tag_suggestions" in (fromlist or ()) )):
                     _wrap_tag_flow_installer(tag_module)
             except Exception:
-                # Never prevent the bot from starting because of a compatibility hook.
                 pass
             return module
 
@@ -142,9 +140,6 @@ try:
 except Exception:
     pass
 
-# main.py imports optional_field_callback directly. Replace the callback only
-# when Telegram constructs the category/optional handler, so tags_skip and
-# description_skip continue using the original tag-flow implementation.
 try:
     from telegram.ext import CallbackQueryHandler
     _original_callback_handler_init = CallbackQueryHandler.__init__
