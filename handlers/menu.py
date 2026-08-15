@@ -116,7 +116,9 @@ async def button_handler(update, context):
     await query.answer()
     if data=="add_task": return await show_add_task_menu(update,context)
     if data=="add_task_manual":
-        from handlers.task import add_task; return await add_task(update,context)
+        context.user_data["new_task"] = {}
+        context.user_data["step"] = "title"
+        return await query.message.reply_text("📝 عنوان تسک را وارد کنید:")
     if data=="ai_start":
         from handlers.ai import _ai_examples_text,_ai_examples_keyboard
         return await query.message.reply_text(_ai_examples_text(),reply_markup=_ai_examples_keyboard(),parse_mode="Markdown")

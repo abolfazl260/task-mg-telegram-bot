@@ -48,14 +48,29 @@ def install_tag_flow(task_module):
     import types
 
     async def add_mode_entry(update, context):
+        query = update.callback_query
+        message = update.effective_message
+        if message is None and query is not None:
+            message = query.message
+        if message is None:
+            return
+
+        # The manual-task button enters the same task flow used after /add,
+        # but starts at the title step instead of reopening the method menu.
+        if query is not None and query.data == "add_task_manual":
+            context.user_data["new_task"] = {}
+            context.user_data["step"] = "title"
+            await message.reply_text("📝 عنوان تسک را وارد کنید:")
+            return
+
         context.user_data["new_task"] = {}
         context.user_data["step"] = "add_mode"
-        rows = [[InlineKeyboardButton("📝 ثبت تکی", callback_data="add_task_single")]]
+        rows = [[InlineKeyboardButton("📝 ثبت دستی", callback_data="add_task_manual")]]
         if task_option_enabled(context, "allow_bulk_import"):
             rows.append([InlineKeyboardButton("📥 ثبت گروهی", callback_data="import_bulk")])
         if task_option_enabled(context, "allow_ai_task_creation"):
             rows.append([InlineKeyboardButton("🤖 ثبت با هوش مصنوعی", callback_data="ai_task_create")])
-        await update.message.reply_text("📝 روش ثبت تسک را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(rows))
+        await message.reply_text("📝 روش ثبت تسک را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(rows))
 
     task_module._ADD_MODE_ENTRY = add_mode_entry
     task_module.add_task.__code__ = _patched_add_task.__code__
