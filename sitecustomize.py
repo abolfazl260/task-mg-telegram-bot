@@ -121,3 +121,30 @@ try:
         builtins.__import__ = _taskmg_import
 except Exception:
     pass
+
+# main.py imports optional_field_callback directly with a `from ... import`.
+# Replacing only task_handler.optional_field_callback therefore leaves main's
+# local reference pointing to the old implementation. Intercept construction
+# of the category CallbackQueryHandler so that the safe implementation is used
+# for the actual runtime handler as well.
+try:
+    from telegram.ext import CallbackQueryHandler
+    _original_callback_handler_init = CallbackQueryHandler.__init__
+    if not getattr(_original_callback_handler_init, "_taskmg_category_handler", False):
+        @wraps(_original_callback_handler_init)
+        def _category_safe_callback_handler_init(self, callback, pattern=None, *args, **kwargs):
+            if getattr(callback, "__name__", "") == "optional_field_callback" and pattern and "category_pick_" in str(pattern):
+                try:
+                    import sys
+                    task_module = sys.modules.get("handlers.task")
+                    safe_callback = getattr(task_module, "optional_field_callback", None) if task_module else None
+                    if safe_callback is not None and safe_callback is not callback:
+                        callback = safe_callback
+                except Exception:
+                    pass
+            return _original_callback_handler_init(self, callback, pattern, *args, **kwargs)
+
+        _category_safe_callback_handler_init._taskmg_category_handler = True
+        CallbackQueryHandler.__init__ = _category_safe_callback_handler_init
+except Exception:
+    pass
