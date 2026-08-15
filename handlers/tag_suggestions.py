@@ -46,26 +46,6 @@ def _truncate_field(value):
     return str(value or "").strip()[:MAX_TASK_FIELD_LENGTH]
 
 
-def _patched_category_keyboard_factory(task_module):
-    async def category_keyboard(user_id):
-        categories = []
-        seen = set()
-        for task in await task_module.get_active_tasks_async(user_id):
-            category = (task.get("category") or "").strip()
-            key = category.casefold()
-            if category and key not in seen:
-                seen.add(key)
-                categories.append(_truncate_field(category))
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-        rows = [
-            [InlineKeyboardButton(f"📂 {category}", callback_data=f"category_pick_{category}")]
-            for category in categories[:10]
-        ]
-        rows.append([InlineKeyboardButton("⏭ رد کردن", callback_data="category_skip")])
-        return InlineKeyboardMarkup(rows)
-    return category_keyboard
-
-
 async def _patched_handle_tag_text(update, context):
     return await handle_tag_text(update, context)
 
@@ -191,7 +171,6 @@ def install_tag_flow(task_module):
         )
 
     task_module._ask_tags = ask_tags_with_suggestions
-    task_module._category_keyboard = _patched_category_keyboard_factory(task_module)
     task_module._handle_tag_text = _patched_handle_tag_text
 
     original_ai_callback = types.FunctionType(
