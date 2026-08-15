@@ -1,6 +1,12 @@
-"""Python compatibility, Telegram command ordering, and safe task-category callbacks."""
+"""Runtime compatibility helpers for the Telegram bot.
+
+This module keeps the production task flow intact. The only task-specific
+compatibility layer is the short callback id used by category buttons; the
+normal tag-suggestion installer is deliberately allowed to run first.
+"""
 import asyncio
 import builtins
+import sys
 from functools import wraps
 
 try:
@@ -8,7 +14,7 @@ try:
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
-# Telegram exposes commands in the order supplied to set_my_commands().
+# Keep Telegram command ordering stable and always expose /start.
 try:
     from telegram import Bot, BotCommand
     _original_set_my_commands = Bot.set_my_commands
@@ -31,31 +37,36 @@ except Exception:
 
 
 def _install_safe_category_flow(task_handler):
-    """Patch category callbacks after handlers.task has fully imported.
-
-    Telegram callback_data is limited to 64 UTF-8 bytes. Category names can be
-    long Persian strings, so the callback must contain a short ASCII index.
-    """
+    """Install only the category adapter, without replacing tag handling."""
     if getattr(task_handler, "_safe_category_flow_installed", False):
         return
+
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-    async def _safe_category_keyboard(user_id):
+    async def _category_options(user_id, limit=10):
         categories = []
         seen = set()
         for task in await task_handler.get_active_tasks_async(user_id):
-            category = (task.get("category") or "").strip()
+            category = str(task.get("category") or "").strip()
             key = category.casefold()
             if category and key not in seen:
                 seen.add(key)
                 categories.append(category)
+            if len(categories) >= limit:
+                break
+        return categories
+
+    async def _category_keyboard(user_id):
+        categories = await _category_options(user_id)
         rows = [
             [InlineKeyboardButton(f"📂 {category}", callback_data=f"category_pick_{index}")]
-            for index, category in enumerate(categories[:10])
+            for index, category in enumerate(categories)
         ]
         rows.append([InlineKeyboardButton("⏭ رد کردن", callback_data="category_skip")])
         return InlineKeyboardMarkup(rows)
 
+    # Preserve the real optional-field callback (including tags/description).
+    # Only category_pick_* is intercepted here.
     original_optional = task_handler.optional_field_callback
 
     async def _safe_optional_field_callback(update, context):
@@ -64,69 +75,76 @@ def _install_safe_category_flow(task_handler):
         if not data.startswith("category_pick_"):
             return await original_optional(update, context)
 
-        await query.answer()
         task = context.user_data.get("new_task")
-        if not task:
-            await query.message.reply_text("فرایند ایجاد تسک فعالی پیدا نشد.")
+        if not isinstance(task, dict):
+            await query.answer("فرایند ایجاد تسک فعال نیست.", show_alert=True)
             return
-
         try:
             index = int(data[len("category_pick_"):])
         except (TypeError, ValueError):
-            await query.message.reply_text("⚠️ دسته‌بندی انتخاب‌شده معتبر نیست.")
+            await query.answer("دسته‌بندی انتخاب‌شده معتبر نیست.", show_alert=True)
             return
 
-        categories = []
-        seen = set()
-        for item in await task_handler.get_active_tasks_async(update.effective_user.id):
-            category = (item.get("category") or "").strip()
-            key = category.casefold()
-            if category and key not in seen:
-                seen.add(key)
-                categories.append(category)
-
-        if index < 0 or index >= min(len(categories), 10):
-            await query.message.reply_text("⚠️ این دسته‌بندی دیگر در دسترس نیست. لطفاً دوباره انتخاب کنید.")
+        categories = await _category_options(update.effective_user.id)
+        if index < 0 or index >= len(categories):
+            await query.answer("این دسته‌بندی دیگر در دسترس نیست.", show_alert=True)
             return
 
+        await query.answer()
         task["category"] = categories[index]
+        # _ask_tags is intentionally resolved at click time. By this point
+        # handlers.tag_suggestions.install_tag_flow has already installed the
+        # DB-backed tag suggestion keyboard.
         await task_handler._ask_tags(query.message, context)
 
-    task_handler._category_keyboard = _safe_category_keyboard
-    task_handler.optional_field_callback = _safe_optional_field_callback
+    task_handler._category_keyboard = _category_keyboard
+    task_handler._safe_category_optional_callback = _safe_optional_field_callback
     task_handler._safe_category_flow_installed = True
 
 
-# Do not import handlers.task directly here: doing so during interpreter
-# startup can create a circular import. Instead, patch it immediately after
-# Python imports the module (including when main.py imports its functions).
+def _wrap_tag_flow_installer(tag_module):
+    """Ensure the normal tag flow installs before category interception."""
+    original = getattr(tag_module, "install_tag_flow", None)
+    if original is None or getattr(original, "_taskmg_wrapped", False):
+        return
+
+    @wraps(original)
+    def _wrapped_install_tag_flow(task_module):
+        result = original(task_module)
+        _install_safe_category_flow(task_module)
+        return result
+
+    _wrapped_install_tag_flow._taskmg_wrapped = True
+    tag_module.install_tag_flow = _wrapped_install_tag_flow
+
+
+# Import hook: after the real modules finish importing, install the adapters.
 try:
     _original_import = builtins.__import__
-
-    if not getattr(_original_import, "_taskmg_category_hook", False):
+    if not getattr(_original_import, "_taskmg_import_hook", False):
         @wraps(_original_import)
         def _taskmg_import(name, globals=None, locals=None, fromlist=(), level=0):
             module = _original_import(name, globals, locals, fromlist, level)
-            if name == "handlers.task" or (name == "handlers" and "task" in (fromlist or ())):
-                try:
-                    import sys
-                    task_module = sys.modules.get("handlers.task")
-                    if task_module is not None:
-                        _install_safe_category_flow(task_module)
-                except Exception:
-                    pass
+            try:
+                task_module = sys.modules.get("handlers.task")
+                if task_module is not None and (name == "handlers.task" or (name == "handlers" and "task" in (fromlist or ()) )):
+                    _install_safe_category_flow(task_module)
+                tag_module = sys.modules.get("handlers.tag_suggestions")
+                if tag_module is not None and (name == "handlers.tag_suggestions" or (name == "handlers" and "tag_suggestions" in (fromlist or ()) )):
+                    _wrap_tag_flow_installer(tag_module)
+            except Exception:
+                # Never prevent the bot from starting because of a compatibility hook.
+                pass
             return module
 
-        _taskmg_import._taskmg_category_hook = True
+        _taskmg_import._taskmg_import_hook = True
         builtins.__import__ = _taskmg_import
 except Exception:
     pass
 
-# main.py imports optional_field_callback directly with a `from ... import`.
-# Replacing only task_handler.optional_field_callback therefore leaves main's
-# local reference pointing to the old implementation. Intercept construction
-# of the category CallbackQueryHandler so that the safe implementation is used
-# for the actual runtime handler as well.
+# main.py imports optional_field_callback directly. Replace the callback only
+# when Telegram constructs the category/optional handler, so tags_skip and
+# description_skip continue using the original tag-flow implementation.
 try:
     from telegram.ext import CallbackQueryHandler
     _original_callback_handler_init = CallbackQueryHandler.__init__
@@ -134,14 +152,10 @@ try:
         @wraps(_original_callback_handler_init)
         def _category_safe_callback_handler_init(self, callback, pattern=None, *args, **kwargs):
             if getattr(callback, "__name__", "") == "optional_field_callback" and pattern and "category_pick_" in str(pattern):
-                try:
-                    import sys
-                    task_module = sys.modules.get("handlers.task")
-                    safe_callback = getattr(task_module, "optional_field_callback", None) if task_module else None
-                    if safe_callback is not None and safe_callback is not callback:
-                        callback = safe_callback
-                except Exception:
-                    pass
+                task_module = sys.modules.get("handlers.task")
+                safe_callback = getattr(task_module, "_safe_category_optional_callback", None) if task_module else None
+                if safe_callback is not None:
+                    callback = safe_callback
             return _original_callback_handler_init(self, callback, pattern, *args, **kwargs)
 
         _category_safe_callback_handler_init._taskmg_category_handler = True
