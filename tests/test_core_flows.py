@@ -34,6 +34,17 @@ def test_timezone_callback_is_routed_and_persisted():
     assert 'DEFAULT_TIMEZONE = "Asia/Tehran"' in user_service
 
 
+def test_category_flow_uses_short_callback_ids():
+    sitecustomize = read("sitecustomize.py")
+    category_flow = read("handlers/category_flow.py")
+    main = read("main.py")
+    assert 'callback_data=f"category_pick_{index}"' in sitecustomize
+    assert 'callback_data=f"category_pick_{category_key(category)}"' in category_flow
+    assert 'CallbackQueryHandler(optional_field_callback' in main
+    assert 'category_pick_' in main
+    assert 'CallbackQueryHandler.__init__' in sitecustomize
+
+
 def test_task_creation_has_shared_manual_flow_entry_points():
     main = read("main.py")
     menu = read("handlers/menu.py")
