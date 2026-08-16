@@ -1,21 +1,22 @@
 {
   "key": "habits_only",
-  "name": "Habit Assistant",
+  "name": "دستیار عادت‌ها",
   "username": "byeeeebot",
-  "description": "A simple habit, reminder and task assistant.",
+  "description": "ربات ساده برای عادت‌ها، یادآورها و تسک‌های شخصی",
   "settings": {
     "ui": {
-      "language": "en",
-      "start_text": "👋 Welcome to Habit Assistant!\n\n🌱 Simple habits\n⏰ Simple reminders\n📝 Simple tasks\n🤖 AI Assistant\n\nUse the buttons below to get started.",
-      "help_text": "📖 Habit Assistant\n\n🌱 Create and track simple habits\n⏰ Set simple reminders\n📝 Create and manage simple tasks\n🤖 Ask the AI Assistant for help\n\nThis bot is intentionally simple and focused.",
-      "feature_intro": "🌱 Simple habits, reminders and tasks with AI.",
+      "language": "fa",
+      "start_text": "👋 سلام!\n\n🌱 عادت‌ها\n📝 تسک‌های ساده\n⏰ یادآورها\n🔎 جستجو\n🤖 دستیار هوشمند\n\nاز منوی زیر شروع کنید.",
+      "help_text": "📖 راهنما\n\n🌱 عادت‌های خود را مدیریت کنید.\n📝 تسک ساده بسازید و انجام‌شدن آن را ثبت کنید.\n⏰ یادآور تنظیم کنید.\n🔎 بین تسک‌های خود جستجو کنید.\n🤖 از دستیار هوشمند کمک بگیرید.\n\nاین ربات عمداً ساده طراحی شده است.",
+      "feature_intro": "🌱 عادت‌ها، یادآورها، تسک‌های ساده، جستجو و هوش مصنوعی",
       "buttons": {
-        "start": "🏠 Start",
-        "ai": "🤖 AI Assistant",
-        "habits": "🌱 My Habits",
-        "tasks": "📝 My Tasks",
-        "reminders": "⏰ Reminders",
-        "help": "📖 Help"
+        "start": "🏠 شروع",
+        "ai": "🤖 دستیار هوشمند",
+        "habits": "🌱 عادت‌های من",
+        "tasks": "📝 تسک‌های من",
+        "reminders": "⏰ یادآورها",
+        "search": "🔎 جستجو",
+        "help": "📖 راهنما"
       }
     },
     "task_options": {
@@ -23,7 +24,8 @@
       "allow_tags": false,
       "allow_comments": false,
       "allow_categories": false,
-      "allow_search": false,
+      "allow_priority": false,
+      "allow_search": true,
       "allow_templates": false,
       "allow_bulk_import": false,
       "allow_ai_task_creation": true
@@ -44,16 +46,17 @@
     "donate": false,
     "ai": true,
     "guest_mode": false,
-    "search": false,
+    "search": true,
     "bulk_import": false,
     "unassigned": false
   },
   "menu": [
-    {"label": "🤖 AI Assistant", "callback_data": "ai_menu", "feature": "ai"},
-    {"label": "🌱 My Habits", "callback_data": "habit_menu", "feature": "habits"},
-    {"label": "📝 My Tasks", "callback_data": "tasks", "feature": "tasks"},
-    {"label": "⏰ Reminders", "callback_data": "reminders", "feature": "reminders"},
-    {"label": "🏠 Start", "callback_data": "start"},
-    {"label": "📖 Help", "callback_data": "help"}
+    {"label": "🤖 دستیار هوشمند", "callback_data": "ai_menu", "feature": "ai"},
+    {"label": "🌱 عادت‌های من", "callback_data": "habit_menu", "feature": "habits"},
+    {"label": "📝 تسک‌های من", "callback_data": "tasks", "feature": "tasks"},
+    {"label": "⏰ یادآورها", "callback_data": "reminders"},
+    {"label": "🔎 جستجو", "callback_data": "search", "feature": "search"},
+    {"label": "🏠 شروع", "callback_data": "start"},
+    {"label": "📖 راهنما", "callback_data": "help"}
   ]
 }
