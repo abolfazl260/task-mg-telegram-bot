@@ -15,8 +15,20 @@ def _jday(d): return jdatetime.date.fromgregorian(year=d.year,month=d.month,day=
 def _jmonth(d): return jdatetime.date.fromgregorian(year=d.year,month=d.month,day=1).strftime("%B %Y")
 def _month():
     n=datetime.now(timezone.utc).date(); return date(n.year,n.month,1),date(n.year,n.month,calendar.monthrange(n.year,n.month)[1])
+def _previous_month(start):
+    previous_end=start-timedelta(days=1); return date(previous_end.year,previous_end.month,1),previous_end
 def _task_rows(a,where="",params=()):
     base="bot_key=? AND user_id=?"; return sync_all("tasks",base+(" AND "+where if where else ""),(a["bot_key"],str(a["user_id"]))+tuple(params))
+def _task_count(a,start,end):
+    endx=end+timedelta(days=1); return len(_task_rows(a,"created_at>=? AND created_at<?",(start.isoformat(),endx.isoformat())))
+def _change(total,previous_total):
+    if previous_total > 0:
+        percentage=round((total-previous_total)/previous_total*100)
+        direction="up" if percentage>0 else "down" if percentage<0 else "flat"
+        return {"available":True,"percentage":abs(percentage),"direction":direction,"previous_total":previous_total}
+    if total > 0:
+        return {"available":False,"percentage":None,"direction":"new","previous_total":0}
+    return {"available":False,"percentage":None,"direction":"none","previous_total":0}
 
 def _week(a):
     today=datetime.now(timezone.utc).date(); end=today+timedelta(days=6); tasks=_task_rows(a,"deadline>=? AND deadline<?",(today.isoformat(),(end+timedelta(days=1)).isoformat())); names=["دوشنبه","سه‌شنبه","چهارشنبه","پنجشنبه","جمعه","شنبه","یکشنبه"]; days=[]
@@ -63,7 +75,8 @@ def monthly_report(token,section="summary"):
     if not a:return None
     if section=="week":return {"report_type":"weekly_schedule","week":_week(a)}
     start,end=_month(); endx=end+timedelta(days=1); tasks=_task_rows(a,"created_at>=? AND created_at<?",(start.isoformat(),endx.isoformat())); statuses=Counter((t.get("status") or "pending") for t in tasks); priorities=Counter((t.get("priority") or "medium") for t in tasks); cats=Counter((t.get("category") or "بدون دسته‌بندی").strip() or "بدون دسته‌بندی" for t in tasks); total=len(tasks); done=statuses.get("done",0); cancelled=statuses.get("cancelled",statuses.get("canceled",0)); dl=[t for t in tasks if t.get("deadline")]; today=date.today().isoformat(); overdue=sum(1 for t in dl if str(t.get("deadline"))[:10]<today and t.get("status") not in {"done","cancelled","canceled"})
-    result={"report_type":"monthly","period":{"gregorian":f"{start.isoformat()} تا {end.isoformat()}","jalali":_jmonth(start)},"summary":{"total":total,"done":done,"in_progress":statuses.get("in_progress",0),"pending":statuses.get("pending",0),"cancelled":cancelled,"active":total-done-cancelled,"overdue":overdue,"with_deadline":len(dl),"without_deadline":total-len(dl),"completion_rate":round(done/total*100) if total else 0},"by_status":[{"key":k,"label":_status(k),"count":v} for k,v in statuses.most_common()],"by_priority":[{"key":k,"label":_priority(k),"count":v} for k,v in priorities.most_common()],"by_category":[{"label":k,"count":v} for k,v in cats.most_common()]}
+    previous_start,previous_end=_previous_month(start); previous_total=_task_count(a,previous_start,previous_end)
+    result={"report_type":"monthly","period":{"gregorian":f"{start.isoformat()} تا {end.isoformat()}","jalali":_jmonth(start)},"summary":{"total":total,"total_change":_change(total,previous_total),"done":done,"in_progress":statuses.get("in_progress",0),"pending":statuses.get("pending",0),"cancelled":cancelled,"active":total-done-cancelled,"overdue":overdue,"with_deadline":len(dl),"without_deadline":total-len(dl),"completion_rate":round(done/total*100) if total else 0},"by_status":[{"key":k,"label":_status(k),"count":v} for k,v in statuses.most_common()],"by_priority":[{"key":k,"label":_priority(k),"count":v} for k,v in priorities.most_common()],"by_category":[{"label":k,"count":v} for k,v in cats.most_common()]}
     if section=="habits": result["habits"]=_habits(a,start,end); return result
     if section=="heatmap": return _heatmap(a)
     if section=="recent_changes": return _recent(a)
