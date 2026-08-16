@@ -20,7 +20,7 @@ PRAGMA busy_timeout = 10000;
 CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,
     full_name TEXT NOT NULL DEFAULT '', username TEXT NOT NULL DEFAULT '',
-    timezone TEXT NOT NULL DEFAULT 'UTC', date_format TEXT NOT NULL DEFAULT 'jalali',
+    timezone TEXT NOT NULL DEFAULT 'Asia/Tehran', date_format TEXT NOT NULL DEFAULT 'jalali',
     first_seen TEXT NOT NULL DEFAULT '', last_seen TEXT NOT NULL DEFAULT '',
     messages_count INTEGER NOT NULL DEFAULT 0
 );
@@ -179,71 +179,30 @@ async def transaction(statements):
         try:
             for sql,params in statements: await db.conn.execute(sql,tuple(params))
             await db.conn.commit()
-        except BaseException: await db.conn.rollback(); raise
-
-_sync_local=threading.local(); _sync_init_lock=threading.Lock()
-def _get_sync_db():
-    conn=getattr(_sync_local,"conn",None)
-    if conn is not None: return conn
-    DB_PATH.parent.mkdir(parents=True,exist_ok=True); conn=sqlite3.connect(DB_PATH,timeout=10,check_same_thread=True); conn.row_factory=sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON"); conn.execute("PRAGMA busy_timeout=10000"); conn.execute("PRAGMA journal_mode=WAL"); conn.execute("PRAGMA synchronous=NORMAL")
-    with _sync_init_lock: conn.executescript(SCHEMA); conn.commit()
-    _sync_local.conn=conn; return conn
-def close_sync_db():
-    conn=getattr(_sync_local,"conn",None)
-    if conn is not None: conn.close(); _sync_local.conn=None
-def sync_all(table,where="",params=()):
-    conn=_get_sync_db(); cur=conn.execute(f"SELECT * FROM {table}"+(f" WHERE {where}" if where else ""),tuple(params)); return [dict(row) for row in cur.fetchall()]
-def sync_one(table,where,params=()):
-    rows=sync_all(table,where,params); return rows[0] if rows else None
-def sync_execute(sql,params=()):
-    conn=_get_sync_db(); cur=conn.execute(sql,tuple(params)); conn.commit(); return cur.lastrowid
-def sync_transaction(statements):
-    conn=_get_sync_db()
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        for sql,params in statements: conn.execute(sql,tuple(params))
-        conn.commit()
-    except BaseException: conn.rollback(); raise
-
-_sync_async_loop: asyncio.AbstractEventLoop|None=None; _sync_async_loop_thread: threading.Thread|None=None; _sync_async_loop_ready=threading.Event(); _sync_async_loop_lock=threading.Lock()
-def _sync_async_loop_worker():
-    global _sync_async_loop
-    loop=asyncio.new_event_loop(); asyncio.set_event_loop(loop)
-    with _sync_async_loop_lock: _sync_async_loop=loop; _sync_async_loop_ready.set()
-    try: loop.run_forever()
-    finally:
-        pending=asyncio.all_tasks(loop)
-        for task in pending: task.cancel()
-        if pending: loop.run_until_complete(asyncio.gather(*pending,return_exceptions=True))
-        loop.run_until_complete(loop.shutdown_asyncgens()); loop.close()
-        with _sync_async_loop_lock: _sync_async_loop=None
-
-def _get_sync_async_loop():
-    global _sync_async_loop_thread
-    with _sync_async_loop_lock:
-        loop=_sync_async_loop; thread=_sync_async_loop_thread
-        if loop is None or loop.is_closed():
-            _sync_async_loop_ready.clear(); thread=threading.Thread(target=_sync_async_loop_worker,name="database-sync-async-loop",daemon=True); _sync_async_loop_thread=thread; thread.start()
-    _sync_async_loop_ready.wait(); loop=_sync_async_loop
-    if loop is None or loop.is_closed(): raise RuntimeError("Database async bridge failed to start")
-    return loop
+        except Exception:
+            await db.conn.rollback(); raise
 
 def _run(coro):
-    try: running_loop=asyncio.get_running_loop()
-    except RuntimeError: running_loop=None
-    loop=_get_sync_async_loop()
-    if running_loop is loop: coro.close(); raise RuntimeError("_run() cannot be called from the database bridge event loop")
-    return asyncio.run_coroutine_threadsafe(coro,loop).result()
-def _shutdown_sync_async_loop():
-    global _sync_async_loop_thread
-    with _sync_async_loop_lock: loop=_sync_async_loop; thread=_sync_async_loop_thread
-    if loop is None or loop.is_closed(): return
-    async def _close_bridge_db(): await close_db()
-    try: asyncio.run_coroutine_threadsafe(_close_bridge_db(),loop).result(timeout=5)
-    except Exception: pass
-    try: loop.call_soon_threadsafe(loop.stop)
-    except Exception: pass
-    if thread is not None and thread.is_alive() and threading.current_thread() is not thread: thread.join(timeout=5)
-    with _sync_async_loop_lock: _sync_async_loop_thread=None
-atexit.register(_shutdown_sync_async_loop)
+    return asyncio.run(coro)
+
+
+def sync_all(table, where="", params=()):
+    return _run(fetch_all(table, where, params))
+
+
+def sync_execute(sql, params=()):
+    return _run(execute(sql, params))
+
+def get_connection():
+    return sqlite3.connect(DB_PATH)
+
+def close_all():
+    for db in list(_db_by_loop.values()):
+        try:
+            if db.conn:
+                try: asyncio.run(db.close())
+                except Exception: pass
+        except Exception: pass
+    _db_by_loop.clear()
+
+atexit.register(close_all)
