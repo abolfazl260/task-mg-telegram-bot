@@ -25,6 +25,7 @@ class TelegramWebAppUser:
     last_name: str | None = None
     username: str | None = None
     language_code: str | None = None
+    photo_url: str | None = None
 
 
 def _secret_key(bot_token: str) -> bytes:
@@ -82,4 +83,5 @@ def validate_init_data(
         last_name=raw_user.get("last_name"),
         username=raw_user.get("username"),
         language_code=raw_user.get("language_code"),
+        photo_url=raw_user.get("photo_url"),
     )

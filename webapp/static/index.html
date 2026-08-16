@@ -15,7 +15,10 @@
         <p class="eyebrow">مدیریت وظایف</p>
         <h1 id="greeting">وظایف من</h1>
       </div>
-      <button id="refresh" class="icon-button" type="button" aria-label="به‌روزرسانی">↻</button>
+      <div class="header-actions">
+        <button id="theme-toggle" class="icon-button" type="button" aria-label="تغییر حالت نمایش">☾</button>
+        <button id="refresh" class="icon-button" type="button" aria-label="به‌روزرسانی">↻</button>
+      </div>
     </header>
 
     <section id="user-card" class="user-card" hidden></section>
@@ -35,14 +38,44 @@
       <div class="report-header">
         <div>
           <h2 id="report-title">گزارش وضعیت وظایف</h2>
-          <p>توزیع وظایف من بر اساس وضعیت</p>
+          <p>توزیع وظایف بر اساس وضعیت</p>
         </div>
       </div>
       <div id="status-report" class="status-report"></div>
     </section>
 
+    <section class="report-panel" aria-labelledby="priority-title">
+      <div class="report-header">
+        <div>
+          <h2 id="priority-title">گزارش اولویت وظایف</h2>
+          <p>نمودار جدید: توزیع وظایف بر اساس اولویت</p>
+        </div>
+      </div>
+      <div id="priority-report" class="priority-report"></div>
+    </section>
+
+    <section class="tasks-header">
+      <div>
+        <h2>فهرست وظایف</h2>
+        <span id="result-count" class="result-count"></span>
+      </div>
+      <label class="page-size-label">نمایش
+        <select id="page-size" aria-label="تعداد وظایف در صفحه">
+          <option value="5">5</option>
+          <option value="10" selected>10</option>
+          <option value="20">20</option>
+        </select>
+      </label>
+    </section>
+
     <section id="state" class="state">در حال دریافت وظایف...</section>
     <section id="tasks" class="tasks" aria-live="polite"></section>
+
+    <nav id="pagination" class="pagination" aria-label="صفحه‌بندی وظایف" hidden>
+      <button id="prev-page" type="button">قبلی</button>
+      <span id="page-info">صفحه ۱ از ۱</span>
+      <button id="next-page" type="button">بعدی</button>
+    </nav>
   </main>
   <script src="/static/app.js"></script>
 </body>
