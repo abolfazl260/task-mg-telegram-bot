@@ -2,6 +2,39 @@ from .tag_suggestions_legacy import *
 from .tag_suggestions_legacy import install_tag_flow as _legacy_install_tag_flow
 
 MAX_TASK_FIELD_LENGTH = 30
+MAX_TASK_TITLE_LENGTH = 200
+
+
+def _validate_create_task(task):
+    """Single validation source for the manual create-task draft."""
+    if not isinstance(task, dict):
+        return "فرایند ایجاد تسک فعال نیست."
+    title = str(task.get("title") or "").strip()
+    if not title:
+        return "⚠️ عنوان تسک نمی‌تواند خالی باشد."
+    if len(title) > MAX_TASK_TITLE_LENGTH:
+        return f"⚠️ عنوان تسک نمی‌تواند بیشتر از {MAX_TASK_TITLE_LENGTH} کاراکتر باشد."
+    if task.get("priority") not in ("high", "medium", "low"):
+        return "⚠️ اولویت تسک معتبر نیست."
+    for field, label in (("category", "دسته‌بندی"), ("tags", "تگ")):
+        value = str(task.get(field) or "").strip()
+        if len(value) > MAX_TASK_FIELD_LENGTH:
+            return f"⚠️ {label} نمی‌تواند بیشتر از {MAX_TASK_FIELD_LENGTH} کاراکتر باشد."
+    deadline = str(task.get("deadline") or "").strip()
+    if deadline:
+        from utils.date_parse import parse_deadline_input
+        if not parse_deadline_input(deadline):
+            return "⚠️ تاریخ مهلت تسک معتبر نیست."
+    return None
+
+
+def _clear_create_task_state(context):
+    """Clear only create-task state; do not disturb unrelated user_data flows."""
+    for key in (
+        "new_task", "step", "tag_suggestions", "awaiting_tag_input",
+        "created_task_id", "_create_task_submitting", "ai_request_draft",
+    ):
+        context.user_data.pop(key, None)
 
 
 async def handle_tag_text(update, context):
@@ -50,6 +83,32 @@ async def _patched_handle_tag_text(update, context):
     return await handle_tag_text(update, context)
 
 
+async def safe_assignment_confirm(update, context):
+    """Validate and serialize the final create-task confirmation exactly once."""
+    query = update.callback_query
+    if (query.data or "") != "assign_confirm_create":
+        return
+    task = context.user_data.get("new_task")
+    if not isinstance(task, dict):
+        await query.answer("فرایند ایجاد تسک منقضی شده است.", show_alert=True)
+        _clear_create_task_state(context)
+        return
+    error = _validate_create_task(task)
+    if error:
+        await query.answer(error, show_alert=True)
+        return
+    if task.get("_create_task_submitting") or task.get("_create_task_persisted"):
+        await query.answer("⏳ این تسک قبلاً برای ثبت ارسال شده است.", show_alert=True)
+        return
+    task["_create_task_submitting"] = True
+    try:
+        from handlers import task as task_module
+        await task_module.assignment_callback(update, context)
+        task["_create_task_persisted"] = True
+    finally:
+        task.pop("_create_task_submitting", None)
+
+
 def install_tag_flow(task_module):
     """Install the shared /add and AI flow exactly once per process."""
     if getattr(task_module, "_tag_flow_installed", False):
@@ -64,6 +123,21 @@ def install_tag_flow(task_module):
     import asyncio
     import types
 
+    original_finalize = task_module._finalize_task
+
+    async def finalize_task_once(user_id, task):
+        error = _validate_create_task(task)
+        if error:
+            raise ValueError(error)
+        if task.get("_create_task_persisted"):
+            return task.get("created_task_id")
+        task_id = await original_finalize(user_id, task)
+        task["created_task_id"] = task_id
+        task["_create_task_persisted"] = True
+        return task_id
+
+    task_module._finalize_task = finalize_task_once
+
     async def add_mode_entry(update, context):
         query = update.callback_query
         message = update.effective_message
@@ -72,11 +146,14 @@ def install_tag_flow(task_module):
         if message is None:
             return
 
-        # The single-task button enters the same flow used by /add.
+        # Both /add and Menu → ثبت تسک جدید use this exact manual entry state.
         if query is not None and query.data == "add_task_manual":
             context.user_data["new_task"] = {}
             context.user_data["step"] = "title"
-            await message.reply_text("📝 عنوان تسک را وارد کنید:")
+            context.user_data.pop("_create_task_persisted", None)
+            await message.reply_text(
+                f"📝 عنوان تسک را وارد کنید:\n(حداکثر {MAX_TASK_TITLE_LENGTH} کاراکتر)"
+            )
             return
 
         context.user_data["new_task"] = {}
@@ -102,39 +179,47 @@ def install_tag_flow(task_module):
         step = context.user_data.get("step")
         text = (update.effective_message.text or "").strip()
 
-        # Enforce the same limit for manual category/tag input and do not
-        # silently truncate user input.
+        if step == "title":
+            if not text:
+                await update.effective_message.reply_text("⚠️ عنوان تسک نمی‌تواند خالی باشد.")
+                return True
+            if len(text) > MAX_TASK_TITLE_LENGTH:
+                await update.effective_message.reply_text(
+                    f"⚠️ عنوان تسک نمی‌تواند بیشتر از {MAX_TASK_TITLE_LENGTH} کاراکتر باشد."
+                )
+                return True
+
         if step in ("category", "tags") and len(text) > MAX_TASK_FIELD_LENGTH:
             field_name = "دسته‌بندی" if step == "category" else "تگ"
             await update.effective_message.reply_text(
                 f"⚠️ {field_name} نمی‌تواند بیشتر از {MAX_TASK_FIELD_LENGTH} کاراکتر باشد.\n"
                 f"لطفاً {field_name} کوتاه‌تری وارد کنید."
             )
-            return
+            return True
 
         if step != "ai_add":
             return await task_module._capability_save_task(update, context)
         if not text:
             await update.effective_message.reply_text("⚠️ لطفاً توضیح تسک را ارسال کنید.")
-            return
+            return True
         try:
             draft = await asyncio.to_thread(parse_task_request, update.effective_user.id, text)
         except GroqConfigurationError:
             await update.effective_message.reply_text("⚠️ دستیار هوشمند در حال حاضر فعال نیست.")
             context.user_data.pop("step", None)
-            return
+            return True
         except GroqRequestError as exc:
             await update.effective_message.reply_text(f"⚠️ {exc}")
-            return
+            return True
         except Exception:
             await update.effective_message.reply_text("⚠️ پردازش درخواست انجام نشد. لطفاً متن را دوباره ارسال کنید.")
-            return
+            return True
         if draft.get("action") == "CREATE_HABIT":
             await update.effective_message.reply_text("🌱 این درخواست به‌عنوان عادت تشخیص داده شد.\n\nبرای ثبت عادت، از /ai استفاده کنید.")
-            return
+            return True
         if draft.get("action") != "CREATE_TASK":
             await update.effective_message.reply_text("⚠️ درخواست قابل تبدیل به تسک نیست.")
-            return
+            return True
         context.user_data["ai_request_draft"] = draft
         context.user_data["step"] = "ai_add_confirm"
         priority_labels = {"high": "🔴 بالا", "medium": "🟠 متوسط", "low": "🟢 پایین"}
@@ -154,11 +239,11 @@ def install_tag_flow(task_module):
             [InlineKeyboardButton("❌ لغو", callback_data="ai_task_cancel")],
         ])
         await update.effective_message.reply_text("\n".join(lines), reply_markup=keyboard)
+        return True
 
     task_module._AI_SAVE_INTERCEPTOR = ai_save_interceptor
     task_module.save_task.__code__ = _patched_save_task.__code__
 
-    # Always render previously-used tags when entering the tag step.
     async def ask_tags_with_suggestions(message, context):
         context.user_data["step"] = "tags"
         user = getattr(message, "from_user", None)
