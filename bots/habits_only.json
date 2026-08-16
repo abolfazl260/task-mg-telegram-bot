@@ -2,60 +2,58 @@
   "key": "habits_only",
   "name": "Habit Assistant",
   "username": "byeeeebot",
-  "description": "Your personal habit and lightweight task companion with AI and team support.",
+  "description": "A simple habit, reminder and task assistant.",
   "settings": {
     "ui": {
       "language": "en",
-      "start_text": "👋 Welcome to Habit Assistant!\n\nBuild better habits, manage lightweight tasks, and stay consistent with the help of AI.\n\n🌱 Create and manage habits\n📝 Create and manage tasks\n💬 Add comments to tasks\n📂 Organize tasks with categories\n🔎 Search your tasks\n🤖 Get help from AI\n👥 Work with your team\n📖 Learn how everything works\n⚙️ Customize your settings\n\nYou can type your request or send a voice message.",
-      "help_text": "📖 Habit Assistant Help\n\nHabit Assistant supports habits plus a focused set of task-management features.\n\n🌱 Habits — create, edit, track, and review habits\n📝 Tasks — create, view, update, and complete your tasks\n💬 Comments — add text, photos, voice messages, and files to tasks\n📂 Categories — organize tasks without tags\n🔎 Search — find tasks quickly\n🤖 AI Assistant — create habits or tasks from natural language or voice and ask questions\n👥 Teams — collaborate with other people\n🎙️ Voice — describe a habit or task naturally and let AI process it\n⚙️ Settings — manage your timezone, date format, and language preferences\n\nThis bot does not provide task assignment, tags, templates, or bulk task import.",
-      "feature_intro": "✨ Habits first, plus the essential tools for lightweight task management.",
+      "start_text": "👋 Welcome to Habit Assistant!\n\n🌱 Simple habits\n⏰ Simple reminders\n📝 Simple tasks\n🤖 AI Assistant\n\nUse the buttons below to get started.",
+      "help_text": "📖 Habit Assistant\n\n🌱 Create and track simple habits\n⏰ Set simple reminders\n📝 Create and manage simple tasks\n🤖 Ask the AI Assistant for help\n\nThis bot is intentionally simple and focused.",
+      "feature_intro": "🌱 Simple habits, reminders and tasks with AI.",
       "buttons": {
+        "start": "🏠 Start",
         "ai": "🤖 AI Assistant",
         "habits": "🌱 My Habits",
         "tasks": "📝 My Tasks",
-        "add_task": "➕ Add Task",
-        "teams": "👥 My Teams",
-        "search": "🔎 Search",
-        "help": "📖 Help",
-        "settings": "⚙️ Settings",
-        "contact": "📞 Contact Us"
+        "reminders": "⏰ Reminders",
+        "help": "📖 Help"
       }
     },
     "task_options": {
       "allow_assignment": false,
       "allow_tags": false,
-      "allow_comments": true,
-      "allow_categories": true,
-      "allow_search": true,
+      "allow_comments": false,
+      "allow_categories": false,
+      "allow_search": false,
       "allow_templates": false,
       "allow_bulk_import": false,
       "allow_ai_task_creation": true
+    },
+    "reminders": {
+      "enabled": true,
+      "simple": true
     }
   },
   "features": {
     "custom_bots": false,
     "integrations": false,
     "tasks": true,
-    "teams": true,
+    "teams": false,
     "templates": false,
     "habits": true,
     "reports": false,
     "donate": false,
     "ai": true,
     "guest_mode": false,
-    "search": true,
+    "search": false,
     "bulk_import": false,
     "unassigned": false
   },
   "menu": [
     {"label": "🤖 AI Assistant", "callback_data": "ai_menu", "feature": "ai"},
-    {"label": "➕ Add Task", "callback_data": "add_task", "feature": "tasks"},
-    {"label": "📝 My Tasks", "callback_data": "tasks", "feature": "tasks"},
     {"label": "🌱 My Habits", "callback_data": "habit_menu", "feature": "habits"},
-    {"label": "👥 My Teams", "callback_data": "teams", "feature": "teams"},
-    {"label": "🔎 Search", "callback_data": "search", "feature": "search"},
-    {"label": "⚙️ Settings", "callback_data": "settings"},
-    {"label": "📖 Help", "callback_data": "help"},
-    {"label": "📞 Contact Us", "callback_data": "contact_us"}
+    {"label": "📝 My Tasks", "callback_data": "tasks", "feature": "tasks"},
+    {"label": "⏰ Reminders", "callback_data": "reminders", "feature": "reminders"},
+    {"label": "🏠 Start", "callback_data": "start"},
+    {"label": "📖 Help", "callback_data": "help"}
   ]
 }
