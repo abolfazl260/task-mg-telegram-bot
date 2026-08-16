@@ -6,7 +6,6 @@ from statistics import mean
 
 from .reports import _access, _change, _jmonth, _priority, _status, _task_rows, _week, _habits, _recent
 
-
 STATUS_ALIASES = {
     "انجام شده": "done", "انجام‌شده": "done", "انجام شده است": "done",
     "در حال انجام": "in_progress", "شروع نشده": "pending", "شروع‌نشده": "pending",
@@ -82,6 +81,15 @@ def _row(task):
     }
 
 
+def _previous_period(start: date, end: date) -> tuple[date, date]:
+    """Shift the selected interval one calendar month back while preserving its duration."""
+    target_year = start.year if start.month > 1 else start.year - 1
+    target_month = start.month - 1 if start.month > 1 else 12
+    target_day = min(start.day, calendar.monthrange(target_year, target_month)[1])
+    previous_start = date(target_year, target_month, target_day)
+    return previous_start, previous_start + (end - start)
+
+
 def dashboard_report(token: str, section: str | None = None, page: int = 1, page_size: int = 25,
                      period: str = "month", start_value: str | None = None, end_value: str | None = None,
                      search: str = ""):
@@ -90,13 +98,13 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
         return None
     start, end = resolve_period(period, start_value, end_value)
     tasks = _query_tasks(access, start, end, search)
-    statuses = {}
-    priorities = {}
-    categories = {}
+    statuses, priorities, categories = {}, {}, {}
     for task in tasks:
-        statuses[task.get("status") or "pending"] = statuses.get(task.get("status") or "pending", 0) + 1
-        priorities[task.get("priority") or "medium"] = priorities.get(task.get("priority") or "medium", 0) + 1
+        status = task.get("status") or "pending"
+        priority = task.get("priority") or "medium"
         category = (task.get("category") or "بدون دسته‌بندی").strip() or "بدون دسته‌بندی"
+        statuses[status] = statuses.get(status, 0) + 1
+        priorities[priority] = priorities.get(priority, 0) + 1
         categories[category] = categories.get(category, 0) + 1
     total = len(tasks)
     done = statuses.get("done", 0)
@@ -104,10 +112,7 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
     deadline_tasks = [task for task in tasks if task.get("deadline")]
     today = datetime.now(timezone.utc).date().isoformat()
     overdue = sum(1 for task in deadline_tasks if str(task.get("deadline"))[:10] < today and task.get("status") not in {"done", "cancelled", "canceled"})
-
-    previous_start = start.replace(day=1) - timedelta(days=1)
-    previous_start = previous_start.replace(day=1)
-    previous_end = start - timedelta(days=1)
+    previous_start, previous_end = _previous_period(start, end)
     previous_total = len(_query_tasks(access, previous_start, previous_end, ""))
     result = {
         "report_type": "dashboard", "filter": {"period": period, "start": start.isoformat(), "end": end.isoformat(), "search": search},
@@ -129,11 +134,9 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
         selected = [task for task in tasks if section == "tasks" or task.get("deadline")]
         selected.sort(key=lambda x: x.get("deadline") or "9999")
         rows = [_row(task) for task in selected]
-        total_rows = len(rows)
-        page = max(1, int(page))
-        start_index = (page - 1) * page_size
-        result.update({"section": section, "rows": rows[start_index:start_index + page_size], "page": page,
-                       "page_size": page_size, "total": total_rows, "pages": max(1, (total_rows + page_size - 1) // page_size)})
+        total_rows = len(rows); page = max(1, int(page)); start_index = (page - 1) * page_size
+        result.update({"section": section, "rows": rows[start_index:start_index + page_size], "page": page, "page_size": page_size,
+                       "total": total_rows, "pages": max(1, (total_rows + page_size - 1) // page_size)})
         return result
     if section in {"status", "priority", "category"}:
         result["section"] = section
@@ -146,41 +149,27 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
             columns.setdefault(key, []).append(_row(task))
         return {"section": section, "columns": columns, "total": sum(len(v) for v in columns.values())}
     if section == "habits":
-        result["habits"] = _habits(access, start, end)
-        return result
+        result["habits"] = _habits(access, start, end); return result
     if section == "recent_changes":
-        data = _recent(access)
-        events = [event for event in data.get("events", []) if start.isoformat() <= str(event.get("created_at", ""))[:10] <= end.isoformat()]
+        data = _recent(access); events = [event for event in data.get("events", []) if start.isoformat() <= str(event.get("created_at", ""))[:10] <= end.isoformat()]
         if search:
-            needle = search.lower()
-            events = [event for event in events if needle in str(event.get("task_title", "")).lower() or needle in str(event.get("task_id", "")).lower()]
-        data["events"] = events
-        data["total"] = len(events)
-        return data
+            needle = search.lower(); events = [event for event in events if needle in str(event.get("task_title", "")).lower() or needle in str(event.get("task_id", "")).lower()]
+        data["events"], data["total"] = events, len(events); return data
     if section == "heatmap":
         counts = {}
         for task in tasks:
             key = str(task.get("deadline") or "")[:10]
-            if key:
-                counts[key] = counts.get(key, 0) + 1
-        cursor = start
-        days = []
+            if key: counts[key] = counts.get(key, 0) + 1
+        cursor, days = start, []
         while cursor <= end:
-            days.append({"day": cursor.day, "date": cursor.isoformat(), "count": counts.get(cursor.isoformat(), 0)})
-            cursor += timedelta(days=1)
+            days.append({"day": cursor.day, "date": cursor.isoformat(), "count": counts.get(cursor.isoformat(), 0)}); cursor += timedelta(days=1)
         return {"section": section, "days": days, "max_count": max((x["count"] for x in days), default=0), "total": sum(counts.values())}
     if section == "week":
         data = _week(access)
-        filtered_days = []
         for day in data.get("week", {}).get("days", []):
             rows = [row for row in day.get("rows", []) if start.isoformat() <= day.get("date", "") <= end.isoformat()]
             if search:
-                needle = search.lower()
-                rows = [row for row in rows if needle in str(row.get("title", "")).lower() or needle in str(row.get("id", "")).lower() or needle in str(row.get("category", "")).lower()]
-            day["rows"] = rows
-            day["count"] = len(rows)
-            filtered_days.append(day)
-        data["week"]["days"] = filtered_days
-        data["week"]["total"] = sum(day["count"] for day in filtered_days)
-        return data
+                needle = search.lower(); rows = [row for row in rows if needle in str(row.get("title", "")).lower() or needle in str(row.get("id", "")).lower() or needle in str(row.get("category", "")).lower()]
+            day["rows"], day["count"] = rows, len(rows)
+        data["week"]["total"] = sum(day["count"] for day in data["week"]["days"]); return data
     return result
