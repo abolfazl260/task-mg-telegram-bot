@@ -81,7 +81,7 @@ async def track_usage(update,context):
     user=update.effective_user
     if not user:return
     is_new=record_user(user,increment_usage=True);logger.info("user_activity user_id=%s username=%s full_name=%s chat_id=%s update_id=%s",user.id,user.username or "",user.full_name or "",update.effective_chat.id if update.effective_chat else "",update.update_id)
-    if is_new:await notify_new_user(context)
+    if is_new:await notify_new_user(context,user)
 def _parse_report_time():
     try:
         hour,minute=ADMIN_REPORT_TIME.split(":",1);return dt_time(hour=int(hour),minute=int(minute))
