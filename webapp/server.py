@@ -10,7 +10,7 @@ from .api import authenticate_telegram_request
 from .auth import TelegramWebAppAuthError
 from .bot_profile import WebAppBotProfileError
 from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, create_task, update_task, change_status
-from .admin_api import dashboard_stats, task_creation, list_users, get_user_profile, list_user_tasks, bot_management, system_health
+from .admin_api import dashboard_stats, task_creation, task_status_distribution, list_users, get_user_profile, list_user_tasks, bot_management, system_health
 ADMIN_PATH = "/adminNhduwqh3409iwejewed"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 class WebAppAsyncRuntime:
@@ -46,6 +46,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
         if method != "GET": return self._json(405,{"error":"method_not_allowed"})
         query=parse_qs(urlparse(self.path).query); bot_key=(query.get("bot_key") or [""])[0].strip()
         if path=="/api/admin/dashboard": return self._json(200,self.server.webapp_runtime.submit(dashboard_stats(bot_key)))
+        if path=="/api/admin/tasks/status": return self._json(200,{"statuses":self.server.webapp_runtime.submit(task_status_distribution(bot_key))})
         if path=="/api/admin/bots": return self._json(200,{"bots":self.server.webapp_runtime.submit(bot_management())})
         if path=="/api/admin/system-health": return self._json(200,self.server.webapp_runtime.submit(system_health()))
         if path=="/api/admin/tasks/creation":
