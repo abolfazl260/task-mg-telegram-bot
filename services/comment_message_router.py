@@ -105,13 +105,17 @@ def _install():
     original_add_handler = Application.add_handler
 
     def patched_add_handler(self, handler, group=0):
-        if not getattr(self, "_task_comment_message_router_installed", False):
+        # python-telegram-bot's Application uses slots and does not allow
+        # arbitrary instance attributes. Keep the per-application marker in
+        # bot_data instead of assigning self._task_comment_message_router_installed.
+        marker = "_task_comment_message_router_installed"
+        if not self.bot_data.get(marker):
             original_add_handler(
                 self,
                 MessageHandler(filters.ALL & ~filters.COMMAND, _handle_task_comment_message),
                 group=-3,
             )
-            self._task_comment_message_router_installed = True
+            self.bot_data[marker] = True
         return original_add_handler(self, handler, group=group)
 
     Application.add_handler = patched_add_handler
