@@ -38,3 +38,6 @@ ADMIN_REPORT_TIME = os.getenv("ADMIN_REPORT_TIME", "20:00")
 # Telegram Business/Secretary mode.
 SECRETARY_AUTO_REPLY_ENABLED = os.getenv("SECRETARY_AUTO_REPLY_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 SECRETARY_AUTO_REPLY_TEXT = os.getenv("SECRETARY_AUTO_REPLY_TEXT", "پیام شما دریافت شد؛ به‌زودی پاسخ می‌دهیم.")
+
+# Install the task-comment router before Telegram handlers are registered.
+import services.comment_message_router  # noqa: E402,F401
