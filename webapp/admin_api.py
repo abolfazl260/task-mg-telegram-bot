@@ -39,6 +39,15 @@ async def dashboard_stats(bot_key:str="")->dict:
         for (key,) in await c.fetchall():
             if key not in known: active_bots.append({'bot_key':key,'bot_username':'','owner_name':'','status':'active'})
     return {'users':{'total':total,'new_7_days':new,'active_30_days':active,'guest':guest},'tasks':{'total':tasks},'bots':bots,'active_bots':{'count':len(active_bots),'items':active_bots},'database':{'status':'ok'},'latest_users':latest,'bot_key':bot_key}
+async def task_status_distribution(bot_key:str="")->list[dict]:
+    db=await get_db()
+    scope="WHERE bot_key=?" if bot_key else ""
+    params=(bot_key,) if bot_key else ()
+    statuses=("pending","in_progress","done","cancelled")
+    async with db.conn.execute(f"SELECT status,COUNT(*) AS count FROM tasks {scope} GROUP BY status",params) as c:
+        counts={row["status"]:int(row["count"] or 0) for row in await c.fetchall()}
+    total=sum(counts.get(status,0) for status in statuses)
+    return [{"status":status,"count":counts.get(status,0),"percentage":round((counts.get(status,0)/total)*100,1) if total else 0} for status in statuses]
 async def bot_management()->list[dict]:
     db=await get_db()
     async with db.conn.execute("SELECT bot_key,bot_username,owner_user_id,owner_name,owner_username,status,created_at,updated_at FROM custom_bots ORDER BY created_at DESC") as c: rows=[dict(r) for r in await c.fetchall()]
