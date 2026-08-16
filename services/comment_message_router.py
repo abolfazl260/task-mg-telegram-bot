@@ -1,4 +1,4 @@
-"""Route task comments through durable Telegram message references."""
+"""Route task comments through one durable Telegram-message reference flow."""
 
 import logging
 
@@ -9,9 +9,10 @@ from services.comment_message_store import add_comment_message_async, get_commen
 logger = logging.getLogger(__name__)
 
 
-async def _handle_comment_message(update, context):
+async def _handle_task_comment_message(update, context):
     if context.user_data.get("step") != "task_comment":
         return
+
     message = update.effective_message
     user = update.effective_user
     task_id = context.user_data.get("comment_task_id")
@@ -19,47 +20,31 @@ async def _handle_comment_message(update, context):
         return
 
     from handlers import task as task_module
-    task = await task_module.get_task_by_id_async(task_id)
-    if not task or not await task_module._can_view_task(user.id, task):
+
+    try:
+        task = await task_module.get_task_by_id_async(task_id)
+        if not task or not await task_module._can_view_task(user.id, task):
+            context.user_data.pop("comment_task_id", None)
+            context.user_data.pop("step", None)
+            await message.reply_text("تسک پیدا نشد یا دسترسی ندارید.")
+            return
+
+        ok = await add_comment_message_async(
+            task_id,
+            {"id": user.id, "full_name": user.full_name, "username": user.username or ""},
+            message,
+        )
         context.user_data.pop("comment_task_id", None)
         context.user_data.pop("step", None)
-        await message.reply_text("تسک پیدا نشد یا دسترسی ندارید.")
-        return
-
-    ok = await add_comment_message_async(
-        task_id,
-        {"id": user.id, "full_name": user.full_name, "username": user.username or ""},
-        message,
-    )
-    await message.reply_text("✅ کامنت ثبت شد." if ok else "❌ خطا در ثبت کامنت.")
-
-
-async def _patched_handle_comment_input(update, context):
-    if context.user_data.get("step") != "task_comment":
-        return False
-    message = update.effective_message
-    user = update.effective_user
-    task_id = context.user_data.get("comment_task_id")
-    if not message or not user or not task_id:
-        return True
-
-    from handlers import task as task_module
-    task = await task_module.get_task_by_id_async(task_id)
-    if not task or not await task_module._can_view_task(user.id, task):
-        context.user_data.pop("comment_task_id", None)
-        context.user_data.pop("step", None)
-        await message.reply_text("تسک پیدا نشد یا دسترسی ندارید.")
-        return True
-
-    ok = await add_comment_message_async(
-        task_id,
-        {"id": user.id, "full_name": user.full_name, "username": user.username or ""},
-        message,
-    )
-    context.user_data.pop("comment_task_id", None)
-    context.user_data.pop("step", None)
-    await message.reply_text("✅ کامنت ثبت شد." if ok else "❌ خطا در ثبت کامنت.")
-    return True
+        await message.reply_text("✅ کامنت ثبت شد." if ok else "❌ خطا در ثبت کامنت.")
+    except Exception:
+        logger.exception(
+            "Failed to save task comment task_id=%s user_id=%s message_id=%s",
+            task_id,
+            user.id,
+            getattr(message, "message_id", None),
+        )
+        await message.reply_text("❌ خطا در ثبت کامنت. لطفاً دوباره تلاش کنید.")
 
 
 async def _patched_get_task_comments_async(task_id):
@@ -104,13 +89,12 @@ async def _patched_send_comment_attachments(message, task_id: str):
                 message_id=message_id,
             )
         except Exception:
-            logger.exception("Could not copy stored Telegram comment message chat_id=%s message_id=%s", chat_id, message_id)
+            logger.exception("Could not copy stored Telegram comment chat_id=%s message_id=%s", chat_id, message_id)
 
 
 def _install():
     from handlers import task as task_module
 
-    task_module.handle_comment_input = _patched_handle_comment_input
     task_module.get_task_comments_async = _patched_get_task_comments_async
     task_module._comments_markdown = _patched_comments_markdown
     task_module._send_comment_attachments = _patched_send_comment_attachments
@@ -119,25 +103,17 @@ def _install():
         return
 
     original_add_handler = Application.add_handler
-    media_filter = (
-        filters.PHOTO
-        | filters.Document.ALL
-        | filters.VIDEO
-        | filters.AUDIO
-        | filters.VOICE
-        | filters.ANIMATION
-        | filters.Sticker.ALL
-        | filters.CONTACT
-        | filters.LOCATION
-    )
 
     def patched_add_handler(self, handler, group=0):
-        if not getattr(self, "_task_comment_message_router_installed", False) and isinstance(handler, MessageHandler):
+        if not getattr(self, "_task_comment_message_router_installed", False):
+            original_add_handler(
+                self,
+                MessageHandler(filters.ALL & ~filters.COMMAND, _handle_task_comment_message),
+                group=-3,
+            )
             self._task_comment_message_router_installed = True
-            original_add_handler(self, MessageHandler(media_filter, _handle_comment_message), group=group)
         return original_add_handler(self, handler, group=group)
 
-    patched_add_handler._task_comment_message_patch = True
     Application.add_handler = patched_add_handler
     Application._task_comment_message_router_patch = True
 
