@@ -76,13 +76,13 @@ async def _patched_comments_markdown(task_id: str) -> str:
     return "\n".join(lines).strip()
 
 
-async def _patched_send_comment_attachments(message, task_id: str):
+async def _patched_send_comment_attachments(bot, target_chat_id, task_id: str):
     """Replay every original Telegram comment message in chronological order."""
     comments = await _patched_get_task_comments_async(task_id)
     if not comments:
         return
 
-    await message.reply_text("💬 جزئیات کامنت‌ها:")
+    await bot.send_message(chat_id=target_chat_id, text="💬 جزئیات کامنت‌ها:")
 
     for index, comment in enumerate(comments, start=1):
         chat_id = comment.get("chat_id")
@@ -93,8 +93,8 @@ async def _patched_send_comment_attachments(message, task_id: str):
 
         source_chat_id = int(chat_id) if str(chat_id).lstrip("-").isdigit() else chat_id
         try:
-            await message.bot.copy_message(
-                chat_id=message.chat_id,
+            await bot.copy_message(
+                chat_id=target_chat_id,
                 from_chat_id=source_chat_id,
                 message_id=message_id,
             )
@@ -109,8 +109,8 @@ async def _patched_send_comment_attachments(message, task_id: str):
             )
 
         try:
-            await message.bot.forward_message(
-                chat_id=message.chat_id,
+            await bot.forward_message(
+                chat_id=target_chat_id,
                 from_chat_id=source_chat_id,
                 message_id=message_id,
             )
@@ -121,10 +121,13 @@ async def _patched_send_comment_attachments(message, task_id: str):
                 chat_id,
                 message_id,
             )
-            await message.reply_text(
-                f"⚠️ کامنت شماره {index} قابل فراخوانی نیست.\n"
-                f"🕐 {comment.get('created_at') or '—'}\n"
-                f"👤 {comment.get('author_name') or 'کاربر'}"
+            await bot.send_message(
+                chat_id=target_chat_id,
+                text=(
+                    f"⚠️ کامنت شماره {index} قابل فراخوانی نیست.\n"
+                    f"🕐 {comment.get('created_at') or '—'}\n"
+                    f"👤 {comment.get('author_name') or 'کاربر'}"
+                ),
             )
 
 
@@ -133,7 +136,11 @@ def _install():
 
     task_module.get_task_comments_async = _patched_get_task_comments_async
     task_module._comments_markdown = _patched_comments_markdown
-    task_module._send_comment_attachments = _patched_send_comment_attachments
+
+    async def _send_from_task_handler(message, task_id):
+        await _patched_send_comment_attachments(message.get_bot(), message.chat_id, task_id)
+
+    task_module._send_comment_attachments = _send_from_task_handler
 
     if getattr(Application, "_task_comment_message_router_patch", False):
         return
