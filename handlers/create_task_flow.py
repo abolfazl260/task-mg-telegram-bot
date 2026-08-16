@@ -57,7 +57,10 @@ def install_create_task_flow(task_module) -> None:
         context.user_data["new_task"] = {}
         context.user_data["step"] = "title"
         message = update.effective_message or update.callback_query.message
-        await message.reply_text("📝 عنوان تسک را وارد کنید:", reply_markup=add_create_cancel(InlineKeyboardMarkup([])))
+        await message.reply_text(
+            "📝 عنوان تسک را وارد کنید:",
+            reply_markup=add_create_cancel(InlineKeyboardMarkup([])),
+        )
 
     task_module.add_task = shared_add_task
 
@@ -70,29 +73,38 @@ def install_create_task_flow(task_module) -> None:
 
     # 2) Add Cancel to all task-flow keyboards that are built in handlers.task.
     original_skip_keyboard = task_module._skip_keyboard
+
     def skip_keyboard_with_cancel(callback_data):
         return add_create_cancel(original_skip_keyboard(callback_data))
+
     task_module._skip_keyboard = skip_keyboard_with_cancel
 
     original_category_keyboard = task_module._category_keyboard
+
     async def category_keyboard_with_cancel(user_id):
         return add_create_cancel(await original_category_keyboard(user_id))
+
     task_module._category_keyboard = category_keyboard_with_cancel
 
     for name in ("priority_keyboard", "deadline_keyboard"):
         original_keyboard = getattr(task_module, name)
+
         def wrapped_keyboard(original=original_keyboard):
             return add_create_cancel(original())
+
         setattr(task_module, name, wrapped_keyboard)
 
     # The smart tag flow replaces _ask_tags/_ask_assignment and uses these helpers
     # from tag_suggestions_legacy, so patch their module-level builders as well.
     try:
         import handlers.tag_suggestions_legacy as legacy
+
         original_recent_tag_keyboard = legacy.recent_tag_keyboard
+
         async def recent_tag_keyboard_with_cancel(*args, **kwargs):
             markup, tags = await original_recent_tag_keyboard(*args, **kwargs)
             return add_create_cancel(markup), tags
+
         legacy.recent_tag_keyboard = recent_tag_keyboard_with_cancel
         legacy.assignment_grid_keyboard = lambda *args, **kwargs: add_create_cancel(
             __import__("utils.keyboard", fromlist=["assignment_grid_keyboard"]).assignment_grid_keyboard(*args, **kwargs)
@@ -103,6 +115,7 @@ def install_create_task_flow(task_module) -> None:
 
     # 3) Validate Title at the input step without touching save_task's dispatcher order.
     original_save_task = task_module.save_task
+
     async def save_task_with_create_validation(update, context):
         if context.user_data.get("step") == "title":
             task = context.user_data.setdefault("new_task", {})
@@ -124,9 +137,16 @@ def install_create_task_flow(task_module) -> None:
     # assignment_callback because both safe_assignment_confirm and the existing
     # callback registration converge there.
     original_assignment_callback = task_module.assignment_callback
+
     async def assignment_callback_with_guard(update, context):
         query = update.callback_query
-        if (query.data or "") == "assign_confirm_create":
+        data = query.data or ""
+        if data == CREATE_CANCEL_CALLBACK:
+            clear_create_task_state(context)
+            await query.answer()
+            await query.message.reply_text("❌ ایجاد تسک لغو شد.")
+            return
+        if data == "assign_confirm_create":
             task = context.user_data.get("new_task")
             if not isinstance(task, dict):
                 await query.answer("فرایند ایجاد تسک منقضی شده است.", show_alert=True)
@@ -142,6 +162,5 @@ def install_create_task_flow(task_module) -> None:
         return await original_assignment_callback(update, context)
 
     task_module.assignment_callback = assignment_callback_with_guard
-
-    # safe_assignment_confirm resolves handlers.task.assignment_callback dynamically,
-    # so the wrapper above also protects the actual final save path.
+    if main_module is not None:
+        main_module.assignment_callback = assignment_callback_with_guard
