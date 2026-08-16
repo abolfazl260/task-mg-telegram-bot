@@ -184,18 +184,13 @@ async def transaction(statements):
 
 def _run(coro):
     return asyncio.run(coro)
-
-
 def sync_all(table, where="", params=()):
     return _run(fetch_all(table, where, params))
-
-
+def sync_one(table, where, params=()):
+    return _run(fetch_one(table, where, params))
 def sync_execute(sql, params=()):
     return _run(execute(sql, params))
-
-def get_connection():
-    return sqlite3.connect(DB_PATH)
-
+def get_connection(): return sqlite3.connect(DB_PATH)
 def close_all():
     for db in list(_db_by_loop.values()):
         try:
@@ -204,5 +199,4 @@ def close_all():
                 except Exception: pass
         except Exception: pass
     _db_by_loop.clear()
-
 atexit.register(close_all)
