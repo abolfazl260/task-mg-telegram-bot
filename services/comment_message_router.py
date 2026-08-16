@@ -1,8 +1,4 @@
-"""Route task comments through durable Telegram message references.
-
-The task-comment DB stores only the original Telegram chat/message reference,
-never the binary media, file_id, or a media-specific content JSON payload.
-"""
+"""Route task comments through durable Telegram message references."""
 
 import logging
 
@@ -16,7 +12,6 @@ logger = logging.getLogger(__name__)
 async def _handle_comment_message(update, context):
     if context.user_data.get("step") != "task_comment":
         return
-
     message = update.effective_message
     user = update.effective_user
     task_id = context.user_data.get("comment_task_id")
@@ -24,7 +19,6 @@ async def _handle_comment_message(update, context):
         return
 
     from handlers import task as task_module
-
     task = await task_module.get_task_by_id_async(task_id)
     if not task or not await task_module._can_view_task(user.id, task):
         context.user_data.pop("comment_task_id", None)
@@ -37,16 +31,12 @@ async def _handle_comment_message(update, context):
         {"id": user.id, "full_name": user.full_name, "username": user.username or ""},
         message,
     )
-    if ok:
-        await message.reply_text("✅ کامنت ثبت شد.")
-    else:
-        await message.reply_text("❌ خطا در ثبت کامنت.")
+    await message.reply_text("✅ کامنت ثبت شد." if ok else "❌ خطا در ثبت کامنت.")
 
 
 async def _patched_handle_comment_input(update, context):
     if context.user_data.get("step") != "task_comment":
         return False
-
     message = update.effective_message
     user = update.effective_user
     task_id = context.user_data.get("comment_task_id")
@@ -54,7 +44,6 @@ async def _patched_handle_comment_input(update, context):
         return True
 
     from handlers import task as task_module
-
     task = await task_module.get_task_by_id_async(task_id)
     if not task or not await task_module._can_view_task(user.id, task):
         context.user_data.pop("comment_task_id", None)
@@ -115,11 +104,7 @@ async def _patched_send_comment_attachments(message, task_id: str):
                 message_id=message_id,
             )
         except Exception:
-            logger.exception(
-                "Could not copy stored Telegram comment message chat_id=%s message_id=%s",
-                chat_id,
-                message_id,
-            )
+            logger.exception("Could not copy stored Telegram comment message chat_id=%s message_id=%s", chat_id, message_id)
 
 
 def _install():
@@ -130,11 +115,10 @@ def _install():
     task_module._comments_markdown = _patched_comments_markdown
     task_module._send_comment_attachments = _patched_send_comment_attachments
 
-    if getattr(Application, "_task_comment_message_router_installed", False):
+    if getattr(Application, "_task_comment_message_router_patch", False):
         return
 
     original_add_handler = Application.add_handler
-
     media_filter = (
         filters.PHOTO
         | filters.Document.ALL
@@ -153,8 +137,9 @@ def _install():
             original_add_handler(self, MessageHandler(media_filter, _handle_comment_message), group=group)
         return original_add_handler(self, handler, group=group)
 
+    patched_add_handler._task_comment_message_patch = True
     Application.add_handler = patched_add_handler
-    Application._task_comment_message_router_installed = True
+    Application._task_comment_message_router_patch = True
 
 
 _install()
