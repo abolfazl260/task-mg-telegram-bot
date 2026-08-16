@@ -4,9 +4,11 @@ import logging
 
 from telegram.ext import Application, MessageHandler, filters
 
+from bot_context import get_current_bot_key
 from services.comment_message_store import add_comment_message_async, get_comment_messages_async
 
 logger = logging.getLogger(__name__)
+_BOTS = {}
 
 
 async def _handle_task_comment_message(update, context):
@@ -18,6 +20,10 @@ async def _handle_task_comment_message(update, context):
     task_id = context.user_data.get("comment_task_id")
     if not message or not user or not task_id:
         return
+
+    profile = context.bot_data.get("bot_config")
+    bot_key = profile.key if profile else "default"
+    _BOTS[bot_key] = context.bot
 
     from handlers import task as task_module
 
@@ -76,12 +82,20 @@ async def _patched_comments_markdown(task_id: str) -> str:
     return "\n".join(lines).strip()
 
 
-async def _patched_send_comment_attachments(bot, target_chat_id, task_id: str):
+async def _patched_send_comment_attachments(message, task_id: str):
     """Replay every original Telegram comment message in chronological order."""
     comments = await _patched_get_task_comments_async(task_id)
     if not comments:
         return
 
+    profile_key = get_current_bot_key() or "default"
+    bot = _BOTS.get(profile_key)
+    if bot is None:
+        logger.error("No active bot instance available for comment replay bot_key=%s task_id=%s", profile_key, task_id)
+        await message.reply_text("⚠️ امکان فراخوانی کامنت‌ها در این لحظه وجود ندارد. ربات را Restart کنید.")
+        return
+
+    target_chat_id = message.chat_id
     await bot.send_message(chat_id=target_chat_id, text="💬 جزئیات کامنت‌ها:")
 
     for index, comment in enumerate(comments, start=1):
@@ -136,11 +150,7 @@ def _install():
 
     task_module.get_task_comments_async = _patched_get_task_comments_async
     task_module._comments_markdown = _patched_comments_markdown
-
-    async def _send_from_task_handler(message, task_id):
-        await _patched_send_comment_attachments(message.get_bot(), message.chat_id, task_id)
-
-    task_module._send_comment_attachments = _send_from_task_handler
+    task_module._send_comment_attachments = _patched_send_comment_attachments
 
     if getattr(Application, "_task_comment_message_router_patch", False):
         return
