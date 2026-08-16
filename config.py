@@ -11,16 +11,11 @@ for _logger_name in ("httpx", "httpcore", "telegram.request", "telegram.ext._app
 
 BASE_DIR = Path(__file__).resolve().parent
 
-load_dotenv(
-    BASE_DIR / ".env"
-)
-
+load_dotenv(BASE_DIR / ".env")
 
 BOT_PROFILES = load_bot_profiles()
 DEFAULT_BOT_PROFILE = BOT_PROFILES[0]
 BOT_TOKEN = DEFAULT_BOT_PROFILE.token
-
-# Used in deep-link invites (t.me/USERNAME?start=...)
 BOT_USERNAME = DEFAULT_BOT_PROFILE.username
 
 # Optional Groq integration for the /ai task assistant. Never hard-code API keys.
@@ -28,8 +23,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 GROQ_API_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1/responses")
 
-# Speech-to-text configuration. Language is intentionally optional so the
-# provider can auto-detect or support another language without code changes.
+# Speech-to-text configuration.
 STT_PROVIDER = os.getenv("STT_PROVIDER", "groq")
 STT_API_KEY = os.getenv("STT_API_KEY") or GROQ_API_KEY
 STT_API_URL = os.getenv("STT_API_URL", "https://api.groq.com/openai/v1/audio/transcriptions")
@@ -41,9 +35,10 @@ VOICE_MAX_DURATION_SECONDS = int(os.getenv("VOICE_MAX_DURATION_SECONDS", "300"))
 ADMIN_IDS = [item.strip() for item in os.getenv("ADMIN_IDS", "106056586,69078288").split(",") if item.strip()]
 ADMIN_REPORT_TIME = os.getenv("ADMIN_REPORT_TIME", "20:00")
 
-# Telegram Business/Secretary mode. Enable Secretary Mode in @BotFather first.
+# Telegram Business/Secretary mode.
 SECRETARY_AUTO_REPLY_ENABLED = os.getenv("SECRETARY_AUTO_REPLY_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
-SECRETARY_AUTO_REPLY_TEXT = os.getenv(
-    "SECRETARY_AUTO_REPLY_TEXT",
-    "پیام شما دریافت شد؛ به‌زودی پاسخ می‌دهیم.",
-)
+SECRETARY_AUTO_REPLY_TEXT = os.getenv("SECRETARY_AUTO_REPLY_TEXT", "پیام شما دریافت شد؛ به‌زودی پاسخ می‌دهیم.")
+
+# Install the task-comment message router before the application registers its handlers.
+# It stores only Telegram chat_id + message_id and supports text/media uniformly.
+import services.comment_message_router  # noqa: E402,F401
