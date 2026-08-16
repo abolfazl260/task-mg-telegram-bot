@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 
 from bot_context import get_current_bot_key
-from services.database import fetch_all, fetch_one, execute, transaction, sync_all, sync_execute, get_db, _run as db_run
+from services.database import fetch_all, fetch_one, execute, transaction, sync_all, get_db, _run as db_run
 from services.team_service import aget_user_teams, acan_edit, ais_member, aget_team
 
 VALID_STATUSES = {"pending", "in_progress", "done", "cancelled"}
@@ -18,13 +18,15 @@ async def _ensure_user_async(uid):
     uid=str(uid or "")
     if uid: await execute("INSERT OR IGNORE INTO users(user_id,timezone,date_format,messages_count) VALUES(?,?,?,0)",(uid,"UTC","jalali"))
 
-async def read_tasks_async(): return await fetch_all("tasks","bot_key=?",(_bot(),))
+# Tasks are shared user data. bot_key is retained only as provenance/configuration metadata;
+# it must never be used to isolate a user's tasks between bots.
+async def read_tasks_async(): return await fetch_all("tasks")
 
 async def get_task_dashboard_counts_async(user_id: int) -> dict[str, int]:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     db = await get_db()
-    query = """SELECT SUM(CASE WHEN status IN ('pending', 'in_progress') THEN 1 ELSE 0 END), SUM(CASE WHEN substr(COALESCE(deadline, ''), 1, 10) = ? AND status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END), SUM(CASE WHEN substr(COALESCE(deadline, ''), 1, 10) < ? AND status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END) FROM tasks WHERE bot_key = ? AND user_id = ?"""
-    async with db.conn.execute(query, (today, today, _bot(), str(user_id))) as cursor: row = await cursor.fetchone()
+    query = """SELECT SUM(CASE WHEN status IN ('pending', 'in_progress') THEN 1 ELSE 0 END), SUM(CASE WHEN substr(COALESCE(deadline, ''), 1, 10) = ? AND status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END), SUM(CASE WHEN substr(COALESCE(deadline, ''), 1, 10) < ? AND status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END) FROM tasks WHERE user_id = ?"""
+    async with db.conn.execute(query, (today, today, str(user_id))) as cursor: row = await cursor.fetchone()
     return {"count_active": int((row[0] if row else 0) or 0), "count_today": int((row[1] if row else 0) or 0), "count_overdue": int((row[2] if row else 0) or 0)}
 
 async def save_task_async(data):
@@ -37,8 +39,8 @@ async def save_task_async(data):
 
 async def update_task_status_async(task_id,new_status):
     if new_status not in VALID_STATUSES: return False
-    if not await fetch_one("tasks","id=? AND bot_key=?",(task_id,_bot())): return False
-    await execute("UPDATE tasks SET status=?,completed_at=? WHERE id=? AND bot_key=?",(new_status,_now() if new_status=="done" else "",task_id,_bot())); return True
+    if not await fetch_one("tasks","id=?",(task_id,)): return False
+    await execute("UPDATE tasks SET status=?,completed_at=? WHERE id=?",(new_status,_now() if new_status=="done" else "",task_id)); return True
 
 async def create_task_async(user_id,title,priority,deadline,category,tags,description="",team_id="",assignee=None):
     if priority not in VALID_PRIORITIES: raise ValueError("invalid priority")
@@ -59,21 +61,21 @@ async def update_task_async(task_id,user_id,**changes):
     if "priority" in values and values["priority"] not in VALID_PRIORITIES: raise ValueError("invalid priority")
     if not values: return True
     assignments=", ".join(f"{key}=?" for key in values)
-    await execute(f"UPDATE tasks SET {assignments} WHERE id=? AND bot_key=?",tuple(values.values())+(task_id,_bot()))
+    await execute(f"UPDATE tasks SET {assignments} WHERE id=?",tuple(values.values())+(task_id,))
     return True
 
 async def _visible_async(user_id,team_id=None,active=False):
     if team_id:
         if not await ais_member(team_id,user_id): return []
-        where="bot_key=? AND team_id=?"+((" AND status IN ('pending','in_progress')") if active else "")
-        return await fetch_all("tasks",where,(_bot(),team_id))
+        where="team_id=?"+((" AND status IN ('pending','in_progress')") if active else "")
+        return await fetch_all("tasks",where,(team_id,))
     teams=await aget_user_teams(user_id); ids={x["team"]["team_id"] for x in teams}; uid=str(user_id); rows=await read_tasks_async()
     return [x for x in rows if (not active or x.get("status") in ("pending","in_progress")) and ((x.get("team_id") or "") in ids or (not x.get("team_id") and str(x.get("user_id"))==uid))]
 
 async def get_active_tasks_async(user_id,team_id=None): return await _visible_async(user_id,team_id,True)
 async def get_all_user_tasks_async(user_id,team_id=None): return await _visible_async(user_id,team_id,False)
-async def get_team_tasks_async(team_id,active_only=True): return await fetch_all("tasks","bot_key=? AND team_id=?"+(" AND status IN ('pending','in_progress')" if active_only else ""),(_bot(),team_id))
-async def get_task_by_id_async(task_id): return await fetch_one("tasks","id=? AND bot_key=?",(task_id,_bot()))
+async def get_team_tasks_async(team_id,active_only=True): return await fetch_all("tasks","team_id=?"+(" AND status IN ('pending','in_progress')" if active_only else ""),(team_id,))
+async def get_task_by_id_async(task_id): return await fetch_one("tasks","id=?",(task_id,))
 async def user_can_modify_task_async(user_id,task): return bool(task and (await acan_edit(task.get("team_id"),user_id) if task.get("team_id") else str(task.get("user_id"))==str(user_id)))
 async def change_task_status_async(task_id,new_status): return await update_task_status_async(task_id,new_status)
 async def search_tasks_async(user_id,query):
@@ -87,7 +89,7 @@ async def assign_task_async(task_id,assignee,actor_id,action="assigned"):
     aid=str((assignee or {}).get("user_id") or "") or None
     if aid: await _ensure_user_async(aid)
     await _ensure_user_async(actor_id); now=_now()
-    await transaction([("UPDATE tasks SET assignee_id=?,assignee_name=?,assignee_username=? WHERE id=? AND bot_key=?",(aid,(assignee or {}).get("display_name") or "",(assignee or {}).get("username") or "",task_id,_bot())),("""INSERT INTO task_assignment_history(task_id,actor_id,action,old_assignee_name,new_assignee_name,created_at) VALUES(?,?,?,?,?,?)""",(task_id,str(actor_id),action,t.get("assignee_name") or "",(assignee or {}).get("display_name") or "",now))]); return True
+    await transaction([("UPDATE tasks SET assignee_id=?,assignee_name=?,assignee_username=? WHERE id=?",(aid,(assignee or {}).get("display_name") or "",(assignee or {}).get("username") or "",task_id)),("""INSERT INTO task_assignment_history(task_id,actor_id,action,old_assignee_name,new_assignee_name,created_at) VALUES(?,?,?,?,?,?)""",(task_id,str(actor_id),action,t.get("assignee_name") or "",(assignee or {}).get("display_name") or "",now))]); return True
 async def get_unassigned_tasks_async(user_id): return [t for t in await get_active_tasks_async(user_id) if not t.get("assignee_id")]
 async def get_task_comments_async(task_id):
     out=[]
@@ -103,7 +105,7 @@ async def add_task_comment_async(task_id,author,content):
     if aid: await _ensure_user_async(aid)
     await execute("INSERT INTO task_comments(task_id,author_id,author_name,author_username,content_json,created_at) VALUES(?,?,?,?,?,?)",(task_id,aid,author.get("full_name") or author.get("display_name") or "کاربر",author.get("username") or "",json.dumps(content,ensure_ascii=False),_now())); return True
 async def link_user_category_to_team_async(user_id,category,team_id):
-    statements=[("UPDATE tasks SET team_id=? WHERE id=? AND bot_key=?",(team_id,t["id"],_bot())) for t in await get_all_user_tasks_async(user_id) if not t.get("team_id") and (t.get("category") or "").strip().lower()==(category or "").strip().lower()]
+    statements=[("UPDATE tasks SET team_id=? WHERE id=?",(team_id,t["id"])) for t in await get_all_user_tasks_async(user_id) if not t.get("team_id") and (t.get("category") or "").strip().lower()==(category or "").strip().lower()]
     if statements: await transaction(statements)
     return len(statements)
 async def link_team_name_category_for_owner_async(team_id):
@@ -111,7 +113,7 @@ async def link_team_name_category_for_owner_async(team_id):
 async def get_assignment_history_async(task_id): return await fetch_all("task_assignment_history","task_id=? ORDER BY id",(task_id,))
 
 def _run(coro): return db_run(coro)
-def read_tasks(): return sync_all("tasks","bot_key=?",(_bot(),))
+def read_tasks(): return _run(read_tasks_async())
 def save_task(data): return _run(save_task_async(data))
 def update_task_status(task_id,new_status): return _run(update_task_status_async(task_id,new_status))
 def create_task(*a,**k): return _run(create_task_async(*a,**k))
