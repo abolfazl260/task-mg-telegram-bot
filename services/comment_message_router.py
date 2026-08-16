@@ -77,19 +77,55 @@ async def _patched_comments_markdown(task_id: str) -> str:
 
 
 async def _patched_send_comment_attachments(message, task_id: str):
-    for comment in await _patched_get_task_comments_async(task_id):
+    """Replay every original Telegram comment message in chronological order."""
+    comments = await _patched_get_task_comments_async(task_id)
+    if not comments:
+        return
+
+    await message.reply_text("💬 جزئیات کامنت‌ها:")
+
+    for index, comment in enumerate(comments, start=1):
         chat_id = comment.get("chat_id")
         message_id = comment.get("message_id")
         if not chat_id or not message_id:
+            logger.warning("Skipping comment without Telegram reference task_id=%s index=%s", task_id, index)
             continue
+
+        source_chat_id = int(chat_id) if str(chat_id).lstrip("-").isdigit() else chat_id
         try:
             await message.bot.copy_message(
                 chat_id=message.chat_id,
-                from_chat_id=int(chat_id) if str(chat_id).lstrip("-").isdigit() else chat_id,
+                from_chat_id=source_chat_id,
+                message_id=message_id,
+            )
+            continue
+        except Exception:
+            logger.warning(
+                "copy_message failed for task_id=%s chat_id=%s message_id=%s; trying forward_message",
+                task_id,
+                chat_id,
+                message_id,
+                exc_info=True,
+            )
+
+        try:
+            await message.bot.forward_message(
+                chat_id=message.chat_id,
+                from_chat_id=source_chat_id,
                 message_id=message_id,
             )
         except Exception:
-            logger.exception("Could not copy stored Telegram comment chat_id=%s message_id=%s", chat_id, message_id)
+            logger.exception(
+                "Could not replay stored Telegram comment task_id=%s chat_id=%s message_id=%s",
+                task_id,
+                chat_id,
+                message_id,
+            )
+            await message.reply_text(
+                f"⚠️ کامنت شماره {index} قابل فراخوانی نیست.\n"
+                f"🕐 {comment.get('created_at') or '—'}\n"
+                f"👤 {comment.get('author_name') or 'کاربر'}"
+            )
 
 
 def _install():
@@ -105,9 +141,6 @@ def _install():
     original_add_handler = Application.add_handler
 
     def patched_add_handler(self, handler, group=0):
-        # python-telegram-bot's Application uses slots and does not allow
-        # arbitrary instance attributes. Keep the per-application marker in
-        # bot_data instead of assigning self._task_comment_message_router_installed.
         marker = "_task_comment_message_router_installed"
         if not self.bot_data.get(marker):
             original_add_handler(
