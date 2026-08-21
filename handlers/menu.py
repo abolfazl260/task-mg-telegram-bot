@@ -39,6 +39,16 @@ def add_task_options_keyboard(context=None):
     if _feature_enabled(profile,"templates"): rows.append([InlineKeyboardButton("🧩 انتخاب از تمپلیت‌ها",callback_data="templates")])
     rows.append([InlineKeyboardButton("🔙 بازگشت",callback_data="tasks_back")]);return InlineKeyboardMarkup(rows)
 
+async def show_add_task_menu(update, context):
+    message=update.effective_message
+    if message is None and update.callback_query:
+        message=update.callback_query.message
+    if message is None:
+        return
+    if update.callback_query:
+        await update.callback_query.answer()
+    await message.reply_text("➕ **افزودن تسک**\n\nروش ثبت تسک را انتخاب کنید:",reply_markup=add_task_options_keyboard(context),parse_mode="Markdown")
+
 def tasks_options_keyboard(context=None):
     profile=_bot_profile(context)
     rows=[[InlineKeyboardButton("📋 لیست تسک‌های فعال",callback_data="tasks_list")],[InlineKeyboardButton("🕒 تاریخ ایجاد",callback_data="sort_created")],[InlineKeyboardButton("📅 بر اساس ددلاین",callback_data="sort_deadline")],[InlineKeyboardButton("🔙 بازگشت",callback_data="tasks_back")]]
