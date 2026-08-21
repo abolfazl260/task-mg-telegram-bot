@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,7 +17,8 @@ def test_category_callbacks_are_short_indexes():
 
 def test_category_handler_is_registered_for_category_pick():
     source = read("main.py")
-    assert 'pattern="^(category_skip|category_pick_|tags_skip|description_skip)$"' in source
+    # Runtime routing uses numeric indexes: category_pick_0, category_pick_1, ...
+    assert 'pattern="^(?:category_skip|category_pick_[0-9]+|tags_skip|description_skip)$"' in source
 
 
 def test_category_flow_stores_selected_category_and_moves_to_tags():
