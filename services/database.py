@@ -1,5 +1,5 @@
 from __future__ import annotations
-import atexit, asyncio, sqlite3
+import atexit, asyncio, sqlite3, threading
 from pathlib import Path
 import aiosqlite
 DB_PATH=Path('data/data.db')
@@ -45,10 +45,34 @@ async def transaction(statements):
         except Exception: await db.conn.rollback(); raise
 
 def _run(coro):
-    # Sync compatibility helper. It must not call asyncio.run() from an active loop.
-    try: asyncio.get_running_loop()
-    except RuntimeError: return asyncio.run(coro)
-    raise RuntimeError('Synchronous database helper called from an active event loop; use the async database API instead.')
+    """Run an async DB compatibility call from sync code.
+
+    Telegram handlers normally use the native async APIs. A legacy synchronous
+    service wrapper can nevertheless be reached from an active event loop.
+    In that case execute the coroutine on a dedicated worker thread instead of
+    nesting/closing the caller's event loop. This also guarantees that the
+    coroutine is actually awaited, avoiding 'was never awaited' warnings.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    result = []
+    error = []
+
+    def runner():
+        try:
+            result.append(asyncio.run(coro))
+        except BaseException as exc:
+            error.append(exc)
+
+    thread = threading.Thread(target=runner, name="db-sync-compat", daemon=True)
+    thread.start()
+    thread.join()
+    if error:
+        raise error[0]
+    return result[0] if result else None
 
 def _sync_sql(sql,params=(),fetch='none'):
     conn=sqlite3.connect(DB_PATH); conn.row_factory=sqlite3.Row
