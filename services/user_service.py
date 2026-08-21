@@ -86,9 +86,6 @@ def record_user(user, increment_usage=True):
         raise error["value"]
     return result.get("value", False)
 
-def set_user_timezone_async_legacy_placeholder():
-    return None
-
 async def set_user_timezone_async(user_id, tz_name: str) -> bool:
     tz_name = (tz_name or "").strip()
     if not validate_timezone(tz_name):
@@ -117,7 +114,7 @@ async def set_user_date_format_async(user_id, date_format):
     await execute(
         "INSERT INTO users(user_id,date_format,timezone,messages_count) VALUES(?,?,?,0) "
         "ON CONFLICT(user_id) DO UPDATE SET date_format=excluded.date_format",
-        (str(user_id), value, DEFAULT_TIMEZONE),
+        (str(user_id), value, DEFAULT_DATE_FORMAT),
     )
     return True
 
