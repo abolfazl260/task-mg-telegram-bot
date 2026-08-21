@@ -1,3 +1,5 @@
+import asyncio
+import threading
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -56,7 +58,36 @@ async def record_user_async(user, increment_usage=True):
     return is_new
 
 def record_user(user, increment_usage=True):
-    return _run(record_user_async(user, increment_usage))
+    """Sync compatibility wrapper for legacy callers.
+
+    Native async handlers should call record_user_async() directly. If a legacy
+    synchronous caller is invoked while an event loop is already running, run
+    the async API on a short-lived worker thread instead of trying to nest an
+    event loop in the active Telegram event loop.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return _run(record_user_async(user, increment_usage))
+
+    result = {}
+    error = {}
+
+    def _worker():
+        try:
+            result["value"] = asyncio.run(record_user_async(user, increment_usage))
+        except BaseException as exc:
+            error["value"] = exc
+
+    thread = threading.Thread(target=_worker, name="record-user-async", daemon=True)
+    thread.start()
+    thread.join()
+    if "value" in error:
+        raise error["value"]
+    return result.get("value", False)
+
+def set_user_timezone_async_legacy_placeholder():
+    return None
 
 async def set_user_timezone_async(user_id, tz_name: str) -> bool:
     tz_name = (tz_name or "").strip()
