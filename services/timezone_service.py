@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import jdatetime
 
-from services.user_service import get_user_date_format, get_user_timezone, set_user_timezone
+from services.user_service import get_user_date_format, get_user_date_format_async, get_user_timezone, get_user_timezone_async, set_user_timezone
 
 
 # User-facing timezone choices. Values are IANA timezone identifiers.
@@ -58,6 +58,15 @@ def get_current_local_datetime(user_id) -> tuple[str, datetime]:
         return "UTC", datetime.now(ZoneInfo("UTC"))
 
 
+async def get_current_local_datetime_async(user_id) -> tuple[str, datetime]:
+    """Async equivalent used by Telegram handlers running inside the event loop."""
+    timezone_name = await get_user_timezone_async(user_id)
+    try:
+        return timezone_name, datetime.now(ZoneInfo(timezone_name))
+    except (ZoneInfoNotFoundError, ValueError):
+        return "UTC", datetime.now(ZoneInfo("UTC"))
+
+
 def build_timezone_text(user_id) -> str:
     timezone_name, now = get_current_local_datetime(user_id)
     date_format = get_user_date_format(user_id)
@@ -95,6 +104,7 @@ __all__ = [
     "build_timezone_keyboard",
     "build_timezone_text",
     "get_current_local_datetime",
+    "get_current_local_datetime_async",
     "get_user_timezone",
     "is_valid_timezone",
     "set_user_timezone",
