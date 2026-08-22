@@ -135,11 +135,12 @@ async def run_applications(apps: list[Application], post_init_hook: Callable[[Ap
     for app in apps:
         install_task_capabilities(app)
         await app.initialize()
-        # Multi-bot startup is manual, so Application.run_polling() does not invoke post_init.
-        # Execute the hook explicitly before starting the application so each bot's Telegram
-        # command menu (and other post-init setup) is registered on every restart.
-        if post_init_hook is not None:
-            await post_init_hook(app)
+        # Multi-bot startup is manual. Application.run_polling() normally invokes post_init,
+        # but a manual initialize/start lifecycle does not. Run the application's actual
+        # post_init callback explicitly so command menus are replaced on every startup.
+        callback = post_init_hook if post_init_hook is not None else getattr(app, "post_init", None)
+        if callback is not None:
+            await callback(app)
         await app.start()
         if app.updater: await app.updater.start_polling(allowed_updates=[*Update.ALL_TYPES, "guest_message"])
     try: await asyncio.Event().wait()
