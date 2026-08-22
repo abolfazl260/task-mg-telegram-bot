@@ -11,10 +11,11 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from telegram import BotCommand, Update
+from telegram import Update
+from telegram.ext import Application
+
 from services.custom_bot_service import read_custom_bots
 from services.task_capabilities import install_task_capabilities
-from telegram.ext import Application
 
 BASE_DIR = Path(__file__).resolve().parent
 BOTS_DIR = BASE_DIR / "bots"
@@ -24,6 +25,25 @@ DEFAULT_FEATURES = {
     "templates": True, "habits": True, "reports": True, "donate": True,
     "ai": True, "guest_mode": True, "search": True, "bulk_import": True,
     "unassigned": True,
+}
+
+# A bot may explicitly control which Telegram commands are exposed. If the
+# profile does not define commands, the command set continues to be derived
+# from enabled features for backward compatibility.
+COMMAND_TO_FEATURE = {
+    "add": "tasks",
+    "tasks": "tasks",
+    "unassigned": "unassigned",
+    "team": "teams",
+    "search": "search",
+    "templates": "templates",
+    "reports": "reports",
+    "habit": "habits",
+    "donate": "donate",
+    "ai": "ai",
+    "jira": "integrations",
+    "jira_status": "integrations",
+    "jira_disconnect": "integrations",
 }
 
 DEFAULT_MENU = [
@@ -50,13 +70,31 @@ class BotProfile:
     active: bool = True
     description: str = ""
     features: dict[str, bool] = field(default_factory=lambda: DEFAULT_FEATURES.copy())
+    commands: tuple[str, ...] | None = None
     settings: dict[str, Any] = field(default_factory=dict)
     access: dict[str, Any] = field(default_factory=dict)
     workflow: dict[str, Any] = field(default_factory=lambda: json.loads(json.dumps(DEFAULT_WORKFLOW)))
     menu: list[dict[str, Any]] = field(default_factory=lambda: list(DEFAULT_MENU))
 
+    def command_enabled(self, command: str) -> bool:
+        if command in {"start", "help"}:
+            return True
+        if self.commands is None:
+            feature = COMMAND_TO_FEATURE.get(command)
+            return feature is None or self.feature_enabled(feature)
+        return command in self.commands and (
+            COMMAND_TO_FEATURE.get(command) is None
+            or self.feature_enabled(COMMAND_TO_FEATURE[command])
+        )
+
     def feature_enabled(self, name: str) -> bool:
-        return bool(self.features.get(name, False))
+        if not bool(self.features.get(name, False)):
+            return False
+        if self.commands is not None:
+            commands_for_feature = [c for c, feature in COMMAND_TO_FEATURE.items() if feature == name]
+            if commands_for_feature and not any(c in self.commands for c in commands_for_feature):
+                return False
+        return True
 
 def _env_name(profile_key: str, field_name: str) -> str:
     safe_key = "".join(ch if ch.isalnum() else "_" for ch in profile_key).upper()
@@ -71,11 +109,13 @@ def _load_json_profile(path: Path) -> BotProfile:
     username = os.getenv(username_env, raw.get("username", "")).strip().lstrip("@")
     if not username: raise RuntimeError(f"Username env var {username_env} or username field is required for bot profile {key}.")
     features = DEFAULT_FEATURES.copy(); features.update(raw.get("features", {}))
+    raw_commands = raw.get("commands")
+    commands = tuple(dict.fromkeys(str(c).strip().lstrip("/") for c in raw_commands if str(c).strip())) if isinstance(raw_commands, list) else None
     workflow = json.loads(json.dumps(DEFAULT_WORKFLOW))
     for section, values in raw.get("workflow", {}).items():
         if isinstance(values, dict) and isinstance(workflow.get(section), dict): workflow[section].update(values)
         else: workflow[section] = values
-    return BotProfile(key=key, name=raw.get("name") or username, username=username, token=token, active=bool(raw.get("active", True)), description=raw.get("description", ""), features=features, settings=raw.get("settings", {}), access=raw.get("access", {}), workflow=workflow, menu=raw.get("menu", DEFAULT_MENU))
+    return BotProfile(key=key, name=raw.get("name") or username, username=username, token=token, active=bool(raw.get("active", True)), description=raw.get("description", ""), features=features, commands=commands, settings=raw.get("settings", {}), access=raw.get("access", {}), workflow=workflow, menu=raw.get("menu", DEFAULT_MENU))
 
 def _legacy_default_profile() -> BotProfile | None:
     token = os.getenv("BOT_TOKEN", "").strip()
@@ -90,7 +130,8 @@ def _custom_bot_profiles() -> list[BotProfile]:
         for feature in selected:
             if feature in DEFAULT_FEATURES: features[feature] = True
         features["custom_bots"] = False
-        profiles.append(BotProfile(key=row.get("bot_key") or f"custom_{row.get('owner_user_id', 'user')}", name=f"ربات اختصاصی {row.get('owner_name') or row.get('owner_user_id')}", username=(row.get("bot_username") or row.get("bot_key") or "custom_bot").lstrip("@"), token=row.get("bot_token", ""), description="ربات اختصاصی ساخته‌شده توسط کاربر؛ فعلاً رایگان در نسخه بتا.", features=features, settings={"pricing_plan": row.get("pricing_plan", "free_beta"), "owner_user_id": row.get("owner_user_id", ""), "habit_only": "habits" in selected and "tasks" not in selected}))
+        commands = tuple(c for c, feature in COMMAND_TO_FEATURE.items() if feature in selected)
+        profiles.append(BotProfile(key=row.get("bot_key") or f"custom_{row.get('owner_user_id', 'user')}", name=f"ربات اختصاصی {row.get('owner_name') or row.get('owner_user_id')}", username=(row.get("bot_username") or row.get("bot_key") or "custom_bot").lstrip("@"), token=row.get("bot_token", ""), description="ربات اختصاصی ساخته‌شده توسط کاربر؛ فعلاً رایگان در نسخه بتا.", features=features, commands=commands, settings={"pricing_plan": row.get("pricing_plan", "free_beta"), "owner_user_id": row.get("owner_user_id", ""), "habit_only": "habits" in selected and "tasks" not in selected}))
     return profiles
 
 def load_bot_profiles() -> list[BotProfile]:
