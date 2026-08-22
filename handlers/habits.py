@@ -6,6 +6,7 @@ from services.habit_service import (
     TEMPLATES, create_habit, delete_habit, get_habit, get_logs,
     get_user_habits, is_habit_due_on, mark_done, stats_for_habit, update_habit,
 )
+from services.task_service import create_task_async
 
 REPEAT_LABEL = {"daily": "روزانه", "weekly": "هفتگی", "monthly": "ماهانه"}
 DAYS_FA = ["دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه", "یکشنبه"]
@@ -15,6 +16,7 @@ BACK_TO_HABITS_BUTTON = InlineKeyboardButton("🔙 بازگشت به عادت‌
 def habit_menu_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("➕ ایجاد عادت", callback_data="habit_create")],
+        [InlineKeyboardButton("➕ ایجاد تسک", callback_data="habit_task_create")],
         [InlineKeyboardButton("📋 عادت‌های من", callback_data="habit_list")],
         [InlineKeyboardButton("✅ ثبت انجام امروز", callback_data="habit_today")],
         [InlineKeyboardButton("🔥 رکوردهای من", callback_data="habit_records")],
@@ -177,6 +179,10 @@ async def handle_habit_callback(update, context):
         await show_habit_menu(update, context)
     elif data == "habit_create":
         await query.message.reply_text("🌱 ایجاد عادت\n\nیک روش را انتخاب کنید:", reply_markup=_create_keyboard())
+    elif data == "habit_task_create":
+        context.user_data["habit_step"] = "task_title"
+        context.user_data.pop("new_habit", None)
+        await query.message.reply_text("📝 عنوان تسک را وارد کنید:")
     elif data == "habit_new":
         context.user_data["habit_step"] = "title"
         context.user_data["new_habit"] = {}
@@ -328,6 +334,23 @@ async def handle_habit_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not step:
         return False
     text = update.message.text.strip()
+    if step == "task_title":
+        if not text:
+            await update.message.reply_text("⚠️ عنوان تسک نمی‌تواند خالی باشد. لطفاً عنوان را وارد کنید:")
+            return True
+        task_id = await create_task_async(
+            user_id=update.effective_user.id,
+            title=text,
+            priority="medium",
+            deadline="",
+            category="",
+            tags="",
+            description="",
+        )
+        context.user_data.pop("habit_step", None)
+        context.user_data.pop("new_habit", None)
+        await update.message.reply_text(f"✅ تسک ایجاد شد\n🆔 {task_id}")
+        return True
     h = context.user_data.setdefault("new_habit", {})
     if step == "title":
         h["title"] = text; context.user_data["habit_step"] = "category"; await update.message.reply_text("دسته‌بندی را وارد کنید:"); return True
