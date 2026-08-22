@@ -16,7 +16,6 @@ BACK_TO_HABITS_BUTTON = InlineKeyboardButton("🔙 بازگشت به عادت‌
 def habit_menu_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("➕ ایجاد عادت", callback_data="habit_create")],
-        [InlineKeyboardButton("➕ ایجاد تسک", callback_data="habit_task_create")],
         [InlineKeyboardButton("📋 عادت‌های من", callback_data="habit_list")],
         [InlineKeyboardButton("✅ ثبت انجام امروز", callback_data="habit_today")],
         [InlineKeyboardButton("🔥 رکوردهای من", callback_data="habit_records")],
