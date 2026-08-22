@@ -86,9 +86,9 @@ async def button_handler(update,context):
         profile=_bot_profile(context)
         if not _feature_enabled(profile,"ai"):
             await query.answer("هوش مصنوعی برای این ربات فعال نیست.",show_alert=True);return
-        from handlers.ai import ai_command
+        from handlers.ai import _ai_examples_text,_ai_examples_keyboard
         await query.answer()
-        return await ai_command(update,context)
+        return await query.message.reply_text(_ai_examples_text(),reply_markup=_ai_examples_keyboard(),parse_mode="Markdown")
     if data.startswith("habit_"):
         from handlers.habits import handle_habit_callback;return await handle_habit_callback(update,context)
     profile=_bot_profile(context);feature_by_callback={"add_task":"tasks","tasks":"tasks","teams":"teams","templates":"templates","habit_menu":"habits","stats":"reports","import_bulk":"bulk_import","custom_bot":"custom_bots","search":"search"};feature=feature_by_callback.get(data)
