@@ -3,6 +3,7 @@
   "name": "دستیار عادت‌ها",
   "username": "byeeeebot",
   "description": "ربات ساده برای عادت‌ها، یادآورها و تسک‌های شخصی",
+  "commands": ["start", "add", "tasks", "habit", "search", "ai", "help"],
   "settings": {
     "ui": {
       "language": "fa",
