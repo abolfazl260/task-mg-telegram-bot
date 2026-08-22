@@ -51,6 +51,7 @@
     "unassigned": false
   },
   "menu": [
+    {"label": "➕ ایجاد تسک", "callback_data": "habit_task_create", "feature": "tasks"},
     {"label": "🤖 دستیار هوشمند", "callback_data": "ai_menu", "feature": "ai"},
     {"label": "🌱 عادت‌های من", "callback_data": "habit_menu", "feature": "habits"},
     {"label": "📝 تسک‌های من", "callback_data": "tasks", "feature": "tasks"},
