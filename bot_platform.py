@@ -8,7 +8,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from dotenv import load_dotenv
 from telegram import Update
@@ -27,22 +27,10 @@ DEFAULT_FEATURES = {
     "unassigned": True,
 }
 
-# A bot may explicitly control which Telegram commands are exposed. If the
-# profile does not define commands, the command set continues to be derived
-# from enabled features for backward compatibility.
 COMMAND_TO_FEATURE = {
-    "add": "tasks",
-    "tasks": "tasks",
-    "unassigned": "unassigned",
-    "team": "teams",
-    "search": "search",
-    "templates": "templates",
-    "reports": "reports",
-    "habit": "habits",
-    "donate": "donate",
-    "ai": "ai",
-    "jira": "integrations",
-    "jira_status": "integrations",
+    "add": "tasks", "tasks": "tasks", "unassigned": "unassigned", "team": "teams",
+    "search": "search", "templates": "templates", "reports": "reports", "habit": "habits",
+    "donate": "donate", "ai": "ai", "jira": "integrations", "jira_status": "integrations",
     "jira_disconnect": "integrations",
 }
 
@@ -77,23 +65,17 @@ class BotProfile:
     menu: list[dict[str, Any]] = field(default_factory=lambda: list(DEFAULT_MENU))
 
     def command_enabled(self, command: str) -> bool:
-        if command in {"start", "help"}:
-            return True
+        if command in {"start", "help"}: return True
         if self.commands is None:
             feature = COMMAND_TO_FEATURE.get(command)
             return feature is None or self.feature_enabled(feature)
-        return command in self.commands and (
-            COMMAND_TO_FEATURE.get(command) is None
-            or self.feature_enabled(COMMAND_TO_FEATURE[command])
-        )
+        return command in self.commands and (COMMAND_TO_FEATURE.get(command) is None or self.feature_enabled(COMMAND_TO_FEATURE[command]))
 
     def feature_enabled(self, name: str) -> bool:
-        if not bool(self.features.get(name, False)):
-            return False
+        if not bool(self.features.get(name, False)): return False
         if self.commands is not None:
             commands_for_feature = [c for c, feature in COMMAND_TO_FEATURE.items() if feature == name]
-            if commands_for_feature and not any(c in self.commands for c in commands_for_feature):
-                return False
+            if commands_for_feature and not any(c in self.commands for c in commands_for_feature): return False
         return True
 
 def _env_name(profile_key: str, field_name: str) -> str:
@@ -149,9 +131,16 @@ def load_bot_profiles() -> list[BotProfile]:
         if profile.active: unique[profile.key] = profile
     return list(unique.values())
 
-async def run_applications(apps: list[Application]) -> None:
+async def run_applications(apps: list[Application], post_init_hook: Callable[[Application], Awaitable[None]] | None = None) -> None:
     for app in apps:
-        install_task_capabilities(app); await app.initialize(); await app.start()
+        install_task_capabilities(app)
+        await app.initialize()
+        # Multi-bot startup is manual, so Application.run_polling() does not invoke post_init.
+        # Execute the hook explicitly before starting the application so each bot's Telegram
+        # command menu (and other post-init setup) is registered on every restart.
+        if post_init_hook is not None:
+            await post_init_hook(app)
+        await app.start()
         if app.updater: await app.updater.start_polling(allowed_updates=[*Update.ALL_TYPES, "guest_message"])
     try: await asyncio.Event().wait()
     finally:
