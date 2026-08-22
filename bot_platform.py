@@ -117,7 +117,6 @@ def _custom_bot_profiles() -> list[BotProfile]:
     return profiles
 
 def load_bot_profiles() -> list[BotProfile]:
-    """Load bot profiles. TESTING mode deliberately avoids requiring real Telegram credentials."""
     load_dotenv(BASE_DIR / ".env")
     if os.getenv("TESTING", "").lower() in {"1", "true", "yes", "on"}:
         return [BotProfile(key="test", name="Test Bot", username="test_bot", token="test-token")]
@@ -132,22 +131,40 @@ def load_bot_profiles() -> list[BotProfile]:
     return list(unique.values())
 
 async def run_applications(apps: list[Application], post_init_hook: Callable[[Application], Awaitable[None]] | None = None) -> None:
-    for app in apps:
-        install_task_capabilities(app)
-        await app.initialize()
-        # Multi-bot startup is manual. Application.run_polling() normally invokes post_init,
-        # but a manual initialize/start lifecycle does not. Run the application's actual
-        # post_init callback explicitly so command menus are replaced on every startup.
-        callback = post_init_hook if post_init_hook is not None else getattr(app, "post_init", None)
-        if callback is not None:
-            await callback(app)
-        await app.start()
-        if app.updater: await app.updater.start_polling(allowed_updates=[*Update.ALL_TYPES, "guest_message"])
-    try: await asyncio.Event().wait()
+    """Run all bot applications with exactly one startup/shutdown lifecycle each."""
+    started: list[Application] = []
+    try:
+        for app in apps:
+            install_task_capabilities(app)
+            await app.initialize()
+            callback = post_init_hook if post_init_hook is not None else getattr(app, "post_init", None)
+            if callback is not None:
+                await callback(app)
+            await app.start()
+            if app.updater:
+                await app.updater.start_polling(allowed_updates=[*Update.ALL_TYPES, "guest_message"])
+            started.append(app)
+
+        await asyncio.Event().wait()
     finally:
-        for app in reversed(apps):
-            if app.updater: await app.updater.stop()
-            await app.stop(); await app.shutdown()
+        # Stop each Application exactly once, even if startup of a later Bot fails.
+        for app in reversed(started):
+            try:
+                if app.updater and app.updater.running:
+                    await app.updater.stop()
+            finally:
+                try:
+                    await app.stop()
+                finally:
+                    await app.shutdown()
+
+        # Close the shared async SQLite connection on the main event loop and any
+        # compatibility-loop connections that may still exist.
+        try:
+            from services.database import close_all_dbs
+            await close_all_dbs()
+        except Exception:
+            logging.getLogger(__name__).exception("Failed to close database connections during shutdown")
 
 def bot_logger(profile: BotProfile) -> logging.LoggerAdapter:
     return logging.LoggerAdapter(logging.getLogger(__name__), {"bot": profile.key})
