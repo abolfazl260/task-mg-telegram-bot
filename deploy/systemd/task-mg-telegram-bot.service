@@ -7,6 +7,12 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/opt/task-mg-telegram-bot
 EnvironmentFile=/opt/task-mg-telegram-bot/.env
+# SQLite needs write access not only to data.db but also to its WAL/SHM sidecar files.
+# The repository may be deployed by root/another user, so prepare the runtime
+# database directory before starting the service.
+ExecStartPre=/usr/bin/install -d -o taskbot -g taskbot /opt/task-mg-telegram-bot/data
+ExecStartPre=/usr/bin/chown taskbot:taskbot /opt/task-mg-telegram-bot/data
+ExecStartPre=/usr/bin/chown taskbot:taskbot /opt/task-mg-telegram-bot/data/data.db
 ExecStart=/opt/task-mg-telegram-bot/.venv/bin/python /opt/task-mg-telegram-bot/main.py
 Restart=always
 RestartSec=10
