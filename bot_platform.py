@@ -1,5 +1,4 @@
 """Multi-bot profile loading and Telegram application orchestration."""
-
 from __future__ import annotations
 
 import asyncio
@@ -20,34 +19,10 @@ from services.task_capabilities import install_task_capabilities
 BASE_DIR = Path(__file__).resolve().parent
 BOTS_DIR = BASE_DIR / "bots"
 
-DEFAULT_FEATURES = {
-    "custom_bots": True, "integrations": True, "tasks": True, "teams": True,
-    "templates": True, "habits": True, "reports": True, "donate": True,
-    "ai": True, "guest_mode": True, "search": True, "bulk_import": True,
-    "unassigned": True,
-}
-
-COMMAND_TO_FEATURE = {
-    "add": "tasks", "tasks": "tasks", "unassigned": "unassigned", "team": "teams",
-    "search": "search", "templates": "templates", "reports": "reports", "habit": "habits",
-    "donate": "donate", "ai": "ai", "jira": "integrations", "jira_status": "integrations",
-    "jira_disconnect": "integrations",
-}
-
-DEFAULT_MENU = [
-    {"label": "➕ افزودن تسک", "callback_data": "add_task", "feature": "tasks"},
-    {"label": "📋 تسک‌ها", "callback_data": "tasks", "feature": "tasks"},
-    {"label": "🌱 عادت من", "callback_data": "habit_menu", "feature": "habits"},
-    {"label": "📊 گزارش", "callback_data": "stats", "feature": "reports"},
-    {"label": "📖 راهنما", "callback_data": "help"},
-    {"label": "⚙️ تنظیمات", "callback_data": "settings"},
-    {"label": "📞 ارتباط با ما", "callback_data": "contact_us"},
-]
-
-DEFAULT_WORKFLOW = {
-    "statuses": {"pending": "⏳ در انتظار", "in_progress": "🚀 در حال انجام", "done": "✅ انجام شده", "cancelled": "❌ لغو شده"},
-    "actions": {"start": "🚀 شروع", "done": "✅ انجام شد", "cancel": "❌ لغو", "pending": "⏸ بازگشت به انتظار", "owner": "👤 مسئول", "take": "🙋 برعهده گرفتن"},
-}
+DEFAULT_FEATURES = {"custom_bots": True, "integrations": True, "tasks": True, "teams": True, "templates": True, "habits": True, "reports": True, "donate": True, "ai": True, "guest_mode": True, "search": True, "bulk_import": True, "unassigned": True}
+COMMAND_TO_FEATURE = {"add": "tasks", "tasks": "tasks", "unassigned": "unassigned", "team": "teams", "search": "search", "templates": "templates", "reports": "reports", "habit": "habits", "donate": "donate", "ai": "ai", "jira": "integrations", "jira_status": "integrations", "jira_disconnect": "integrations"}
+DEFAULT_MENU = [{"label": "➕ افزودن تسک", "callback_data": "add_task", "feature": "tasks"}, {"label": "📋 تسک‌ها", "callback_data": "tasks", "feature": "tasks"}, {"label": "🌱 عادت من", "callback_data": "habit_menu", "feature": "habits"}, {"label": "📊 گزارش", "callback_data": "stats", "feature": "reports"}, {"label": "📖 راهنما", "callback_data": "help"}, {"label": "⚙️ تنظیمات", "callback_data": "settings"}, {"label": "📞 ارتباط با ما", "callback_data": "contact_us"}]
+DEFAULT_WORKFLOW = {"statuses": {"pending": "⏳ در انتظار", "in_progress": "🚀 در حال انجام", "done": "✅ انجام شده", "cancelled": "❌ لغو شده"}, "actions": {"start": "🚀 شروع", "done": "✅ انجام شد", "cancel": "❌ لغو", "pending": "⏸ بازگشت به انتظار", "owner": "👤 مسئول", "take": "🙋 برعهده گرفتن"}}
 
 @dataclass(frozen=True)
 class BotProfile:
@@ -131,7 +106,6 @@ def load_bot_profiles() -> list[BotProfile]:
     return list(unique.values())
 
 async def _cleanup_application_resources(app: Application) -> None:
-    """Release resources owned outside python-telegram-bot before its shutdown."""
     runner = app.bot_data.pop("integration_oauth_runner", None)
     if runner is not None:
         try:
@@ -142,6 +116,9 @@ async def _cleanup_application_resources(app: Application) -> None:
 async def run_applications(apps: list[Application], post_init_hook: Callable[[Application], Awaitable[None]] | None = None) -> None:
     """Run all bot applications with exactly one startup/shutdown lifecycle each."""
     started: list[Application] = []
+    resource_stop = asyncio.Event()
+    from services.resource_monitor import monitor_resources
+    resource_monitor_task = asyncio.create_task(monitor_resources(resource_stop), name="resource-monitor")
     try:
         for app in apps:
             install_task_capabilities(app)
@@ -153,9 +130,13 @@ async def run_applications(apps: list[Application], post_init_hook: Callable[[Ap
             if app.updater:
                 await app.updater.start_polling(allowed_updates=[*Update.ALL_TYPES, "guest_message"])
             started.append(app)
-
         await asyncio.Event().wait()
     finally:
+        resource_stop.set()
+        try:
+            await resource_monitor_task
+        except asyncio.CancelledError:
+            pass
         for app in reversed(started):
             try:
                 if app.updater and app.updater.running:
@@ -168,13 +149,11 @@ async def run_applications(apps: list[Application], post_init_hook: Callable[[Ap
                         await app.stop()
                     finally:
                         await app.shutdown()
-
         try:
             from webapp.runtime import stop_webapp_server
             stop_webapp_server()
         except Exception:
             logging.getLogger(__name__).exception("Failed to stop webapp server during shutdown")
-
         try:
             from services.database import close_all_dbs
             await close_all_dbs()
