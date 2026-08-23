@@ -130,6 +130,15 @@ def load_bot_profiles() -> list[BotProfile]:
         if profile.active: unique[profile.key] = profile
     return list(unique.values())
 
+async def _cleanup_application_resources(app: Application) -> None:
+    """Release resources owned outside python-telegram-bot before its shutdown."""
+    runner = app.bot_data.pop("integration_oauth_runner", None)
+    if runner is not None:
+        try:
+            await runner.cleanup()
+        except Exception:
+            logging.getLogger(__name__).exception("Failed to cleanup OAuth runner")
+
 async def run_applications(apps: list[Application], post_init_hook: Callable[[Application], Awaitable[None]] | None = None) -> None:
     """Run all bot applications with exactly one startup/shutdown lifecycle each."""
     started: list[Application] = []
@@ -147,19 +156,25 @@ async def run_applications(apps: list[Application], post_init_hook: Callable[[Ap
 
         await asyncio.Event().wait()
     finally:
-        # Stop each Application exactly once, even if startup of a later Bot fails.
         for app in reversed(started):
             try:
                 if app.updater and app.updater.running:
                     await app.updater.stop()
             finally:
                 try:
-                    await app.stop()
+                    await _cleanup_application_resources(app)
                 finally:
-                    await app.shutdown()
+                    try:
+                        await app.stop()
+                    finally:
+                        await app.shutdown()
 
-        # Close the shared async SQLite connection on the main event loop and any
-        # compatibility-loop connections that may still exist.
+        try:
+            from webapp.runtime import stop_webapp_server
+            stop_webapp_server()
+        except Exception:
+            logging.getLogger(__name__).exception("Failed to stop webapp server during shutdown")
+
         try:
             from services.database import close_all_dbs
             await close_all_dbs()
