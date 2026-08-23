@@ -30,7 +30,6 @@ def _is_user_local_time(user_id, hour, minute):
 
 
 async def morning_today_tasks(context):
-    """07:00 — list tasks due today (and overdue active)."""
     user_ids = await get_all_user_ids_async()
     for uid in user_ids:
         try:
@@ -65,7 +64,6 @@ async def morning_today_tasks(context):
 
 
 async def midday_summary_and_weekly(context):
-    """11:00 — today's activity summary + weekly overview."""
     user_ids = await get_all_user_ids_async()
     for uid in user_ids:
         try:
@@ -80,13 +78,7 @@ async def midday_summary_and_weekly(context):
         all_tasks = await get_all_user_tasks_async(user_id)
         if not all_tasks:
             continue
-        done_today = []
-        for t in all_tasks:
-            if t.get("status") != "done":
-                continue
-            completed = (t.get("completed_at") or "")[:10]
-            if completed == today_str:
-                done_today.append(t)
+        done_today = [t for t in all_tasks if t.get("status") == "done" and (t.get("completed_at") or "")[:10] == today_str]
         active = [t for t in all_tasks if t.get("status") in ("pending", "in_progress")]
         due_today = [t for t in active if (t.get("deadline") or "") == today_str]
         lines = ["📋 خلاصه فعالیت امروز\n", f"✅ انجام‌شده امروز: {len(done_today)}"]
@@ -97,27 +89,22 @@ async def midday_summary_and_weekly(context):
                 lines.append(f"  ... و {len(done_today) - 6} مورد")
         lines.append(f"\n📌 باقی‌مانده امروز: {len(due_today)}")
         lines.append(f"📂 کل فعال: {len(active)}")
-        created_week = 0
-        done_week = 0
+        created_week = done_week = 0
         for t in all_tasks:
             created_s = (t.get("created_at") or "")[:10]
             try:
-                created_d = datetime.strptime(created_s, "%Y-%m-%d").date()
-                if created_d >= week_start:
+                if datetime.strptime(created_s, "%Y-%m-%d").date() >= week_start:
                     created_week += 1
             except Exception:
                 pass
             if t.get("status") == "done":
                 completed_s = (t.get("completed_at") or t.get("created_at") or "")[:10]
                 try:
-                    completed_d = datetime.strptime(completed_s, "%Y-%m-%d").date()
-                    if completed_d >= week_start:
+                    if datetime.strptime(completed_s, "%Y-%m-%d").date() >= week_start:
                         done_week += 1
                 except Exception:
                     pass
-        lines.append("\n📅 گزارش هفتگی (از دوشنبه):")
-        lines.append(f"• ایجادشده این هفته: {created_week}")
-        lines.append(f"• انجام‌شده این هفته: {done_week}")
+        lines.extend(["\n📅 گزارش هفتگی (از دوشنبه):", f"• ایجادشده این هفته: {created_week}", f"• انجام‌شده این هفته: {done_week}"])
         try:
             await context.bot.send_message(chat_id=user_id, text="\n".join(lines))
         except Exception as e:
@@ -125,7 +112,6 @@ async def midday_summary_and_weekly(context):
 
 
 async def check_deadline_reminders(context):
-    """Legacy alias — prefer morning_today_tasks."""
     await morning_today_tasks(context)
 
 
@@ -136,7 +122,6 @@ def _habit_reminder_times(value):
 
 
 async def habit_reminders(context):
-    """Every minute — send habit reminders that match the current HH:MM."""
     for uid in await get_all_habit_user_ids_async():
         try:
             user_id = int(uid)
@@ -145,9 +130,7 @@ async def habit_reminders(context):
         user_now = _user_now(user_id)
         now_time = user_now.strftime("%H:%M")
         for habit in await get_user_habits_async(user_id, active_only=True):
-            if not is_habit_due_on(habit):
-                continue
-            if now_time not in _habit_reminder_times(habit.get("reminder_time")):
+            if not is_habit_due_on(habit) or now_time not in _habit_reminder_times(habit.get("reminder_time")):
                 continue
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ انجام دادم", callback_data=f"habit_done_{habit['id']}")],
@@ -160,7 +143,6 @@ async def habit_reminders(context):
 
 
 async def weekly_habit_reports(context):
-    """Friday — send automatic weekly habit report."""
     for uid in await get_all_habit_user_ids_async():
         try:
             user_id = int(uid)
@@ -182,8 +164,13 @@ async def weekly_habit_reports(context):
         missed = max(0, len(habits) * 7 - done)
         best = max(habits, key=lambda h: counts.get(h["id"], 0))
         weak = min(habits, key=lambda h: counts.get(h["id"], 0))
-        record = max(habits, key=lambda h: (await stats_for_habit_async(h))["best"])
-        record_stats = await stats_for_habit_async(record)
+        record = None
+        record_stats = {"best": 0}
+        for habit in habits:
+            stats = await stats_for_habit_async(habit)
+            if record is None or stats["best"] > record_stats["best"]:
+                record = habit
+                record_stats = stats
         text = (
             "📊 گزارش هفتگی عادت‌ها\n\n"
             "عملکرد هفته گذشته:\n\n"
