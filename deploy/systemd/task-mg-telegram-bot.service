@@ -15,6 +15,7 @@ ExecStartPre=/bin/sh -c '/usr/bin/chown taskbot:taskbot /opt/task-mg-telegram-bo
 ExecStart=/opt/task-mg-telegram-bot/.venv/bin/python /opt/task-mg-telegram-bot/main.py
 Restart=always
 RestartSec=10
+LimitNOFILE=65535
 User=taskbot
 Group=taskbot
 
