@@ -3,15 +3,14 @@ from __future__ import annotations
 import asyncio
 import atexit
 import sqlite3
+import threading
 from pathlib import Path
 
 import aiosqlite
 
-# Always resolve the database relative to the project, not the process CWD.
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = (BASE_DIR / "data" / "data.db").resolve()
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-
 SCHEMA = "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=10000;"
 
 
@@ -30,7 +29,6 @@ class Database:
             await self.conn.execute("PRAGMA busy_timeout=10000")
             await self.conn.execute("PRAGMA journal_mode=WAL")
             await self.conn.execute("PRAGMA synchronous=NORMAL")
-
         if not self.initialized:
             await self.conn.executescript(SCHEMA)
             await self.conn.commit()
@@ -45,9 +43,11 @@ class Database:
             await conn.close()
 
 
-# Keep one async DB connection per long-lived event loop. Temporary loops created
-# by compatibility code must close their DB before the loop exits.
 _db_by_loop: dict[asyncio.AbstractEventLoop, Database] = {}
+_sync_loop: asyncio.AbstractEventLoop | None = None
+_sync_thread: threading.Thread | None = None
+_sync_loop_ready = threading.Event()
+_sync_loop_lock = threading.Lock()
 
 
 async def get_db() -> Database:
@@ -72,15 +72,87 @@ async def close_db():
 
 
 async def close_all_dbs():
-    """Close every async DB connection, including any compatibility-loop leftovers."""
     dbs = list(_db_by_loop.values())
     _db_by_loop.clear()
     for db in dbs:
         try:
             await db.close()
         except Exception:
-            # Shutdown must continue even if one connection is already closed.
             pass
+
+
+def _start_sync_loop() -> asyncio.AbstractEventLoop:
+    global _sync_loop, _sync_thread
+    with _sync_loop_lock:
+        if _sync_loop is not None and _sync_loop.is_running():
+            return _sync_loop
+        _sync_loop_ready.clear()
+
+        def runner():
+            global _sync_loop
+            loop = asyncio.new_event_loop()
+            _sync_loop = loop
+            asyncio.set_event_loop(loop)
+            _sync_loop_ready.set()
+            try:
+                loop.run_forever()
+            finally:
+                try:
+                    loop.run_until_complete(close_all_dbs())
+                except Exception:
+                    pass
+                loop.close()
+
+        _sync_thread = threading.Thread(target=runner, name="db-sync-loop", daemon=True)
+        _sync_thread.start()
+    if not _sync_loop_ready.wait(timeout=10):
+        raise RuntimeError("Timed out starting database compatibility event loop")
+    if _sync_loop is None:
+        raise RuntimeError("Database compatibility event loop failed to start")
+    return _sync_loop
+
+
+def _run(coro):
+    """Bridge legacy synchronous callers without creating an event loop per call.
+
+    Async application code should call the native async database API directly.
+    When a legacy sync wrapper is reached from an active event loop, all such
+    calls share one dedicated compatibility loop and one reusable DB connection
+    instead of creating a new thread, selector and SQLite connection for every
+    invocation. This prevents FD spikes when many handlers/jobs run together.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        async def runner_without_existing_loop():
+            try:
+                return await coro
+            finally:
+                await close_db()
+        return asyncio.run(runner_without_existing_loop())
+
+    loop = _start_sync_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    return future.result()
+
+
+def shutdown_sync_loop() -> None:
+    """Close the compatibility DB and stop its dedicated loop/thread."""
+    global _sync_loop, _sync_thread
+    with _sync_loop_lock:
+        loop, thread = _sync_loop, _sync_thread
+        _sync_loop = None
+        _sync_thread = None
+    if loop is None:
+        return
+    if loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(close_all_dbs(), loop)
+        try:
+            future.result(timeout=10)
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=10)
 
 
 async def fetch_all(table, where="", params=()):
@@ -121,54 +193,6 @@ async def transaction(statements):
         except Exception:
             await db.conn.rollback()
             raise
-
-
-def _run(coro):
-    """Run an async DB compatibility call from synchronous code without leaking DBs.
-
-    The legacy sync wrappers are normally called from synchronous code. If one is
-    reached while an event loop is active, run the coroutine in one short-lived
-    worker thread, but explicitly close the worker loop's DB connection before
-    asyncio.run() returns. The old implementation left that connection in the
-    global loop map after every worker-loop invocation, causing file-descriptor
-    exhaustion over time.
-    """
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        async def runner_without_existing_loop():
-            try:
-                return await coro
-            finally:
-                await close_db()
-
-        return asyncio.run(runner_without_existing_loop())
-
-    import threading
-
-    result = []
-    error = []
-
-    async def runner():
-        try:
-            result.append(await coro)
-        except BaseException as exc:
-            error.append(exc)
-        finally:
-            await close_db()
-
-    def thread_runner():
-        try:
-            asyncio.run(runner())
-        except BaseException as exc:
-            error.append(exc)
-
-    thread = threading.Thread(target=thread_runner, name="db-sync-compat", daemon=True)
-    thread.start()
-    thread.join()
-    if error:
-        raise error[0]
-    return result[0] if result else None
 
 
 def _sync_sql(sql, params=(), fetch="none"):
@@ -230,4 +254,11 @@ async def shutdown_database():
     await close_all_dbs()
 
 
-atexit.register(lambda: _db_by_loop.clear())
+def _atexit_cleanup():
+    try:
+        shutdown_sync_loop()
+    except Exception:
+        pass
+
+
+atexit.register(_atexit_cleanup)
