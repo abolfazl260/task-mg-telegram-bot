@@ -1,4 +1,4 @@
-import asyncio
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -9,6 +9,7 @@ from services import database
 @pytest.mark.asyncio
 async def test_async_database_connection_is_reused_and_closed(tmp_path: Path, monkeypatch):
     await database.close_all_dbs()
+    database.shutdown_sync_loop()
     db_path = tmp_path / "data.db"
     monkeypatch.setattr(database, "DB_PATH", db_path)
 
@@ -26,6 +27,7 @@ async def test_async_database_connection_is_reused_and_closed(tmp_path: Path, mo
 @pytest.mark.asyncio
 async def test_repeated_database_lifecycle_does_not_accumulate_connections(tmp_path: Path, monkeypatch):
     await database.close_all_dbs()
+    database.shutdown_sync_loop()
     monkeypatch.setattr(database, "DB_PATH", tmp_path / "data.db")
 
     for _ in range(20):
@@ -35,6 +37,30 @@ async def test_repeated_database_lifecycle_does_not_accumulate_connections(tmp_p
         assert len(database._db_by_loop) == 0
 
     await database.close_all_dbs()
+
+
+@pytest.mark.asyncio
+async def test_sync_bridge_reuses_one_compatibility_loop(tmp_path: Path, monkeypatch):
+    await database.close_all_dbs()
+    database.shutdown_sync_loop()
+    db_path = tmp_path / "data.db"
+    monkeypatch.setattr(database, "DB_PATH", db_path)
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE sample(id INTEGER PRIMARY KEY, value TEXT)")
+    conn.commit()
+    conn.close()
+
+    for _ in range(10):
+        assert database.sync_all("sample") == []
+
+    assert database._sync_loop is not None
+    assert database._sync_loop.is_running()
+    assert len(database._db_by_loop) == 1
+
+    database.shutdown_sync_loop()
+    assert database._sync_loop is None
+    assert database._sync_thread is None
 
 
 def test_open_fd_count_is_bounded():
