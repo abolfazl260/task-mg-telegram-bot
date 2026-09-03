@@ -110,7 +110,6 @@ def _summary_rich_html(task):
         f'<p>📂 <b>دسته‌بندی</b><br>{escape(str(task.get("category") or "بدون دسته‌بندی"))}</p>'
         f'<p>🏷 <b>تگ</b><br>{escape(str(task.get("tags") or "بدون تگ"))}</p>'
         f'<p>📄 <b>توضیحات</b><br>{escape(str(task.get("description") or "بدون توضیحات"))}</p>'
-        f'<p>👤 <b>مسئول</b><br>{escape(str(name))}</p>'
         '<p>━━━━━━━━━━━━━━━━</p>'
         '<p><b>آیا اطلاعات مورد تأیید است؟</b></p>'
         '<tg-button-row align="center">'
@@ -123,14 +122,22 @@ def _summary_rich_html(task):
     )
 
 
-def _success_rich_html(task_id):
-    return (
-        '<p><b>🎉 تسک با موفقیت ثبت شد</b></p>'
-        '<p>وظیفه شما با موفقیت ایجاد و ذخیره شد.</p>'
-        '<p>━━━━━━━━━━━━━━━━</p>'
-        f'<p>🆔 <b>شناسه تسک</b><br><code>{escape(str(task_id))}</code></p>'
-        '<p>💡 از این شناسه می‌توانید برای مشاهده یا پیگیری تسک استفاده کنید.</p>'
-    )
+def _success_rich_html(task_id, task):
+    """Final Rich state: keep the complete task description/media visible after creation."""
+    description = str(task.get("description") or "").strip()
+    parts = [
+        '<p><b>🎉 تسک با موفقیت ثبت شد</b></p>',
+        '<p>وظیفه شما با موفقیت ایجاد و ذخیره شد.</p>',
+        '<p>━━━━━━━━━━━━━━━━</p>',
+        f'<p>🆔 <b>شناسه تسک</b><br><code>{escape(str(task_id))}</code></p>',
+        f'<p>📝 <b>عنوان</b><br>{escape(str(task.get("title") or "—"))}</p>',
+        f'<p>🎯 <b>اولویت</b><br>{escape(str({"high": "بالا", "medium": "متوسط", "low": "پایین"}.get(task.get("priority"), "—")))}</p>',
+        f'<p>📅 <b>زمان انجام</b><br>{escape(str(task.get("deadline") or "بدون زمان‌بندی"))}</p>',
+        f'<p>📂 <b>دسته‌بندی</b><br>{escape(str(task.get("category") or "بدون دسته‌بندی"))}</p>',
+        f'<p>🏷 <b>تگ</b><br>{escape(str(task.get("tags") or "بدون تگ"))}</p>',
+        f'<p>📄 <b>توضیحات</b><br>{escape(description or "بدون توضیحات")}</p>',
+    ]
+    return "".join(parts)
 
 
 def _description_text(context):
@@ -301,7 +308,27 @@ def install_create_task_rich_progress(task_module):
         except Exception:
             pass
 
-        await rich_flow._edit_rich(context, query.message, _success_rich_html(task_id))
+        # Do not call the progress-summary wrapper here: the final message must
+        # render the actual task data and its attachments, not only a transient draft.
+        final_html = _success_rich_html(task_id, task)
+        media_payload = _rich_media_payload(context)
+        if media_payload:
+            await context.bot._post("editMessageText", data={
+                "chat_id": query.message.chat_id,
+                "message_id": context.user_data.get("create_task_message_id"),
+                "rich_message": {
+                    "html": final_html,
+                    "media": media_payload,
+                    "is_rtl": True,
+                },
+            })
+        else:
+            await rich_flow._edit_rich(context, query.message, final_html)
+
+        if _description_media_html(context):
+            # Rich media is already part of the final message. Text captions and
+            # the textual description are retained in final_html above.
+            pass
 
         if assignee:
             try:
