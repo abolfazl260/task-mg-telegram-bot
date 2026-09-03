@@ -4,8 +4,10 @@ The repository already centralizes the create-task state machine in handlers.tas
 This module only adds cross-cutting guards/UI without changing unrelated handlers.
 """
 
+from datetime import datetime, timedelta
 from html import escape
 
+import jdatetime
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 
@@ -87,6 +89,46 @@ async def _send_priority_rich_message(message, bot, context=None) -> None:
     )
     if context is not None and getattr(sent, "message_id", None):
         context.user_data["create_task_message_id"] = sent.message_id
+
+
+def _deadline_label(days: int) -> str:
+    target = datetime.now().date() + timedelta(days=days)
+    jalali = jdatetime.date.fromgregorian(date=target).strftime("%m/%d")
+    prefix = "امروز" if days == 0 else "فردا" if days == 1 else f"+{days} روز"
+    return f"{prefix} — {jalali}"
+
+
+async def _show_deadline_rich_message(message, context) -> None:
+    """Render deadline choices as Rich Message buttons in the same create-task message."""
+    buttons = [
+        _rich_button(_deadline_label(0), "deadline_0"),
+        _rich_button(_deadline_label(1), "deadline_1"),
+        _rich_button(_deadline_label(2), "deadline_2"),
+        _rich_button(_deadline_label(3), "deadline_3"),
+        _rich_button(_deadline_label(4), "deadline_4"),
+        _rich_button(_deadline_label(5), "deadline_5"),
+        _rich_button(_deadline_label(6), "deadline_6"),
+        _rich_button(_deadline_label(7), "deadline_7"),
+        _rich_button("🕐 انتخاب تاریخ و زمان", "deadline_custom"),
+        _rich_button("⏭ بدون زمان‌بندی", "deadline_none"),
+        _rich_button("🔙 مرحله قبل", "step_back_priority"),
+        _rich_button(CREATE_CANCEL_LABEL, CREATE_CANCEL_CALLBACK, "link"),
+    ]
+    rich_html = (
+        "<p>📅 زمان انجام را انتخاب کنید:</p>"
+        "<p>(می‌توانید بدون زمان‌بندی ثبت کنید)</p>"
+        + _rich_rows(buttons)
+    )
+    if not await _edit_create_rich_message(context, message, rich_html):
+        sent = await context.bot._post(
+            "sendRichMessage",
+            data={
+                "chat_id": message.chat_id,
+                "rich_message": {"html": rich_html, "is_rtl": True},
+            },
+        )
+        if getattr(sent, "message_id", None):
+            context.user_data["create_task_message_id"] = sent.message_id
 
 
 async def _edit_create_rich_message(context, fallback_message, rich_html: str) -> bool:
@@ -244,10 +286,6 @@ def install_create_task_flow(task_module) -> None:
     except Exception:
         pass
 
-    original_ask_category = task_module._ask_category
-    original_ask_tags = getattr(task_module, "_ask_tags", None)
-    original_ask_description = getattr(task_module, "_ask_description", None)
-
     async def ask_category_rich(message, context, user_id):
         context.user_data["step"] = "category"
         await _show_category_rich_message(task_module, message, context, user_id)
@@ -286,6 +324,64 @@ def install_create_task_flow(task_module) -> None:
     task_module.save_task = save_task_with_create_validation
     if main_module is not None:
         main_module.save_task = save_task_with_create_validation
+
+    original_priority_selected = task_module.priority_selected
+
+    async def priority_selected_rich(update, context):
+        query = update.callback_query
+        await query.answer()
+        priority = (query.data or "").replace("priority_", "", 1)
+        if priority not in _VALID_PRIORITIES:
+            await query.answer("⚠️ لطفاً یکی از سه اولویت بالا، متوسط یا پایین را انتخاب کنید.", show_alert=True)
+            return
+        task = context.user_data.setdefault("new_task", {})
+        task["priority"] = priority
+        context.user_data["step"] = "deadline"
+        await _show_deadline_rich_message(query.message, context)
+
+    task_module.priority_selected = priority_selected_rich
+    if main_module is not None:
+        main_module.priority_selected = priority_selected_rich
+
+    original_deadline_selected = task_module.deadline_selected
+
+    async def deadline_selected_rich(update, context):
+        query = update.callback_query
+        data = query.data or ""
+        await query.answer()
+        task = context.user_data.get("new_task")
+        if not isinstance(task, dict):
+            await query.answer("فرایند ایجاد تسک فعالی پیدا نشد.", show_alert=True)
+            return
+        value = data.replace("deadline_", "", 1)
+        if value == "custom":
+            context.user_data["step"] = "deadline_custom"
+            rich_html = (
+                "<p>📅 تاریخ دقیق را وارد کنید:</p>"
+                "<p>• میلادی: 2026-08-20</p>"
+                "<p>• شمسی: 1405-05-29</p>"
+                '<tg-button-row align="center">'
+                f'<tg-button type="callback_data" style="link" data="{CREATE_CANCEL_CALLBACK}">{CREATE_CANCEL_LABEL}</tg-button>'
+                "</tg-button-row>"
+            )
+            if not await _edit_create_rich_message(context, query.message, rich_html):
+                await query.message.reply_text("📅 تاریخ دقیق را وارد کنید:\n• میلادی: 2026-08-20\n• شمسی: 1405-05-29", parse_mode="Markdown")
+            return
+        if value == "none":
+            task["deadline"] = ""
+        else:
+            try:
+                days = int(value)
+            except ValueError:
+                await query.answer("تاریخ انتخاب‌شده معتبر نیست.", show_alert=True)
+                return
+            task["deadline"] = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+        context.user_data["step"] = "category"
+        await _show_category_rich_message(task_module, query.message, context, update.effective_user.id)
+
+    task_module.deadline_selected = deadline_selected_rich
+    if main_module is not None:
+        main_module.deadline_selected = deadline_selected_rich
 
     original_assignment_callback = task_module.assignment_callback
 
