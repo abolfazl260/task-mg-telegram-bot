@@ -1,12 +1,51 @@
-"""Progress and final-state presentation for the manual Rich create-task flow.
-
-Keeps the user's input messages out of the chat and renders the accumulated
-create-task draft, final confirmation, and success state inside the same
-Telegram Rich Message.
-"""
+"""Progress and media presentation for the manual Rich create-task flow."""
 
 from html import escape
 import sys
+
+
+def _description_media(context):
+    items = context.user_data.get("description_media") or []
+    return items if isinstance(items, list) else []
+
+
+def _rich_media_payload(context):
+    """Build the InputRichMessageMedia list for already-uploaded Telegram files."""
+    payload = []
+    for index, item in enumerate(_description_media(context)):
+        if item.get("type") not in {"photo", "video"} or not item.get("file_id"):
+            continue
+        media_id = f"desc_media_{index}"
+        payload.append({
+            "id": media_id,
+            "media": {"type": item["type"], "media": item["file_id"]},
+        })
+    return payload
+
+
+def _description_media_html(context):
+    items = _description_media(context)
+    blocks = []
+    for index, item in enumerate(items):
+        kind = item.get("type")
+        if kind in {"photo", "video"} and item.get("file_id"):
+            media_id = f"desc_media_{index}"
+            tag = "img" if kind == "photo" else "video"
+            blocks.append(f'<{tag} src="tg://{kind}?id={media_id}"></{tag}>' if tag == "video" else f'<img src="tg://photo?id={media_id}"/>')
+            caption = str(item.get("caption") or "").strip()
+            if caption:
+                blocks.append(f'<p>💬 {escape(caption[:500])}</p>')
+        elif kind == "location":
+            try:
+                lat = float(item.get("latitude"))
+                lon = float(item.get("longitude"))
+                blocks.append(f'<tg-map lat="{lat}" long="{lon}" zoom="14"/>')
+                blocks.append(f'<p>📍 موقعیت: <code>{lat:.6f}, {lon:.6f}</code></p>')
+            except (TypeError, ValueError):
+                continue
+    if not blocks:
+        return ""
+    return '<p><b>📎 پیوست‌های توضیحات</b></p>' + "".join(blocks)
 
 
 def _draft_summary(context):
@@ -34,7 +73,7 @@ def _draft_summary(context):
     if tags:
         labels.append(f"🏷 <b>تگ:</b> {escape(tags)}")
     if description:
-        labels.append(f"📄 <b>توضیحات:</b> {escape(description[:300])}")
+        labels.append(f"📄 <b>توضیحات:</b> {escape(description[:500])}")
 
     if isinstance(assignee, dict):
         name = assignee.get("display_name") or assignee.get("username") or assignee.get("user_id")
@@ -43,9 +82,13 @@ def _draft_summary(context):
     elif assignee is None and "assignee" in task:
         labels.append("👤 <b>مسئول:</b> بدون مسئول")
 
-    if not labels:
+    media_html = _description_media_html(context)
+    if not labels and not media_html:
         return ""
-    return '<p><b>📋 اطلاعات ثبت‌شده</b></p>' + "".join(f"<p>{line}</p>" for line in labels) + "<p>━━━━━━━━━━━━</p>"
+    text = '<p><b>📋 اطلاعات ثبت‌شده</b></p>' + "".join(f"<p>{line}</p>" for line in labels)
+    if media_html:
+        text += media_html
+    return text + "<p>━━━━━━━━━━━━</p>"
 
 
 def _summary_rich_html(task):
@@ -89,8 +132,23 @@ def _success_rich_html(task_id):
     )
 
 
+def _description_text(context):
+    values = context.user_data.get("description_text_parts") or []
+    return "\n\n".join(str(value).strip() for value in values if str(value).strip())
+
+
+def _extract_description_media(message):
+    if message.photo:
+        return {"type": "photo", "file_id": message.photo[-1].file_id, "caption": message.caption or ""}
+    if message.video:
+        return {"type": "video", "file_id": message.video.file_id, "caption": message.caption or ""}
+    if message.location:
+        return {"type": "location", "latitude": message.location.latitude, "longitude": message.location.longitude}
+    return None
+
+
 def install_create_task_rich_progress(task_module):
-    """Install presentation, cleanup, and final-state patches after Rich flow."""
+    """Install presentation, cleanup, media handling, and final-state patches."""
     if getattr(task_module, "_create_task_rich_progress_installed", False):
         return
     task_module._create_task_rich_progress_installed = True
@@ -103,10 +161,21 @@ def install_create_task_rich_progress(task_module):
     original_save_task = task_module.save_task
     original_assignment = task_module.assignment_callback
 
-    async def edit_rich_with_progress(context, fallback_message, html):
+    async def edit_rich_with_progress(context, fallback_message, html, media=None):
         summary = _draft_summary(context)
         if summary:
             html = summary + html
+        media_payload = media if media is not None else _rich_media_payload(context)
+        if media_payload:
+            message_id = context.user_data.get("create_task_message_id")
+            chat_id = getattr(fallback_message, "chat_id", None)
+            if message_id and chat_id:
+                await context.bot._post("editMessageText", data={
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "rich_message": {"html": html, "media": media_payload, "is_rtl": True},
+                })
+                return True
         return await original_edit_rich(context, fallback_message, html)
 
     rich_flow._edit_rich = edit_rich_with_progress
@@ -115,17 +184,44 @@ def install_create_task_rich_progress(task_module):
         task = context.user_data.setdefault("new_task", {})
         await rich_flow._edit_rich(context, query.message, _summary_rich_html(task))
 
-    # The existing assignment flow already calls _show_summary; replace only
-    # its renderer so the same Rich Message is used and legacy markup cannot
-    # reappear at the confirmation stage.
     rich_flow._show_summary = show_summary_rich
 
     async def save_task_with_cleanup(update, context):
         step = context.user_data.get("step")
         message = update.effective_message
+        if step == "description" and message:
+            media = _extract_description_media(message)
+            text = str(getattr(message, "text", "") or "").strip()
+            if media:
+                context.user_data.setdefault("description_media", []).append(media)
+                if media.get("caption"):
+                    context.user_data.setdefault("description_text_parts", []).append(media["caption"])
+            elif text:
+                context.user_data.setdefault("description_text_parts", []).append(text)
+            else:
+                return await original_save_task(update, context)
+
+            task = context.user_data.setdefault("new_task", {})
+            task["description"] = _description_text(context)
+            await rich_flow._edit_rich(
+                context,
+                message,
+                '<p><b>📄 توضیحات تسک</b></p>'
+                '<p>توضیحات، عکس، ویدیو یا موقعیت دیگری ارسال کنید.</p>'
+                '<p>بعد از اتمام، دکمه «ادامه» را بزنید.</p>'
+                + rich_flow._rows([
+                    rich_flow._button("✅ ادامه", "description_skip", "success"),
+                ])
+                + rich_flow._footer(True, "step_back_tags"),
+            )
+            try:
+                await message.delete()
+            except Exception:
+                pass
+            return
+
         is_create_text_step = step in {
-            "title", "deadline_custom", "category", "tags", "description",
-            "assignment_search",
+            "title", "deadline_custom", "category", "tags", "assignment_search",
         }
         result = await original_save_task(update, context)
         if is_create_text_step and message and context.user_data.get("step") != step:
@@ -159,16 +255,20 @@ def install_create_task_rich_progress(task_module):
 
         uid = update.effective_user.id
         task_id = await task_module._finalize_task(uid, task)
-        assignee = task.get("assignee")
 
+        try:
+            from services.task_media import save_task_media_async
+            await save_task_media_async(task_id, _description_media(context))
+        except Exception:
+            pass
+
+        assignee = task.get("assignee")
         saved = None
         try:
             saved = await task_module.get_task_by_id_async(task_id)
         except Exception:
             pass
 
-        # Replace the summary in-place with the final Rich success state.
-        # No second "task created" message is sent.
         await rich_flow._edit_rich(context, query.message, _success_rich_html(task_id))
 
         if assignee:
