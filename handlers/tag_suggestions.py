@@ -8,3 +8,5 @@ def install_tag_flow(task_module):
     _original_install_tag_flow(task_module)
     from .create_task_flow import install_create_task_flow
     install_create_task_flow(task_module)
+    from .rich_message_compat import install_create_task_rich_response_compat
+    install_create_task_rich_response_compat(__import__("handlers.create_task_flow", fromlist=["*"]))
