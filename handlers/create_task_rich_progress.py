@@ -95,9 +95,6 @@ def install_create_task_rich_progress(task_module):
         return
     task_module._create_task_rich_progress_installed = True
 
-    # The Rich implementation lives in create_task_flow, while task_module
-    # is handlers.task. Patch the actual Rich module so its global calls are
-    # also covered by the progress presentation.
     rich_flow = sys.modules.get("handlers.create_task_flow")
     if rich_flow is None:
         import handlers.create_task_flow as rich_flow
@@ -113,6 +110,15 @@ def install_create_task_rich_progress(task_module):
         return await original_edit_rich(context, fallback_message, html)
 
     rich_flow._edit_rich = edit_rich_with_progress
+
+    async def show_summary_rich(query, context):
+        task = context.user_data.setdefault("new_task", {})
+        await rich_flow._edit_rich(context, query.message, _summary_rich_html(task))
+
+    # The existing assignment flow already calls _show_summary; replace only
+    # its renderer so the same Rich Message is used and legacy markup cannot
+    # reappear at the confirmation stage.
+    rich_flow._show_summary = show_summary_rich
 
     async def save_task_with_cleanup(update, context):
         step = context.user_data.get("step")
