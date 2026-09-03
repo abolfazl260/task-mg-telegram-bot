@@ -5,6 +5,7 @@ create-task draft at the top of the same Rich Message after every step.
 """
 
 from html import escape
+import sys
 
 
 def _draft_summary(context):
@@ -47,12 +48,19 @@ def _draft_summary(context):
 
 
 def install_create_task_rich_progress(task_module):
-    """Install the presentation/deletion layer after the main Rich flow patch."""
+    """Install the progress layer after the main Rich create-flow patch."""
     if getattr(task_module, "_create_task_rich_progress_installed", False):
         return
     task_module._create_task_rich_progress_installed = True
 
-    original_edit_rich = task_module._edit_rich
+    # The Rich implementation lives in create_task_flow, while task_module
+    # is handlers.task. Patch the actual Rich module so its own global
+    # _edit_rich calls receive the accumulated draft.
+    rich_flow = sys.modules.get("handlers.create_task_flow")
+    if rich_flow is None:
+        import handlers.create_task_flow as rich_flow
+
+    original_edit_rich = rich_flow._edit_rich
     original_save_task = task_module.save_task
 
     async def edit_rich_with_progress(context, fallback_message, html):
@@ -61,12 +69,15 @@ def install_create_task_rich_progress(task_module):
             html = summary + html
         return await original_edit_rich(context, fallback_message, html)
 
-    task_module._edit_rich = edit_rich_with_progress
+    rich_flow._edit_rich = edit_rich_with_progress
 
     async def save_task_with_cleanup(update, context):
         step = context.user_data.get("step")
         message = update.effective_message
-        is_create_text_step = step in {"title", "deadline_custom", "category", "tags", "description", "assignment_search"}
+        is_create_text_step = step in {
+            "title", "deadline_custom", "category", "tags", "description",
+            "assignment_search",
+        }
         result = await original_save_task(update, context)
 
         # Delete only accepted create-flow text inputs. Invalid input remains
@@ -78,11 +89,12 @@ def install_create_task_rich_progress(task_module):
                 pass
         return result
 
+    # Keep all references that may have been captured by the application in
+    # sync. Non-create-task flows continue to use the same wrapped handler.
     task_module.save_task = save_task_with_cleanup
-
-    # main.py may have captured the function object before this overlay was
-    # installed, so update its reference as well when available.
-    import sys
     main_module = sys.modules.get("main")
     if main_module is not None:
         main_module.save_task = save_task_with_cleanup
+
+    # Make the wrapper idempotent if installation is attempted again.
+    rich_flow._rich_progress_edit_original = original_edit_rich
