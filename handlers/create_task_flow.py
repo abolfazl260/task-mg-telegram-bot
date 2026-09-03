@@ -43,6 +43,7 @@ def clear_create_task_state(context) -> None:
     for key in (
         "new_task", "step", "tag_suggestions", "awaiting_tag_input",
         "create_task_finalizing", "create_task_message_id", "create_task_user_id",
+        "_create_selected_team_id",
     ):
         context.user_data.pop(key, None)
 
@@ -135,7 +136,7 @@ def _deadline_html() -> str:
     ]
     return (
         '<p><b>📅 زمان انجام تسک</b></p>'
-        "<p>یکی از زمان‌های آماده را انتخاب کنید یا تاریخ دلخواه وارد کنید.</p>"
+        "<p>یک زمان آماده انتخاب کنید یا تاریخ دلخواه را وارد کنید.</p>"
         + _rich_rows(dates)
         + _rich_rows(actions)
     )
@@ -212,27 +213,21 @@ async def _show_assignment_rich_message(message, context) -> None:
         raise RuntimeError("create-task Rich Message is not initialized")
 
 
-async def _show_assignment_summary_rich(query, context, task_module) -> None:
+async def _show_assignment_summary_rich(query, context) -> None:
     task = context.user_data.setdefault("new_task", {})
     assignee = task.get("assignee")
     if isinstance(assignee, dict):
         name = assignee.get("display_name") or assignee.get("username") or assignee.get("user_id") or "کاربر"
     else:
         name = "بدون مسئول"
-    summary = escape(str(task.get("title") or "—"))
-    priority = {"high": "🔴 بالا", "medium": "🟠 متوسط", "low": "🟢 پایین"}.get(task.get("priority"), "—")
-    deadline = escape(str(task.get("deadline") or "بدون زمان‌بندی"))
-    category = escape(str(task.get("category") or "بدون دسته‌بندی"))
-    tags = escape(str(task.get("tags") or "بدون تگ"))
-    assignee = escape(str(name))
     html = (
         '<p><b>✅ بررسی نهایی تسک</b></p>'
-        f"<p>📝 <b>عنوان:</b> {summary}</p>"
-        f"<p>🎯 <b>اولویت:</b> {priority}</p>"
-        f"<p>📅 <b>زمان:</b> {deadline}</p>"
-        f"<p>📂 <b>دسته‌بندی:</b> {category}</p>"
-        f"<p>🏷 <b>تگ:</b> {tags}</p>"
-        f"<p>👤 <b>مسئول:</b> {assignee}</p>"
+        f"<p>📝 <b>عنوان:</b> {escape(str(task.get('title') or '—'))}</p>"
+        f"<p>🎯 <b>اولویت:</b> {{'high':'🔴 بالا','medium':'🟠 متوسط','low':'🟢 پایین'}.get(task.get('priority'), '—')}</p>"
+        f"<p>📅 <b>زمان:</b> {escape(str(task.get('deadline') or 'بدون زمان‌بندی'))}</p>"
+        f"<p>📂 <b>دسته‌بندی:</b> {escape(str(task.get('category') or 'بدون دسته‌بندی'))}</p>"
+        f"<p>🏷 <b>تگ:</b> {escape(str(task.get('tags') or 'بدون تگ'))}</p>"
+        f"<p>👤 <b>مسئول:</b> {escape(str(name))}</p>"
         '<tg-button-row align="center">'
         '<tg-button type="callback_data" style="success" data="assign_confirm_create">✅ ثبت تسک</tg-button>'
         '<tg-button type="callback_data" style="primary" data="assign_change_create">✏️ تغییر مسئول</tg-button>'
@@ -246,7 +241,13 @@ async def _show_assignment_summary_rich(query, context, task_module) -> None:
 
 
 def _team_buttons(teams):
-    return [_rich_button(f"📌 {(item.get('team') or {}).get('name') or 'تیم'}", f"assign_team_{(item.get('team') or {}).get('team_id')}") for item in teams]
+    return [
+        _rich_button(
+            f"📌 {(item.get('team') or {}).get('name') or 'تیم'}",
+            f"assign_team_{(item.get('team') or {}).get('team_id')}",
+        )
+        for item in teams
+    ]
 
 
 def install_create_task_flow(task_module) -> None:
@@ -270,13 +271,18 @@ def install_create_task_flow(task_module) -> None:
 
     original_skip_keyboard = task_module._skip_keyboard
     task_module._skip_keyboard = lambda callback_data: add_create_cancel(original_skip_keyboard(callback_data))
+
     original_category_keyboard = task_module._category_keyboard
 
     async def category_keyboard_with_cancel(user_id):
         return add_create_cancel(await original_category_keyboard(user_id))
 
     task_module._category_keyboard = category_keyboard_with_cancel
-    task_module.priority_keyboard = lambda *a, **kw: add_create_cancel(task_module.priority_keyboard.__wrapped__(*a, **kw)) if hasattr(task_module.priority_keyboard, "__wrapped__") else task_module.priority_keyboard(*a, **kw)
+
+    original_priority_keyboard = task_module.priority_keyboard
+    original_deadline_keyboard = task_module.deadline_keyboard
+    task_module.priority_keyboard = lambda *a, **kw: add_create_cancel(original_priority_keyboard(*a, **kw))
+    task_module.deadline_keyboard = lambda *a, **kw: add_create_cancel(original_deadline_keyboard(*a, **kw))
 
     async def ask_category_rich(message, context, user_id):
         context.user_data["step"] = "category"
@@ -298,6 +304,18 @@ def install_create_task_flow(task_module) -> None:
     task_module._ask_tags = ask_tags_rich
     task_module._ask_description = ask_description_rich
     task_module._ask_assignment = ask_assignment_rich
+
+    try:
+        import handlers.tag_suggestions_legacy as legacy
+        original_recent_tag_keyboard = legacy.recent_tag_keyboard
+
+        async def recent_tag_keyboard_with_cancel(*args, **kwargs):
+            markup, tags = await original_recent_tag_keyboard(*args, **kwargs)
+            return add_create_cancel(markup), tags
+
+        legacy.recent_tag_keyboard = recent_tag_keyboard_with_cancel
+    except Exception:
+        pass
 
     original_save_task = task_module.save_task
 
@@ -321,7 +339,8 @@ def install_create_task_flow(task_module) -> None:
             task = context.user_data.setdefault("new_task", {})
             parsed = parse_deadline_input(str(update.effective_message.text or "").strip())
             if not parsed:
-                await _edit_create_rich_message(context, update.effective_message, '<p><b>⚠️ تاریخ نامعتبر است</b></p><p>میلادی: 2026-08-20</p><p>شمسی: 1405-05-29</p>' + _rich_rows([_rich_button(CREATE_CANCEL_LABEL, CREATE_CANCEL_CALLBACK, "link")]))
+                html = '<p><b>⚠️ تاریخ نامعتبر است</b></p><p>میلادی: 2026-08-20</p><p>شمسی: 1405-05-29</p>' + _rich_rows([_rich_button(CREATE_CANCEL_LABEL, CREATE_CANCEL_CALLBACK, "link")])
+                await _edit_create_rich_message(context, update.effective_message, html)
                 return
             task["deadline"] = parsed
             context.user_data["step"] = "category"
@@ -392,15 +411,15 @@ def install_create_task_flow(task_module) -> None:
         data = query.data or ""
         uid = update.effective_user.id
         if data == CREATE_CANCEL_CALLBACK:
-            clear_create_task_state(context)
             await query.answer()
             await _edit_create_rich_message(context, query.message, '<p><b>❌ ایجاد تسک لغو شد.</b></p>')
+            clear_create_task_state(context)
             return
         if data == "assign_self" or data.startswith("assign_self_"):
             user = update.effective_user
             context.user_data.setdefault("new_task", {})["assignee"] = {"user_id": str(user.id), "display_name": user.full_name, "username": user.username or ""}
             await query.answer()
-            await _show_assignment_summary_rich(query, context, task_module)
+            await _show_assignment_summary_rich(query, context)
             return
         if data in ("assign_team", "assign_teams"):
             await query.answer()
@@ -414,6 +433,7 @@ def install_create_task_flow(task_module) -> None:
         if data.startswith("assign_team_"):
             await query.answer()
             team_id = data.replace("assign_team_", "", 1)
+            context.user_data["_create_selected_team_id"] = team_id
             members = await task_module.aget_team_members(team_id) if hasattr(task_module, "aget_team_members") else []
             buttons = [_rich_button(f"👤 {task_module.member_display(m)}", f"assign_member_{m.get('user_id')}") for m in members]
             buttons += [_rich_button("🔙 بازگشت", "assign_teams"), _rich_button(CREATE_CANCEL_LABEL, CREATE_CANCEL_CALLBACK, "link")]
@@ -422,12 +442,13 @@ def install_create_task_flow(task_module) -> None:
         if data.startswith("assign_member_"):
             await query.answer()
             mid = data.replace("assign_member_", "", 1)
-            members = await task_module.aget_team_members(next(iter(context.user_data.get("_create_selected_team_ids", [mid])), mid)) if hasattr(task_module, "aget_team_members") else []
+            team_id = context.user_data.get("_create_selected_team_id")
+            members = await task_module.aget_team_members(team_id) if team_id and hasattr(task_module, "aget_team_members") else []
             member = next((m for m in members if str(m.get("user_id")) == mid), None)
             if member is None:
                 member = {"user_id": mid, "display_name": "عضو تیم"}
             context.user_data.setdefault("new_task", {})["assignee"] = member
-            await _show_assignment_summary_rich(query, context, task_module)
+            await _show_assignment_summary_rich(query, context)
             return
         if data == "assign_search":
             await query.answer()
@@ -437,7 +458,7 @@ def install_create_task_flow(task_module) -> None:
         if data == "assign_none":
             await query.answer()
             context.user_data.setdefault("new_task", {})["assignee"] = None
-            await _show_assignment_summary_rich(query, context, task_module)
+            await _show_assignment_summary_rich(query, context)
             return
         if data == "assign_change_create":
             await query.answer()
@@ -459,7 +480,6 @@ def install_create_task_flow(task_module) -> None:
     if main_module is not None:
         main_module.assignment_callback = assignment_callback_rich
 
-    # Keep legacy tag callback routing, but make every create-task transition render through this message.
     original_optional_callback = task_module.optional_field_callback
 
     async def optional_field_callback_rich(update, context):
