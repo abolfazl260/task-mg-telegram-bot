@@ -45,6 +45,34 @@ def clear_create_task_state(context) -> None:
     context.user_data.pop("create_task_finalizing", None)
 
 
+async def _send_priority_rich_message(message, bot) -> None:
+    """Send the priority step as a Telegram Rich Message with embedded buttons.
+
+    Telegram Bot API 10.3 exposes callback buttons inside Rich Messages through
+    RichMessageButton / InputRichBlockButtons. Using the official Rich HTML
+    representation keeps this runtime patch compatible with python-telegram-bot
+    versions that predate the new Rich Message Python classes.
+    """
+    rich_html = (
+        "<p>🎯 اولویت را انتخاب کنید:</p>"
+        '<tg-button-row align="center">'
+        '<tg-button type="callback_data" style="danger" data="priority_high">🔴 بالا</tg-button>'
+        '<tg-button type="callback_data" style="primary" data="priority_medium">🟠 متوسط</tg-button>'
+        '<tg-button type="callback_data" style="success" data="priority_low">🟢 پایین</tg-button>'
+        "</tg-button-row>"
+        '<tg-button-row align="center">'
+        f'<tg-button type="callback_data" style="link" data="{CREATE_CANCEL_CALLBACK}">{CREATE_CANCEL_LABEL}</tg-button>'
+        "</tg-button-row>"
+    )
+    await bot._post(
+        "sendRichMessage",
+        data={
+            "chat_id": message.chat_id,
+            "rich_message": {"html": rich_html, "is_rtl": True},
+        },
+    )
+
+
 def install_create_task_flow(task_module) -> None:
     """Install minimal guards/UI around the existing shared task flow."""
     if getattr(task_module, "_create_task_flow_guards_installed", False):
@@ -86,13 +114,21 @@ def install_create_task_flow(task_module) -> None:
 
     task_module._category_keyboard = category_keyboard_with_cancel
 
-    for name in ("priority_keyboard", "deadline_keyboard"):
-        original_keyboard = getattr(task_module, name)
+    # Priority is handled separately below as a Rich Message. Deadline and all
+    # other create-task keyboards remain InlineKeyboardMarkup-based.
+    original_priority_keyboard = task_module.priority_keyboard
 
-        def wrapped_keyboard(original=original_keyboard):
-            return add_create_cancel(original())
+    def priority_keyboard_with_cancel(*args, **kwargs):
+        return add_create_cancel(original_priority_keyboard(*args, **kwargs))
 
-        setattr(task_module, name, wrapped_keyboard)
+    task_module.priority_keyboard = priority_keyboard_with_cancel
+
+    original_deadline_keyboard = task_module.deadline_keyboard
+
+    def deadline_keyboard_with_cancel(*args, **kwargs):
+        return add_create_cancel(original_deadline_keyboard(*args, **kwargs))
+
+    task_module.deadline_keyboard = deadline_keyboard_with_cancel
 
     # The smart tag flow replaces _ask_tags/_ask_assignment and uses these helpers
     # from tag_suggestions_legacy, so patch their module-level builders as well.
@@ -127,6 +163,9 @@ def install_create_task_flow(task_module) -> None:
                 await update.effective_message.reply_text("⚠️ عنوان تسک نباید بیشتر از ۲۰۰ کاراکتر باشد.")
                 return
             task["title"] = title
+            context.user_data["step"] = "priority"
+            await _send_priority_rich_message(update.effective_message, context.bot)
+            return
         return await original_save_task(update, context)
 
     task_module.save_task = save_task_with_create_validation
