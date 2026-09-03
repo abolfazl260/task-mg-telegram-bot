@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import date, datetime
+from html import escape
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -121,7 +122,9 @@ def _build_guest_report(user_id: int) -> str:
             if task.get("id") in seen:
                 continue
             seen.add(task.get("id"))
-            lines.append(f"{idx}. {task.get('title', '—')} — {task.get('deadline') or 'بدون ددلاین'}")
+            task_title = escape(str(task.get("title") or "—"))
+            task_deadline = escape(str(task.get("deadline") or "بدون ددلاین"))
+            lines.append(f"{idx}. {task_title} — {task_deadline}")
             idx += 1
     return "\n".join(lines)
 
@@ -133,7 +136,7 @@ def _article_result(title: str, text: str) -> dict:
         "title": title[:64],
         "input_message_content": {
             "message_text": text,
-            "parse_mode": ParseMode.MARKDOWN,
+            "parse_mode": ParseMode.HTML,
         },
     }
 
@@ -206,7 +209,7 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await _answer_guest_query(
             context,
             guest_query_id,
-            "برای ثبت تسک، بات را همراه عنوان صدا بزنید؛ مثل:\n`@YourBot add پیگیری قرارداد 2026-08-20 فوری`",
+            "برای ثبت تسک، بات را همراه عنوان صدا بزنید؛ مثل:\n<code>@YourBot add پیگیری قرارداد 2026-08-20 فوری</code>",
         )
         return
 
@@ -226,9 +229,9 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await _answer_guest_query(
         context,
         guest_query_id,
-        "✅ تسک مهمان ثبت شد\n\n"
-        f"🆔 `{task_id}`\n"
-        f"📌 {title}\n"
-        f"📂 Guest: {chat_title}\n"
-        f"📅 {deadline or 'بدون ددلاین'}",
+        "<b>✅ تسک مهمان ثبت شد</b>\n\n"
+        f"🆔 <code>{escape(str(task_id))}</code>\n"
+        f"📌 {escape(title)}\n"
+        f"📂 {escape(f'Guest: {chat_title}')}\n"
+        f"📅 {escape(deadline or 'بدون ددلاین')}",
     )
