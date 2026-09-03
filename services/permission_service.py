@@ -52,16 +52,10 @@ def has_permission_sync(user_id: object, permission_key: str) -> bool:
     conn = sqlite3.connect(DB_PATH, timeout=10)
     try:
         conn.execute("PRAGMA foreign_keys=ON")
-        conn.executescript(_SCHEMA)
-        conn.execute(
-            "INSERT OR IGNORE INTO permissions(permission_key,label,created_at) VALUES(?,?,datetime('now'))",
-            (PERMISSION_KANBAN_PDF, PERMISSION_KANBAN_PDF_LABEL),
-        )
         row = conn.execute(
             "SELECT 1 FROM user_permissions WHERE bot_key=? AND user_id=? AND permission_key=?",
             (_bot_key(), str(user_id), permission_key),
         ).fetchone()
-        conn.commit()
         return row is not None
     finally:
         conn.close()

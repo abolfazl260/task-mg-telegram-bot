@@ -23,20 +23,28 @@ PRIORITY_ORDER = {'high': 0, 'medium': 1, 'low': 2}
 def _skip_keyboard(callback_data: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton('⏭ رد کردن', callback_data=callback_data)]])
 
-async def _category_keyboard(user_id) -> InlineKeyboardMarkup:
+async def _category_options(user_id, limit=10):
     categories = []
     seen = set()
     for task in await get_active_tasks_async(user_id):
-        category = (task.get('category') or '').strip()
-        key = category.lower()
+        category = str(task.get('category') or '').strip()
+        key = category.casefold()
         if category and key not in seen:
             seen.add(key)
             categories.append(category)
-    rows = [[InlineKeyboardButton(f'📂 {cat}', callback_data=f'category_pick_{cat[:40]}')] for cat in categories[:10]]
+        if len(categories) >= limit:
+            break
+    return categories
+
+async def _category_keyboard(user_id) -> InlineKeyboardMarkup:
+    categories = await _category_options(user_id)
+    rows = [[InlineKeyboardButton(f'📂 {category}', callback_data=f'category_pick_{index}')] for index, category in enumerate(categories)]
     rows.append([InlineKeyboardButton('⏭ رد کردن', callback_data='category_skip')])
+    logger.info('category_keyboard user_id=%s categories=%s callbacks=%s', user_id, categories, [f'category_pick_{i}' for i in range(len(categories))])
     return InlineKeyboardMarkup(rows)
 
 async def _ask_category(message, context, user_id):
+    logger.info('category_step user_id=%s step=%s', user_id, context.user_data.get('step'))
     await message.reply_text('📂 دسته\u200cبندی را انتخاب کنید یا نام دسته\u200cبندی جدید را همین\u200cجا ارسال کنید تا ساخته شود.\nاگر دسته\u200cبندی نمی\u200cخواهید، دکمه «رد کردن» را بزنید:', reply_markup=await _category_keyboard(user_id))
 
 async def _ask_tags(message, context):
@@ -236,8 +244,9 @@ async def skip_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def optional_field_callback(update, context):
     query = update.callback_query
+    data = query.data or ''
+    logger.info('category_callback_received user_id=%s data=%s step=%s has_new_task=%s', update.effective_user.id if update.effective_user else None, data, context.user_data.get('step'), isinstance(context.user_data.get('new_task'), dict))
     await query.answer()
-    data = query.data
     task = context.user_data.get('new_task')
     if not task:
         await query.message.reply_text('فرایند ایجاد تسک فعالی پیدا نشد.')
@@ -247,10 +256,18 @@ async def optional_field_callback(update, context):
         await _ask_tags(query.message, context)
         return
     if data.startswith('category_pick_'):
-        selected = data.replace('category_pick_', '', 1)
-        categories = [(t.get('category') or '').strip() for t in await get_active_tasks_async(update.effective_user.id) if (t.get('category') or '').strip()]
-        matched = next((c for c in categories if c[:40] == selected), selected)
-        task['category'] = matched
+        selected = data[len('category_pick_'):]
+        try:
+            index = int(selected)
+        except (TypeError, ValueError):
+            await query.answer('دسته‌بندی انتخاب‌شده معتبر نیست.', show_alert=True)
+            return
+        categories = await _category_options(update.effective_user.id)
+        if index < 0 or index >= len(categories):
+            await query.answer('این دسته‌بندی دیگر در دسترس نیست.', show_alert=True)
+            return
+        task['category'] = categories[index]
+        logger.info('category_selected user_id=%s index=%s category=%r', update.effective_user.id, index, task['category'])
         await _ask_tags(query.message, context)
         return
     if data == 'tags_skip':
@@ -367,7 +384,7 @@ async def task_details_callback(update, context):
 async def comment_callback(update, context):
     query=update.callback_query; await query.answer(); task_id=query.data.replace('comment_add_','',1); task=await get_task_by_id_async(task_id)
     if not task or not await _can_view_task(update.effective_user.id, task): await query.message.reply_text('تسک پیدا نشد یا دسترسی ندارید.'); return
-    context.user_data['comment_task_id']=task_id; context.user_data['step']='task_comment'; await query.message.reply_text('💬 کامنت خود را ارسال کنید؛ متن، عکس، صدا، فایل یا هر پیام تلگرامی پشتیبانی\u200cشده قابل ثبت است.', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('❌ انصراف از ارسال کامنت', callback_data=f'comment_cancel_{task_id}')]]))
+    context.user_data['comment_task_id']=task_id; context.user_data['step']='task_comment'; await query.message.reply_text('💬 کامنت خود را ارسال کنید؛ متن، عکس، صدا، فایل یا هر پیام تلگرامی پشتیبانی\u200cشده قابل ثبت است.', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('❌ انصراف از ارسال کامنت',callback_data=f'comment_cancel_{task_id}')]]))
 
 async def comment_cancel_callback(update, context):
     query=update.callback_query; await query.answer(); context.user_data.pop('comment_task_id',None); context.user_data.pop('step',None); await query.message.edit_text('❌ ارسال کامنت لغو شد.')
@@ -377,7 +394,7 @@ async def handle_comment_input(update, context):
     task_id=context.user_data.get('comment_task_id'); task=await get_task_by_id_async(task_id)
     if not task or not await _can_view_task(update.effective_user.id, task): context.user_data.pop('comment_task_id',None); context.user_data.pop('step',None); await update.effective_message.reply_text('تسک پیدا نشد یا دسترسی ندارید.'); return True
     content=_extract_comment_content(update.effective_message)
-    if not content: await update.effective_message.reply_text('این نوع پیام برای کامنت پشتیبانی نشد. لطفاً متن، عکس، صدا یا فایل بفرستید.'); return True
+    if not content: await update.effective_message.reply_text('این نوع پیام برای کامنت پشتیبانی نشد. لطفاً متن، عکس یا فایل بفرستید.'); return True
     user=update.effective_user; ok=await add_task_comment_async(task_id, {'id':user.id,'full_name':user.full_name,'username':user.username or ''}, content); context.user_data.pop('comment_task_id',None); context.user_data.pop('step',None); await update.effective_message.reply_text('✅ کامنت ثبت شد.' if ok else '❌ خطا در ثبت کامنت.'); return True
 
 STATUS_LABELS={'pending':'⏳ در انتظار','in_progress':'🚀 در حال انجام','done':'✅ انجام شده','cancelled':'❌ لغو شده'}
@@ -404,7 +421,7 @@ async def _visible_assignment_members(user_id):
     return list(members.values())
 
 def _assignment_methods_keyboard(prefix='assign'):
-    return InlineKeyboardMarkup([[InlineKeyboardButton('🔎 جستجوی کاربر', callback_data=f'{prefix}_search')],[InlineKeyboardButton('👥 انتخاب از اعضای تیم', callback_data=f'{prefix}_teams')],[InlineKeyboardButton('⏭ بدون مسئول', callback_data=f'{prefix}_none')]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton('🔎 جستجوی کاربر', callback_data=f'{prefix}_search')],[InlineKeyboardButton('👥 انتخاب از اعضای تیم',callback_data=f'{prefix}_teams')],[InlineKeyboardButton('⏭ بدون مسئول',callback_data=f'{prefix}_none')]])
 def _assignment_summary(task):
     assignee=task.get('assignee') or {}; assignee_name=assignee.get('display_name') or task.get('assignee_name') or '❌ تعیین نشده'; return f"📋 خلاصه وظیفه\n\nعنوان:\n{task.get('title','-')}\n\n👤 مسئول:\n{assignee_name}\n\n⭐ اولویت:\n{PRIORITY_LABEL.get(task.get('priority'),task.get('priority','-'))}\n\n⏰ مهلت:\n{task.get('deadline') or 'بدون مهلت'}\n\nآیا تایید می\u200cکنید؟"
 def _confirm_create_keyboard(): return InlineKeyboardMarkup([[InlineKeyboardButton('✅ تایید و ثبت',callback_data='assign_confirm_create')],[InlineKeyboardButton('🔄 تغییر مسئول',callback_data='assign_change_create')],[InlineKeyboardButton('❌ لغو',callback_data='assign_cancel_create')]])

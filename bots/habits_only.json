@@ -1,42 +1,46 @@
 {
   "key": "habits_only",
-  "name": "Habit Assistant",
+  "name": "دستیار عادت‌ها",
   "username": "byeeeebot",
-  "description": "Your personal habit and lightweight task companion with AI and team support.",
+  "description": "ربات ساده برای عادت‌ها، یادآورها و تسک‌های شخصی",
+  "commands": ["start", "add", "tasks", "habit", "search", "ai", "help"],
   "settings": {
     "ui": {
-      "language": "en",
-      "start_text": "👋 Welcome to Habit Assistant!\n\nBuild better habits, manage lightweight tasks, and stay consistent with the help of AI.\n\n🌱 Create and manage habits\n📝 Create and manage tasks\n💬 Add comments to tasks\n📂 Organize tasks with categories\n🔎 Search your tasks\n🤖 Get help from AI\n👥 Work with your team\n📖 Learn how everything works\n⚙️ Customize your settings\n\nYou can type your request or send a voice message.",
-      "help_text": "📖 Habit Assistant Help\n\nHabit Assistant supports habits plus a focused set of task-management features.\n\n🌱 Habits — create, edit, track, and review habits\n📝 Tasks — create, view, update, and complete your tasks\n💬 Comments — add text, photos, voice messages, and files to tasks\n📂 Categories — organize tasks without tags\n🔎 Search — find tasks quickly\n🤖 AI Assistant — create habits or tasks from natural language or voice and ask questions\n👥 Teams — collaborate with other people\n🎙️ Voice — describe a habit or task naturally and let AI process it\n⚙️ Settings — manage your timezone, date format, and language preferences\n\nThis bot does not provide task assignment, tags, templates, or bulk task import.",
-      "feature_intro": "✨ Habits first, plus the essential tools for lightweight task management.",
+      "language": "fa",
+      "start_text": "👋 سلام!\n\n🌱 عادت‌ها\n📝 تسک‌های ساده\n⏰ یادآورها\n🔎 جستجو\n🤖 دستیار هوشمند\n\nاز منوی زیر شروع کنید.",
+      "help_text": "📖 راهنما\n\n🌱 عادت‌های خود را مدیریت کنید.\n📝 تسک ساده بسازید و انجام‌شدن آن را ثبت کنید.\n⏰ یادآور تنظیم کنید.\n🔎 بین تسک‌های خود جستجو کنید.\n🤖 از دستیار هوشمند کمک بگیرید.\n\nاین ربات عمداً ساده طراحی شده است.",
+      "feature_intro": "🌱 عادت‌ها، یادآورها، تسک‌های ساده، جستجو و هوش مصنوعی",
       "buttons": {
-        "ai": "🤖 AI Assistant",
-        "habits": "🌱 My Habits",
-        "tasks": "📝 My Tasks",
-        "add_task": "➕ Add Task",
-        "teams": "👥 My Teams",
-        "search": "🔎 Search",
-        "help": "📖 Help",
-        "settings": "⚙️ Settings",
-        "contact": "📞 Contact Us"
+        "start": "🏠 شروع",
+        "ai": "🤖 دستیار هوشمند",
+        "habits": "🌱 عادت‌های من",
+        "tasks": "📝 تسک‌های من",
+        "reminders": "⏰ یادآورها",
+        "search": "🔎 جستجو",
+        "help": "📖 راهنما"
       }
     },
     "task_options": {
       "allow_assignment": false,
       "allow_tags": false,
-      "allow_comments": true,
-      "allow_categories": true,
+      "allow_comments": false,
+      "allow_categories": false,
+      "allow_priority": false,
       "allow_search": true,
       "allow_templates": false,
       "allow_bulk_import": false,
       "allow_ai_task_creation": true
+    },
+    "reminders": {
+      "enabled": true,
+      "simple": true
     }
   },
   "features": {
     "custom_bots": false,
     "integrations": false,
     "tasks": true,
-    "teams": true,
+    "teams": false,
     "templates": false,
     "habits": true,
     "reports": false,
@@ -48,14 +52,13 @@
     "unassigned": false
   },
   "menu": [
-    {"label": "🤖 AI Assistant", "callback_data": "ai_menu", "feature": "ai"},
-    {"label": "➕ Add Task", "callback_data": "add_task", "feature": "tasks"},
-    {"label": "📝 My Tasks", "callback_data": "tasks", "feature": "tasks"},
-    {"label": "🌱 My Habits", "callback_data": "habit_menu", "feature": "habits"},
-    {"label": "👥 My Teams", "callback_data": "teams", "feature": "teams"},
-    {"label": "🔎 Search", "callback_data": "search", "feature": "search"},
-    {"label": "⚙️ Settings", "callback_data": "settings"},
-    {"label": "📖 Help", "callback_data": "help"},
-    {"label": "📞 Contact Us", "callback_data": "contact_us"}
+    {"label": "➕ ایجاد تسک", "callback_data": "habit_task_create", "feature": "tasks"},
+    {"label": "🤖 دستیار هوشمند", "callback_data": "ai_menu", "feature": "ai"},
+    {"label": "🌱 عادت‌های من", "callback_data": "habit_menu", "feature": "habits"},
+    {"label": "📝 تسک‌های من", "callback_data": "tasks", "feature": "tasks"},
+    {"label": "⏰ یادآورها", "callback_data": "reminders"},
+    {"label": "🔎 جستجو", "callback_data": "search", "feature": "search"},
+    {"label": "🏠 شروع", "callback_data": "start"},
+    {"label": "📖 راهنما", "callback_data": "help"}
   ]
 }

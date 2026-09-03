@@ -84,8 +84,9 @@ def _install_safe_category_flow(task_handler):
         task["category"] = categories[index]
         await _taskmg_task_handler._ask_tags(query.message, context)
 
-    # The dispatcher above intentionally has no closure variables so its code
-    # object can safely replace the function object already imported by main.py.
+    # Install the generated keyboard into the module global actually used by
+    # handlers.task._ask_category(). Setting only task_handler._category_keyboard
+    # is insufficient because _ask_category resolves _category_keyboard globally.
     task_handler._taskmg_category_options = _category_options
     task_handler._taskmg_task_handler = task_handler
     task_handler._safe_category_optional_callback = _safe_optional_dispatch
@@ -94,6 +95,7 @@ def _install_safe_category_flow(task_handler):
     task_handler.optional_field_callback.__globals__["_taskmg_task_handler"] = task_handler
     task_handler.optional_field_callback.__code__ = _safe_optional_dispatch.__code__
     task_handler._category_keyboard = _category_keyboard
+    task_handler.optional_field_callback.__globals__["_category_keyboard"] = _category_keyboard
     task_handler._safe_category_flow_installed = True
 
 

@@ -1,8 +1,11 @@
 """Small runtime extensions that need the current Telegram viewer context."""
 
 from contextvars import ContextVar
+from datetime import timedelta
 
-from services.date_service import add_gregorian_days, get_user_date_format_for_display
+from services.date_service import get_user_date_format_for_display
+from services.timezone_service import get_current_local_datetime_async
+from services.user_service import get_user_date_format_async
 from utils.date_parse import deadline_input_hint
 from services import calendar_runtime
 
@@ -33,8 +36,8 @@ def build_full_report(tasks):
     return calendar_runtime.build_full_report(tasks, viewer_id(tasks[0] if tasks else None))
 
 
-def deadline_hint_for_user(user_id):
-    return deadline_input_hint(get_user_date_format_for_display(user_id))
+async def deadline_hint_for_user(user_id):
+    return deadline_input_hint(await get_user_date_format_async(user_id))
 
 
 async def deadline_selected(update, context):
@@ -45,7 +48,7 @@ async def deadline_selected(update, context):
 
     if value == "custom":
         context.user_data["step"] = "deadline_custom"
-        hint = deadline_hint_for_user(user_id)
+        hint = await deadline_hint_for_user(user_id)
         await query.message.reply_text(
             "📅 تاریخ دقیق را وارد کنید:\n"
             f"{hint}\n\n"
@@ -67,7 +70,8 @@ async def deadline_selected(update, context):
         await query.message.reply_text("⚠️ گزینه زمان‌بندی نامعتبر است.")
         return
 
-    deadline = add_gregorian_days(days, user_id)
+    _, now = await get_current_local_datetime_async(user_id)
+    deadline = now.date() + timedelta(days=days)
     context.user_data["new_task"]["deadline"] = deadline.isoformat()
     context.user_data["step"] = "category"
     from handlers.task import _ask_category

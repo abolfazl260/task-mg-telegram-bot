@@ -3,6 +3,7 @@
   "name": "مدیریت مطب",
   "username": "clinic_manager_bot",
   "description": "سامانه مدیریت بیماران، نوبت‌ها و کادر درمان",
+  "commands": ["start", "add", "tasks", "unassigned", "team", "search", "reports", "help"],
   "settings": {
     "ui": {
       "language": "fa",
