@@ -46,6 +46,7 @@ def clear_create_task_state(context) -> None:
     context.user_data.pop("awaiting_tag_input", None)
     context.user_data.pop("create_task_finalizing", None)
     context.user_data.pop("create_task_message_id", None)
+    context.user_data.pop("create_task_user_id", None)
 
 
 def _rich_button(text: str, callback_data: str, style: str = "primary") -> str:
@@ -133,8 +134,10 @@ async def _show_tags_rich_message(message, context) -> None:
     """Render tag suggestions as Rich Message buttons, reusing the current message."""
     from handlers import tag_suggestions_legacy as legacy
 
-    user = getattr(message, "from_user", None)
-    user_id = getattr(user, "id", 0)
+    user_id = context.user_data.get("create_task_user_id")
+    if not user_id:
+        user = getattr(message, "from_user", None)
+        user_id = getattr(user, "id", 0)
     keyboard, tags = await legacy.recent_tag_keyboard(user_id, limit=3)
     del keyboard
     context.user_data["tag_suggestions"] = tags
@@ -183,6 +186,7 @@ def install_create_task_flow(task_module) -> None:
         clear_create_task_state(context)
         context.user_data["new_task"] = {}
         context.user_data["step"] = "title"
+        context.user_data["create_task_user_id"] = update.effective_user.id
         message = update.effective_message or update.callback_query.message
         await message.reply_text(
             "📝 عنوان تسک را وارد کنید:",
@@ -274,6 +278,7 @@ def install_create_task_flow(task_module) -> None:
                 return
             task["title"] = title
             context.user_data["step"] = "priority"
+            context.user_data["create_task_user_id"] = update.effective_user.id
             await _send_priority_rich_message(update.effective_message, context.bot, context)
             return
         return await original_save_task(update, context)
