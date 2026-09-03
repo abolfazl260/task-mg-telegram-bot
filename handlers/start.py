@@ -7,6 +7,15 @@ from telegram.ext import ContextTypes
 from handlers.menu import main_menu, main_menu_summary
 from services.team_service import join_team_by_code, find_team_by_code
 
+# main.py imports `start` before it imports the legacy `add_task` symbol.
+# Install the canonical task-creation flow at this point so that the later
+# `from handlers.task import add_task` resolves to the Rich implementation.
+from handlers import task as task_handler
+from handlers.tag_suggestions import install_tag_flow
+
+if not getattr(task_handler, "_tag_flow_installed", False):
+    install_tag_flow(task_handler)
+
 
 async def _team_call(fn, *args, **kwargs):
     return await asyncio.to_thread(partial(fn, *args, **kwargs))
