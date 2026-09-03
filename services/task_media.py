@@ -32,7 +32,7 @@ async def _ensure_schema():
             latitude REAL,
             longitude REAL,
             caption TEXT NOT NULL DEFAULT '',
-            metadata_json TEXT NOT NULL DEFAULT '{}',
+            metadata_json TEXT NOT NULL DEFAULT '{{}}',
             created_at TEXT NOT NULL DEFAULT ''
         )"""
     )
