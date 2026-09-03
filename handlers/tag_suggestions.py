@@ -10,3 +10,5 @@ def install_tag_flow(task_module):
     install_create_task_flow(task_module)
     from .rich_message_compat import install_create_task_rich_response_compat
     install_create_task_rich_response_compat(__import__("handlers.create_task_flow", fromlist=["*"]))
+    from .create_task_rich_progress import install_create_task_rich_progress
+    install_create_task_rich_progress(task_module)
