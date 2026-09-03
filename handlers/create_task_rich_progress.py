@@ -10,7 +10,6 @@ def _description_media(context):
 
 
 def _rich_media_payload(context):
-    """Build the InputRichMessageMedia list for already-uploaded Telegram files."""
     payload = []
     for index, item in enumerate(_description_media(context)):
         if item.get("type") not in {"photo", "video"} or not item.get("file_id"):
@@ -30,8 +29,10 @@ def _description_media_html(context):
         kind = item.get("type")
         if kind in {"photo", "video"} and item.get("file_id"):
             media_id = f"desc_media_{index}"
-            tag = "img" if kind == "photo" else "video"
-            blocks.append(f'<{tag} src="tg://{kind}?id={media_id}"></{tag}>' if tag == "video" else f'<img src="tg://photo?id={media_id}"/>')
+            if kind == "photo":
+                blocks.append(f'<img src="tg://photo?id={media_id}"/>')
+            else:
+                blocks.append(f'<video src="tg://video?id={media_id}"></video>')
             caption = str(item.get("caption") or "").strip()
             if caption:
                 blocks.append(f'<p>💬 {escape(caption[:500])}</p>')
@@ -160,6 +161,7 @@ def install_create_task_rich_progress(task_module):
     original_edit_rich = rich_flow._edit_rich
     original_save_task = task_module.save_task
     original_assignment = task_module.assignment_callback
+    original_optional = task_module.optional_field_callback
 
     async def edit_rich_with_progress(context, fallback_message, html, media=None):
         summary = _draft_summary(context)
@@ -193,7 +195,10 @@ def install_create_task_rich_progress(task_module):
             media = _extract_description_media(message)
             text = str(getattr(message, "text", "") or "").strip()
             if media:
-                context.user_data.setdefault("description_media", []).append(media)
+                items = context.user_data.setdefault("description_media", [])
+                if len(items) >= 50:
+                    return
+                items.append(media)
                 if media.get("caption"):
                     context.user_data.setdefault("description_text_parts", []).append(media["caption"])
             elif text:
@@ -235,6 +240,33 @@ def install_create_task_rich_progress(task_module):
     main_module = sys.modules.get("main")
     if main_module is not None:
         main_module.save_task = save_task_with_cleanup
+
+        original_track_usage = getattr(main_module, "track_usage", None)
+        if original_track_usage is not None and not getattr(main_module, "_create_task_media_track_installed", False):
+            main_module._create_task_media_track_installed = True
+
+            async def track_usage_with_create_media(update, context):
+                await original_track_usage(update, context)
+                message = update.effective_message
+                if context.user_data.get("step") != "description" or not message:
+                    return
+                if message.photo or message.video or message.location:
+                    await task_module.save_task(update, context)
+
+            main_module.track_usage = track_usage_with_create_media
+
+    async def optional_with_media_description(update, context):
+        query = update.callback_query
+        if (query.data or "") != "description_skip":
+            return await original_optional(update, context)
+        await query.answer()
+        task = context.user_data.setdefault("new_task", {})
+        task["description"] = _description_text(context)
+        await rich_flow._show_assignment(query.message, context)
+
+    task_module.optional_field_callback = optional_with_media_description
+    if main_module is not None:
+        main_module.optional_field_callback = optional_with_media_description
 
     async def assignment_with_rich_final_state(update, context):
         query = update.callback_query
