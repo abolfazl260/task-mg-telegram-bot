@@ -11,22 +11,80 @@
 <body>
   <main class="app">
     <header class="header">
-      <div><p class="eyebrow">مدیریت وظایف</p><h1 id="greeting">وظایف من</h1></div>
+      <div>
+        <p class="eyebrow">مدیریت وظایف</p>
+        <h1 id="greeting">وظایف من</h1>
+      </div>
       <div class="header-actions">
         <a id="dashboard-link" class="header-link" href="#" hidden>📊 داشبورد</a>
         <button id="theme-toggle" class="icon-button" type="button" aria-label="تغییر حالت نمایش">☾</button>
         <button id="refresh" class="icon-button" type="button" aria-label="به‌روزرسانی">↻</button>
       </div>
     </header>
+
     <section id="user-card" class="user-card" hidden></section>
-    <section class="toolbar"><input id="search" type="search" placeholder="جستجوی وظیفه..." autocomplete="off"><select id="status-filter" aria-label="فیلتر وضعیت"><option value="">همه وضعیت‌ها</option><option value="pending">در انتظار</option><option value="in_progress">در حال انجام</option><option value="done">انجام‌شده</option><option value="cancelled">لغوشده</option></select></section>
-    <section class="report-panel" aria-labelledby="report-title"><div class="report-header"><div><h2 id="report-title">گزارش وضعیت وظایف</h2><p>توزیع وظایف بر اساس وضعیت</p></div></div><div id="status-report" class="status-report"></div></section>
-    <section class="report-panel" aria-labelledby="priority-title"><div class="report-header"><div><h2 id="priority-title">گزارش اولویت وظایف</h2><p>نمودار جدید: توزیع وظایف بر اساس اولویت</p></div></div><div id="priority-report" class="priority-report"></div></section>
-    <section class="tasks-header"><div><h2>فهرست وظایف</h2><span id="result-count" class="result-count"></span></div><label class="page-size-label">نمایش<select id="page-size" aria-label="تعداد وظایف در صفحه"><option value="5">5</option><option value="10" selected>10</option><option value="20">20</option></select></label></section>
-    <section id="state" class="state">در حال دریافت وظایف...</section><section id="tasks" class="tasks" aria-live="polite"></section>
-    <nav id="pagination" class="pagination" aria-label="صفحه‌بندی وظایف" hidden><button id="prev-page" type="button">قبلی</button><span id="page-info">صفحه ۱ از ۱</span><button id="next-page" type="button">بعدی</button></nav>
+
+    <section class="toolbar">
+      <input id="search" type="search" placeholder="جستجوی وظیفه..." autocomplete="off">
+      <select id="status-filter" aria-label="فیلتر وضعیت">
+        <option value="">همه وضعیت‌ها</option>
+        <option value="pending">در انتظار</option>
+        <option value="in_progress">در حال انجام</option>
+        <option value="done">انجام‌شده</option>
+        <option value="cancelled">لغوشده</option>
+      </select>
+    </section>
+
+    <section class="report-panel" aria-labelledby="report-title">
+      <div class="report-header">
+        <div>
+          <h2 id="report-title">گزارش وضعیت وظایف</h2>
+          <p>توزیع وظایف بر اساس وضعیت</p>
+        </div>
+      </div>
+      <div id="status-report" class="status-report"></div>
+    </section>
+
+    <section class="report-panel" aria-labelledby="priority-title">
+      <div class="report-header">
+        <div>
+          <h2 id="priority-title">گزارش اولویت وظایف</h2>
+          <p>نمودار جدید: توزیع وظایف بر اساس اولویت</p>
+        </div>
+      </div>
+      <div id="priority-report" class="priority-report"></div>
+    </section>
+
+    <section class="tasks-header">
+      <div>
+        <h2>فهرست وظایف</h2>
+        <span id="result-count" class="result-count"></span>
+      </div>
+      <label class="page-size-label">نمایش
+        <select id="page-size" aria-label="تعداد وظایف در صفحه">
+          <option value="5">5</option>
+          <option value="10" selected>10</option>
+          <option value="20">20</option>
+        </select>
+      </label>
+    </section>
+
+    <section id="state" class="state">در حال دریافت وظایف...</section>
+    <section id="tasks" class="tasks" aria-live="polite"></section>
+
+    <nav id="pagination" class="pagination" aria-label="صفحه‌بندی وظایف" hidden>
+      <button id="prev-page" type="button">قبلی</button>
+      <span id="page-info">صفحه ۱ از ۱</span>
+      <button id="next-page" type="button">بعدی</button>
+    </nav>
   </main>
   <script src="/static/app.js"></script>
-  <script>if(window.__dashboardTaskToken){const b=document.getElementById('dashboard-link');b.href='/'+encodeURIComponent(window.__dashboardTaskToken);b.hidden=false;}</script>
+  <script>
+    if (window.__dashboardTaskToken) {
+      const button = document.getElementById('dashboard-link');
+      button.href = '/' + encodeURIComponent(window.__dashboardTaskToken);
+      button.hidden = false;
+    }
+  </script>
 </body>
 </html>
