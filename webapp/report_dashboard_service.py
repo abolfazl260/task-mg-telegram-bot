@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from statistics import mean
 
 from .reports import _access, _change, _jmonth, _priority, _status, _task_rows, _week, _habits, _recent
+from .activity_feed import activity_feed
 
 STATUS_ALIASES = {
     "انجام شده": "done", "انجام‌شده": "done", "انجام شده است": "done",
@@ -221,11 +222,8 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
         return {"section": section, "columns": columns, "total": sum(len(v) for v in columns.values()), "filter_options": result["filter_options"]}
     if section == "habits":
         result["habits"] = _habits(access, start, end); return result
-    if section == "recent_changes":
-        data = _recent(access); events = [event for event in data.get("events", []) if start.isoformat() <= str(event.get("created_at", ""))[:10] <= end.isoformat()]
-        if query:
-            needle = query.lower(); events = [event for event in events if needle in str(event.get("task_title", "")).lower() or needle in str(event.get("task_id", "")).lower()]
-        data["events"], data["total"] = events, len(events); return data
+    if section in {"recent_changes", "activity_feed"}:
+        return activity_feed(access, start, end, query)
     if section == "heatmap":
         counts = {}
         for task in tasks:
