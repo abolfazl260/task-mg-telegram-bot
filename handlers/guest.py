@@ -16,7 +16,7 @@ from html import escape
 
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.ext import ApplicationHandlerStop, ContextTypes
+from telegram.ext import ContextTypes
 
 from handlers.business import (
     handle_business_connection,
@@ -24,8 +24,7 @@ from handlers.business import (
     handle_deleted_business_messages,
     handle_edited_business_message,
 )
-from services.groq_service import GroqConfigurationError, GroqRequestError
-from services.task_intelligence import parse_task_request_smart
+from services.groq_service import GroqConfigurationError, GroqRequestError, parse_task_request
 from services.task_service import create_task, get_all_user_tasks
 from utils.date_parse import parse_deadline_input
 
@@ -37,6 +36,7 @@ _PRIORITY_WORDS = {
     "medium": ("medium", "متوسط", "عادی", "🟠"),
     "low": ("low", "پایین", "کم", "🟢"),
 }
+_PRIORITY_LABEL = {"high": "🔴 بالا", "medium": "🟠 متوسط", "low": "🟢 پایین"}
 
 
 def _guest_message(update: Update) -> dict | None:
@@ -163,19 +163,13 @@ async def _answer_guest_query(context: ContextTypes.DEFAULT_TYPE, guest_query_id
 
 
 async def _analyze_guest_task(user_id: int, request_text: str) -> dict:
-    """Analyze guest task text with the existing AI task parser.
+    """Analyze the guest request with Groq; do not use a non-AI fallback."""
+    from services.task_intelligence import normalize_user_text
 
-    Guest Mode is intentionally task-only: even if the shared intelligence
-    layer classifies the text as a habit or chat, this entry point only accepts
-    the task fields needed to create one task.
-    """
-    draft = await asyncio.to_thread(parse_task_request_smart, user_id, request_text)
-    if draft.get("action") != "CREATE_TASK":
-        # Guest Mode is explicitly a task-only entry point. The AI still parses
-        # the natural-language request, but we never create a habit or answer a
-        # general chat request from this flow.
-        draft["action"] = "CREATE_TASK"
-    return draft
+    normalized = normalize_user_text(request_text)
+    if not normalized:
+        raise GroqRequestError("متن درخواست خالی است.")
+    return await asyncio.to_thread(parse_task_request, user_id, normalized)
 
 
 async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -187,12 +181,6 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     reply to a message and send ``@YourBot`` (optionally with instructions).
     Important reports can also be shared in groups with:
     ``@YourBot گزارش مهم``.
-
-    Business updates are routed here as a guard because all TypeHandlers in the
-    application previously shared the same group. python-telegram-bot executes
-    at most one handler per group, so the first business TypeHandler could return
-    without handling a business_message. Routing them here prevents ordinary
-    MessageHandlers from accessing ``update.message`` when it is None.
     """
 
     if update.business_connection:
@@ -246,10 +234,6 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
 
-    # The AI receives the natural-language content, not Telegram's mention.
-    # When the user replies and only mentions the bot, the replied-to message
-    # becomes the complete task request. If extra text was supplied, keep both
-    # pieces so the AI can interpret instructions such as «فوری» or «تا فردا».
     if reply_text and not _extract_title(raw_text, bot_username):
         ai_request = reply_text
     elif reply_text:
@@ -271,6 +255,8 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await _answer_guest_query(context, guest_query_id, "⚠️ خطایی هنگام تحلیل پیام رخ داد؛ تسک ثبت نشد.")
         return
 
+    # Guest Mode intentionally persists only task fields. Category, tags,
+    # description, habit data, and chat/report metadata are not stored.
     title = str(draft.get("title") or title_text).strip()[:240]
     priority = draft.get("priority") if draft.get("priority") in {"high", "medium", "low"} else "medium"
     deadline = str(draft.get("deadline") or "").strip()
@@ -291,6 +277,6 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         guest_query_id,
         "<b>✅ تسک با هوش مصنوعی ثبت شد</b>\n\n"
         f"📌 {escape(title)}\n"
-        f"🎯 {_PRIORITY_WORDS.get(priority, ('متوسط',))[0] if priority in _PRIORITY_WORDS else 'متوسط'}\n"
+        f"🎯 {_PRIORITY_LABEL[priority]}\n"
         f"📅 {escape(deadline or 'بدون ددلاین')}",
     )
