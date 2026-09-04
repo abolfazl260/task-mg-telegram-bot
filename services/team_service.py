@@ -90,9 +90,6 @@ async def aget_user_teams(user_id):
     return await _user_teams_query(user_id)
 
 async def _user_teams_query(user_id):
-    rows = await fetch_all("""teams WHERE team_id IN (SELECT team_id FROM team_members WHERE user_id=?)""", "", (str(user_id),))
-    # fetch_all expects a table name; use direct SQL instead.
-    # Kept separate to make the query explicit and parameterized.
     from services.database import get_db
     db = await get_db()
     async with db.conn.execute("SELECT t.*,m.role FROM teams t JOIN team_members m ON m.team_id=t.team_id WHERE m.user_id=? ORDER BY t.created_at", (str(user_id),)) as cur:
