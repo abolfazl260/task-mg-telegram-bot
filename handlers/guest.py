@@ -8,14 +8,15 @@ This module reads that raw payload and answers it through the raw Bot API
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from html import escape
 
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.ext import ApplicationHandlerStop, ContextTypes
+from telegram.ext import ContextTypes
 
 from handlers.business import (
     handle_business_connection,
@@ -23,6 +24,7 @@ from handlers.business import (
     handle_deleted_business_messages,
     handle_edited_business_message,
 )
+from services.groq_service import GroqConfigurationError, GroqRequestError, parse_task_request
 from services.task_service import create_task, get_all_user_tasks
 from utils.date_parse import parse_deadline_input
 
@@ -30,10 +32,11 @@ logger = logging.getLogger(__name__)
 
 _ADD_WORDS = ("add", "task", "todo", "تسک", "وظیفه", "کار", "ثبت", "ایجاد")
 _PRIORITY_WORDS = {
-    "high": ("high", "بالا", "فوری", "مهم", "🔴"),
+    "high": ("high", "بالا", "فوری", "مهم", "urgent", "asap", "ضروری", "🔴"),
     "medium": ("medium", "متوسط", "عادی", "🟠"),
     "low": ("low", "پایین", "کم", "🟢"),
 }
+_PRIORITY_LABEL = {"high": "🔴 بالا", "medium": "🟠 متوسط", "low": "🟢 پایین"}
 
 
 def _guest_message(update: Update) -> dict | None:
@@ -64,15 +67,68 @@ def _extract_priority(text: str) -> str:
     for priority, words in _PRIORITY_WORDS.items():
         if any(word.lower() in lowered for word in words):
             return priority
-    return "medium"
+    return "low"
 
 
 def _extract_deadline(text: str) -> str:
-    for token in re.findall(r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b", text or ""):
+    value = text or ""
+    for token in re.findall(r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b", value):
         parsed = parse_deadline_input(token.replace("/", "-"))
         if parsed:
             return parsed
+
+    today = date.today()
+    relative_days = (
+        (r"پس[‌\s]*فردا", 2),
+        (r"فردا", 1),
+        (r"امروز", 0),
+    )
+    for pattern, offset in relative_days:
+        if re.search(pattern, value, flags=re.IGNORECASE):
+            due = today + timedelta(days=offset)
+            return due.isoformat()
     return ""
+
+
+def _extract_fallback_tags(text: str) -> str:
+    """Return at most two deterministic tags when AI is unavailable."""
+    rules = [
+        (r"خرید|بخر|فروشگاه|سفارش|تخم\s*مرغ|نان|مواد\s*غذایی", "#خرید"),
+        (r"جلسه|شرکت|مدیر|پروژه|گزارش|مشتری|قرارداد|اداری", "#کاری"),
+        (r"پرداخت|فاکتور|هزینه|پول|بودجه|حقوق|قبض|صورتحساب", "#مالی"),
+        (r"خانواده|خانه|شخصی|دوست|سفر|تفریح", "#شخصی"),
+        (r"ورزش|تمرین|دارو|پزشک|سلامت|خواب|پیاده\s*روی", "#سلامت"),
+    ]
+    tags: list[str] = []
+    for pattern, tag in rules:
+        if re.search(pattern, text or "", flags=re.IGNORECASE) and tag not in tags:
+            tags.append(tag)
+        if len(tags) == 2:
+            break
+    return ", ".join(tags)
+
+
+def _limit_tags(value: object) -> str:
+    """Normalize AI tags and persist no more than two unique tags."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parts = [item.strip() for item in re.split(r"[,،\n]+", raw) if item.strip()]
+    unique: list[str] = []
+    for item in parts:
+        if item not in unique:
+            unique.append(item[:50])
+        if len(unique) == 2:
+            break
+    return ", ".join(unique)
+
+
+def _extract_reply_text(guest: dict) -> str:
+    """Return the text/caption of the message being replied to, if available."""
+    reply = guest.get("reply_to_message") or {}
+    if not isinstance(reply, dict):
+        return ""
+    return (reply.get("text") or reply.get("caption") or "").strip()
 
 
 def _is_report_request(text: str) -> bool:
@@ -88,6 +144,7 @@ def _build_guest_report(user_id: int) -> str:
     active = [t for t in tasks if t.get("status") in ("pending", "in_progress")]
     overdue = []
     today = []
+    today_date = date.today()
     for task in active:
         deadline = task.get("deadline") or ""
         try:
@@ -95,10 +152,9 @@ def _build_guest_report(user_id: int) -> str:
             if not due:
                 continue
             due_date = datetime.strptime(due, "%Y-%m-%d").date()
-            now = date.today()
-            if due_date < now:
+            if due_date < today_date:
                 overdue.append(task)
-            elif due_date == now:
+            elif due_date == today_date:
                 today.append(task)
         except Exception:
             continue
@@ -151,23 +207,38 @@ async def _answer_guest_query(context: ContextTypes.DEFAULT_TYPE, guest_query_id
     )
 
 
+async def _analyze_guest_task(user_id: int, request_text: str) -> dict:
+    """Analyze with AI; if AI is unavailable, build a complete deterministic task."""
+    from services.task_intelligence import normalize_user_text
+
+    normalized = normalize_user_text(request_text)
+    if not normalized:
+        raise GroqRequestError("متن درخواست خالی است.")
+    try:
+        return await asyncio.to_thread(parse_task_request, user_id, normalized)
+    except (GroqConfigurationError, GroqRequestError):
+        return {
+            "action": "CREATE_TASK",
+            "title": normalized[:200],
+            "deadline": _extract_deadline(normalized),
+            "priority": _extract_priority(normalized),
+            "category": "",
+            "tags": _extract_fallback_tags(normalized),
+            "description": "",
+        }
+
+
 async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Create one-shot tasks from Guest Mode messages and guard business updates.
 
     Usage in any supported chat after Guest Mode is enabled in BotFather:
     ``@YourBot add Buy server credits 2026-08-20 فوری``.
+    A reply can also be used as the task request:
+    reply to a message and send ``@YourBot`` (optionally with instructions).
     Important reports can also be shared in groups with:
     ``@YourBot گزارش مهم``.
-
-    Business updates are routed here as a guard because all TypeHandlers in the
-    application previously shared the same group. python-telegram-bot executes
-    at most one handler per group, so the first business TypeHandler could return
-    without handling a business_message. Routing them here prevents ordinary
-    MessageHandlers from accessing ``update.message`` when it is None.
     """
 
-    # Business updates do not populate update.message. Route them before the
-    # ordinary message pipeline so they can never reach handlers expecting text.
     if update.business_connection:
         await handle_business_connection(update, context)
         return
@@ -189,6 +260,7 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     caller = guest.get("from") or guest.get("guest_bot_caller_user") or {}
     user_id = caller.get("id")
     raw_text = guest.get("text") or guest.get("caption") or ""
+    reply_text = _extract_reply_text(guest)
     chat = guest.get("chat") or {}
     chat_title = (chat.get("title") or chat.get("username") or "Guest Mode").strip()
 
@@ -204,34 +276,77 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await _answer_guest_query(context, guest_query_id, _build_guest_report(user_id), title="گزارش مهم")
         return
 
-    title = _extract_title(raw_text, bot_username)
-    if not title:
+    title_text = _extract_title(raw_text, bot_username)
+    if not title_text and reply_text:
+        title_text = _extract_title(reply_text, "")
+
+    if not title_text:
         await _answer_guest_query(
             context,
             guest_query_id,
-            "برای ثبت تسک، بات را همراه عنوان صدا بزنید؛ مثل:\n<code>@YourBot add پیگیری قرارداد 2026-08-20 فوری</code>",
+            "برای ثبت تسک، بات را همراه عنوان صدا بزنید؛ یا روی یک پیام Reply کنید و فقط بات را منشن کنید.\n\n"
+            "مثال:\n<code>@YourBot پیگیری قرارداد</code>\n"
+            "یا در Reply:\n<code>@YourBot</code>",
         )
         return
 
-    priority = _extract_priority(raw_text)
-    deadline = _extract_deadline(raw_text)
+    if reply_text and not _extract_title(raw_text, bot_username):
+        ai_request = reply_text
+    elif reply_text:
+        ai_request = f"{reply_text}\n\nدستور همراه Reply: {title_text}"
+    else:
+        ai_request = title_text
+
+    try:
+        draft = await _analyze_guest_task(user_id, ai_request)
+    except Exception:
+        logger.exception("guest_task_analysis_unexpected_error user_id=%s", user_id)
+        draft = {
+            "action": "CREATE_TASK",
+            "title": title_text,
+            "deadline": _extract_deadline(ai_request),
+            "priority": _extract_priority(ai_request),
+            "tags": _extract_fallback_tags(ai_request),
+        }
+
+    # Guest Mode always creates exactly one Task. AI only enriches title,
+    # priority, deadline and at most two tags. For a Reply, the full original
+    # message is retained as the task description.
+    title = str(draft.get("title") or title_text).strip()[:240]
+    priority = draft.get("priority") if draft.get("priority") in {"high", "medium", "low"} else _extract_priority(ai_request)
+    deadline = str(draft.get("deadline") or "").strip()
+    if not deadline:
+        deadline = _extract_deadline(ai_request)
+    tags = _limit_tags(draft.get("tags")) or _extract_fallback_tags(ai_request)
+    description = reply_text[:2000] if reply_text else ""
+
     task_id = create_task(
         user_id=user_id,
         title=title,
         priority=priority,
         deadline=deadline,
-        category=f"Guest: {chat_title}"[:60],
-        tags="guest",
-        description=f"ساخته‌شده با Guest Mode توسط {_user_label(caller)} از چت «{chat_title}»",
+        category="",
+        tags=tags,
+        description=description,
     )
 
-    logger.info("guest_task_created task_id=%s user_id=%s chat_id=%s", task_id, user_id, chat.get("id", ""))
+    logger.info("guest_task_created task_id=%s user_id=%s chat_id=%s ai=%s", task_id, user_id, chat.get("id", ""), bool(draft))
+
+    description_html = escape(reply_text[:2000]) if reply_text else "—"
+    task_number = escape(str(task_id))
+    category_label = "بدون دسته‌بندی"
+    status_label = "⏳ در انتظار انجام"
     await _answer_guest_query(
         context,
         guest_query_id,
-        "<b>✅ تسک مهمان ثبت شد</b>\n\n"
-        f"🆔 <code>{escape(str(task_id))}</code>\n"
-        f"📌 {escape(title)}\n"
-        f"📂 {escape(f'Guest: {chat_title}')}\n"
-        f"📅 {escape(deadline or 'بدون ددلاین')}",
+        "<b>✅ تسک با موفقیت ثبت شد</b>\n"
+        f"<b>🆔 شماره تسک:</b> <code>#{task_number}</code>\n\n"
+        f"<b>📌 عنوان</b>\n{escape(title)}\n\n"
+        f"<b>📝 توضیحات</b>\n{description_html}\n\n"
+        f"<b>🎯 اولویت:</b> {_PRIORITY_LABEL[priority]}\n"
+        f"<b>📅 ددلاین:</b> {escape(deadline or 'بدون ددلاین')}\n"
+        f"<b>🏷️ تگ‌ها:</b> {escape(tags or 'بدون تگ')}\n"
+        f"<b>📂 دسته‌بندی:</b> {category_label}\n"
+        f"<b>📊 وضعیت:</b> {status_label}",
+        title=f"تسک #{task_number}",
     )

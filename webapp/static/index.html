@@ -16,6 +16,7 @@
         <h1 id="greeting">وظایف من</h1>
       </div>
       <div class="header-actions">
+        <a id="dashboard-link" class="header-link" href="#" hidden>📊 داشبورد</a>
         <button id="theme-toggle" class="icon-button" type="button" aria-label="تغییر حالت نمایش">☾</button>
         <button id="refresh" class="icon-button" type="button" aria-label="به‌روزرسانی">↻</button>
       </div>
@@ -78,5 +79,12 @@
     </nav>
   </main>
   <script src="/static/app.js"></script>
+  <script>
+    if (window.__dashboardTaskToken) {
+      const button = document.getElementById('dashboard-link');
+      button.href = '/' + encodeURIComponent(window.__dashboardTaskToken);
+      button.hidden = false;
+    }
+  </script>
 </body>
 </html>

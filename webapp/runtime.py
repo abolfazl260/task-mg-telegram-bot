@@ -22,19 +22,51 @@ def _install_report_routes() -> None:
     global _report_routes_installed
     if _report_routes_installed:
         return
-    from .report_routes import add_monthly_web_button, handle_report_api, handle_report_get
+    from .report_routes import add_monthly_web_button, handle_report_api, handle_report_get, web_report_html
+    from .public_tasks import handle_public_task_api, handle_public_task_get
+    from .report_tokens import resolve_report_token
+    from .report_routes import _html
     from handlers import reports as reports_handler
+    from urllib.parse import quote, urlparse
 
     original_get = WebAppHandler.do_GET
+    original_post = WebAppHandler.do_POST
+    original_patch = WebAppHandler.do_PATCH
 
     def do_get(self):
+        if handle_public_task_get(self):
+            return
+        if handle_public_task_api(self):
+            return
+        path = urlparse(self.path).path
+        if path and path not in ('/', '/report-launch') and not path.startswith('/api/') and '/' not in path.strip('/') and len(path.strip('/')) >= 40:
+            token = path.strip('/')
+            if resolve_report_token(token):
+                html = web_report_html(token)
+                task_url = f'/tasks/{quote(token, safe="")}'
+                nav = f'<a href="{task_url}" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none;border-radius:12px;padding:10px 14px;background:#ffffff18;border:1px solid #ffffff30;color:#fff;font-weight:800;font-size:13px;white-space:nowrap">📋 مدیریت تسک‌ها</a>'
+                html = html.replace('<div class="hero-top">', f'<div class="hero-top">{nav}', 1)
+                _html(self, 200, html)
+                return
         if handle_report_get(self):
             return
         if handle_report_api(self):
             return
         return original_get(self)
 
+    def do_post(self):
+        if handle_public_task_api(self):
+            return
+        return original_post(self)
+
+    def do_patch(self):
+        if handle_public_task_api(self):
+            return
+        return original_patch(self)
+
     WebAppHandler.do_GET = do_get
+    WebAppHandler.do_POST = do_post
+    WebAppHandler.do_PATCH = do_patch
 
     original_reports_menu = reports_handler.reports_menu_keyboard
 
