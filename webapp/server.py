@@ -10,6 +10,7 @@ from .api import authenticate_telegram_request
 from .auth import TelegramWebAppAuthError
 from .bot_profile import WebAppBotProfileError
 from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, create_task, update_task, change_status
+from .public_tasks import handle_public_task_get, handle_public_task_api
 from .admin_api import dashboard_stats, task_creation, task_status_distribution, list_users, get_user_profile, list_user_tasks, bot_management, system_health
 ADMIN_PATH = "/adminNhduwqh3409iwejewed"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -57,7 +58,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
         if path=="/api/admin/users":
             try: limit=int((query.get("limit") or ["50"])[0]); offset=int((query.get("offset") or ["0"])[0])
             except ValueError: return self._json(400,{"error":"invalid_pagination"})
-            return self._json(200,self.server.webapp_runtime.submit(list_users(bot_key,(query.get("search") or [""])[0],limit,offset)))
+            return self._json(200,{"users":self.server.webapp_runtime.submit(list_users(bot_key,(query.get("search") or [""])[0],limit,offset))})
         if path.startswith("/api/admin/users/"):
             remainder=path[len("/api/admin/users/"):]
             if remainder.endswith("/tasks"):
@@ -95,8 +96,9 @@ class WebAppHandler(BaseHTTPRequestHandler):
     def _dispatch(self,method):
         try:
             path=urlparse(self.path).path
-            if path.startswith("/api/admin/"): return self._handle_admin(method)
-            return self._handle_api(method)
+            if path.startswith("/api/public-tasks/"):
+                return handle_public_task_api(self)
+            return self._handle_admin(method) if path.startswith("/api/admin/") else self._handle_api(method)
         except TelegramWebAppAuthError: return self._json(401,{"error":"unauthorized"})
         except WebAppBotProfileError: return self._json(400,{"error":"invalid_bot_profile"})
         except WebAppTaskAccessError: return self._json(403,{"error":"forbidden"})
@@ -104,6 +106,8 @@ class WebAppHandler(BaseHTTPRequestHandler):
         except Exception as e: return self._json(500,{"error":"internal_server_error","detail":str(e)})
     def do_GET(self):
         path=urlparse(self.path).path
+        if path.startswith("/tasks/") or path.startswith("/task/"):
+            return handle_public_task_get(self)
         if path in {"/","/static/index.html",ADMIN_PATH,ADMIN_PATH+"/"} or path.startswith("/static/"): return self._serve_static(path) or self._json(404,{"error":"not_found"})
         if path in {"/health","/healthz"}: return self._json(200,{"status":"ok","service":"telegram-webapp"})
         return self._dispatch("GET")
