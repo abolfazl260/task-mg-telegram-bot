@@ -8,6 +8,7 @@ This module reads that raw payload and answers it through the raw Bot API
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import date, datetime
@@ -23,6 +24,8 @@ from handlers.business import (
     handle_deleted_business_messages,
     handle_edited_business_message,
 )
+from services.groq_service import GroqConfigurationError, GroqRequestError
+from services.task_intelligence import parse_task_request_smart
 from services.task_service import create_task, get_all_user_tasks
 from utils.date_parse import parse_deadline_input
 
@@ -96,6 +99,7 @@ def _build_guest_report(user_id: int) -> str:
     active = [t for t in tasks if t.get("status") in ("pending", "in_progress")]
     overdue = []
     today = []
+    today_date = date.today()
     for task in active:
         deadline = task.get("deadline") or ""
         try:
@@ -103,10 +107,9 @@ def _build_guest_report(user_id: int) -> str:
             if not due:
                 continue
             due_date = datetime.strptime(due, "%Y-%m-%d").date()
-            now = date.today()
-            if due_date < now:
+            if due_date < today_date:
                 overdue.append(task)
-            elif due_date == now:
+            elif due_date == today_date:
                 today.append(task)
         except Exception:
             continue
@@ -159,13 +162,29 @@ async def _answer_guest_query(context: ContextTypes.DEFAULT_TYPE, guest_query_id
     )
 
 
+async def _analyze_guest_task(user_id: int, request_text: str) -> dict:
+    """Analyze guest task text with the existing AI task parser.
+
+    Guest Mode is intentionally task-only: even if the shared intelligence
+    layer classifies the text as a habit or chat, this entry point only accepts
+    the task fields needed to create one task.
+    """
+    draft = await asyncio.to_thread(parse_task_request_smart, user_id, request_text)
+    if draft.get("action") != "CREATE_TASK":
+        # Guest Mode is explicitly a task-only entry point. The AI still parses
+        # the natural-language request, but we never create a habit or answer a
+        # general chat request from this flow.
+        draft["action"] = "CREATE_TASK"
+    return draft
+
+
 async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Create one-shot tasks from Guest Mode messages and guard business updates.
 
     Usage in any supported chat after Guest Mode is enabled in BotFather:
     ``@YourBot add Buy server credits 2026-08-20 فوری``.
-    A reply can also be used as the task title:
-    reply to a message and send ``@YourBot`` (optionally with priority/date).
+    A reply can also be used as the task request:
+    reply to a message and send ``@YourBot`` (optionally with instructions).
     Important reports can also be shared in groups with:
     ``@YourBot گزارش مهم``.
 
@@ -176,8 +195,6 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     MessageHandlers from accessing ``update.message`` when it is None.
     """
 
-    # Business updates do not populate update.message. Route them before the
-    # ordinary message pipeline so they can never reach handlers expecting text.
     if update.business_connection:
         await handle_business_connection(update, context)
         return
@@ -215,14 +232,11 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await _answer_guest_query(context, guest_query_id, _build_guest_report(user_id), title="گزارش مهم")
         return
 
-    # Normally the text after the bot mention is the task title. If the user
-    # only mentions the bot while replying to another message, use that
-    # referenced message as the title instead.
-    title = _extract_title(raw_text, bot_username)
-    if not title and reply_text:
-        title = _extract_title(reply_text, "")
+    title_text = _extract_title(raw_text, bot_username)
+    if not title_text and reply_text:
+        title_text = _extract_title(reply_text, "")
 
-    if not title:
+    if not title_text:
         await _answer_guest_query(
             context,
             guest_query_id,
@@ -232,29 +246,51 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
 
-    # Priority/deadline may be supplied alongside the mention. When the
-    # triggering message is empty, also inspect the referenced message so a
-    # task created from a reply can preserve explicit metadata in that message.
-    metadata_text = f"{raw_text} {reply_text}".strip()
-    priority = _extract_priority(metadata_text)
-    deadline = _extract_deadline(metadata_text)
+    # The AI receives the natural-language content, not Telegram's mention.
+    # When the user replies and only mentions the bot, the replied-to message
+    # becomes the complete task request. If extra text was supplied, keep both
+    # pieces so the AI can interpret instructions such as «فوری» or «تا فردا».
+    if reply_text and not _extract_title(raw_text, bot_username):
+        ai_request = reply_text
+    elif reply_text:
+        ai_request = f"{reply_text}\n\nدستور همراه Reply: {title_text}"
+    else:
+        ai_request = title_text
+
+    try:
+        draft = await _analyze_guest_task(user_id, ai_request)
+    except GroqConfigurationError:
+        await _answer_guest_query(context, guest_query_id, "⚠️ هوش مصنوعی در حال حاضر فعال نیست؛ تسک ثبت نشد.")
+        return
+    except GroqRequestError as exc:
+        logger.warning("guest_task_ai_failed user_id=%s error=%s", user_id, exc)
+        await _answer_guest_query(context, guest_query_id, "⚠️ تحلیل پیام توسط هوش مصنوعی انجام نشد؛ تسک ثبت نشد.")
+        return
+    except Exception:
+        logger.exception("guest_task_ai_unexpected_error user_id=%s", user_id)
+        await _answer_guest_query(context, guest_query_id, "⚠️ خطایی هنگام تحلیل پیام رخ داد؛ تسک ثبت نشد.")
+        return
+
+    title = str(draft.get("title") or title_text).strip()[:240]
+    priority = draft.get("priority") if draft.get("priority") in {"high", "medium", "low"} else "medium"
+    deadline = str(draft.get("deadline") or "").strip()
+
     task_id = create_task(
         user_id=user_id,
         title=title,
         priority=priority,
         deadline=deadline,
-        category=f"Guest: {chat_title}"[:60],
-        tags="guest",
-        description=f"ساخته‌شده با Guest Mode توسط {_user_label(caller)} از چت «{chat_title}»",
+        category="",
+        tags="",
+        description="",
     )
 
-    logger.info("guest_task_created task_id=%s user_id=%s chat_id=%s", task_id, user_id, chat.get("id", ""))
+    logger.info("guest_task_created task_id=%s user_id=%s chat_id=%s ai=true", task_id, user_id, chat.get("id", ""))
     await _answer_guest_query(
         context,
         guest_query_id,
-        "<b>✅ تسک مهمان ثبت شد</b>\n\n"
-        f"🆔 <code>{escape(str(task_id))}</code>\n"
+        "<b>✅ تسک با هوش مصنوعی ثبت شد</b>\n\n"
         f"📌 {escape(title)}\n"
-        f"📂 {escape(f'Guest: {chat_title}')}\n"
+        f"🎯 {_PRIORITY_WORDS.get(priority, ('متوسط',))[0] if priority in _PRIORITY_WORDS else 'متوسط'}\n"
         f"📅 {escape(deadline or 'بدون ددلاین')}",
     )
