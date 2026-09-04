@@ -36,6 +36,8 @@ def _install_report_routes() -> None:
     def do_get(self):
         if handle_public_task_get(self):
             return
+        if handle_public_task_api(self):
+            return
         # The existing report URL remains the user's credential. Add a direct
         # task-management entry point without changing report authentication.
         path = urlparse(self.path).path
