@@ -39,7 +39,7 @@ def _body(h):
 
 def _token_from_path(path: str):
     parts = [p for p in path.split("/") if p]
-    if len(parts) >= 2 and parts[0] == "tasks":
+    if len(parts) >= 2 and parts[0] in {"tasks", "task"}:
         return parts[1]
     return ""
 
@@ -51,7 +51,7 @@ def _auth(token: str):
 
 def handle_public_task_get(handler):
     path = urlparse(handler.path).path
-    if not path.startswith("/tasks/"):
+    if not (path.startswith("/tasks/") or path.startswith("/task/")):
         return False
     token = _token_from_path(path)
     if not token:
@@ -60,6 +60,47 @@ def handle_public_task_get(handler):
     _auth(token)
     if path == f"/tasks/{quote(token, safe='')}":
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        bridge = f"""<script>
+window.__dashboardTaskToken={json.dumps(token)};
+const __token=window.__dashboardTaskToken;
+const __origFetch=window.fetch.bind(window);
+window.fetch=(input,init)=>{{
+  const u=typeof input==='string'?input:input.url;
+  if(u.startsWith('/api/tasks')){{
+    const suffix=u.slice('/api/tasks'.length).replace(/^\\?/, '');
+    const target='/api/public-tasks/'+encodeURIComponent(__token)+(suffix?('/'+suffix):'');
+    return __origFetch(target,init);
+  }}
+  return __origFetch(input,init);
+}};
+const __q=new URLSearchParams(location.search);__q.set('bot_key',__token);history.replaceState(null,'',location.pathname+'?'+__q.toString());
+document.addEventListener('click',e=>{{const card=e.target.closest('[data-task-id]');if(card){{e.preventDefault();e.stopImmediatePropagation();location.href='/task/'+encodeURIComponent(__token)+'/'+encodeURIComponent(card.dataset.taskId);}}}},true);
+</script>"""
+        html = html.replace('<script src="/static/app.js"></script>', bridge + '<script src="/static/app.js"></script>')
+        _html(handler, 200, html)
+        return True
+    if path.startswith('/task/'):
+        parts = [p for p in path.split('/') if p]
+        if len(parts) != 3 or parts[1] != token:
+            _json(handler, 404, {"error": "not_found"})
+            return True
+        html = (STATIC_DIR / "task.html").read_text(encoding="utf-8")
+        bridge = f"""<script>
+const __token={json.dumps(token)};
+const __origFetch=window.fetch.bind(window);
+window.fetch=(input,init)=>{{
+  const u=typeof input==='string'?input:input.url;
+  if(u.startsWith('/api/tasks')){{
+    const suffix=u.slice('/api/tasks'.length).replace(/^\\?/, '');
+    const target='/api/public-tasks/'+encodeURIComponent(__token)+(suffix?('/'+suffix):'');
+    return __origFetch(target,init);
+  }}
+  return __origFetch(input,init);
+}};
+const __p=new URLSearchParams(location.search);__p.set('bot_key',__token);history.replaceState(null,'',location.pathname+'?'+__p.toString());
+document.addEventListener('click',e=>{{if(e.target.closest('#back')){{e.preventDefault();e.stopImmediatePropagation();location.href='/tasks/'+encodeURIComponent(__token);}}}},true);
+</script>"""
+        html = html.replace('<script src="/static/task.js"></script>', bridge + '<script src="/static/task.js"></script>')
         _html(handler, 200, html)
         return True
     _json(handler, 404, {"error": "not_found"})
