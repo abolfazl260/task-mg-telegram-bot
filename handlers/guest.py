@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from html import escape
 
 from telegram import Update
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 _ADD_WORDS = ("add", "task", "todo", "تسک", "وظیفه", "کار", "ثبت", "ایجاد")
 _PRIORITY_WORDS = {
-    "high": ("high", "بالا", "فوری", "مهم", "🔴"),
+    "high": ("high", "بالا", "فوری", "مهم", "urgent", "asap", "ضروری", "🔴"),
     "medium": ("medium", "متوسط", "عادی", "🟠"),
     "low": ("low", "پایین", "کم", "🟢"),
 }
@@ -67,15 +67,60 @@ def _extract_priority(text: str) -> str:
     for priority, words in _PRIORITY_WORDS.items():
         if any(word.lower() in lowered for word in words):
             return priority
-    return "medium"
+    return "low"
 
 
 def _extract_deadline(text: str) -> str:
-    for token in re.findall(r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b", text or ""):
+    value = text or ""
+    for token in re.findall(r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b", value):
         parsed = parse_deadline_input(token.replace("/", "-"))
         if parsed:
             return parsed
+
+    today = date.today()
+    relative_days = (
+        (r"پس[‌\s]*فردا", 2),
+        (r"فردا", 1),
+        (r"امروز", 0),
+    )
+    for pattern, offset in relative_days:
+        if re.search(pattern, value, flags=re.IGNORECASE):
+            due = today + timedelta(days=offset)
+            return due.isoformat()
     return ""
+
+
+def _extract_fallback_tags(text: str) -> str:
+    """Return at most two deterministic tags when AI is unavailable."""
+    rules = [
+        (r"خرید|بخر|فروشگاه|سفارش|تخم\s*مرغ|نان|مواد\s*غذایی", "#خرید"),
+        (r"جلسه|شرکت|مدیر|پروژه|گزارش|مشتری|قرارداد|اداری", "#کاری"),
+        (r"پرداخت|فاکتور|هزینه|پول|بودجه|حقوق|قبض|صورتحساب", "#مالی"),
+        (r"خانواده|خانه|شخصی|دوست|سفر|تفریح", "#شخصی"),
+        (r"ورزش|تمرین|دارو|پزشک|سلامت|خواب|پیاده\s*روی", "#سلامت"),
+    ]
+    tags: list[str] = []
+    for pattern, tag in rules:
+        if re.search(pattern, text or "", flags=re.IGNORECASE) and tag not in tags:
+            tags.append(tag)
+        if len(tags) == 2:
+            break
+    return ", ".join(tags)
+
+
+def _limit_tags(value: object) -> str:
+    """Normalize AI tags and persist no more than two unique tags."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parts = [item.strip() for item in re.split(r"[,،\n]+", raw) if item.strip()]
+    unique: list[str] = []
+    for item in parts:
+        if item not in unique:
+            unique.append(item[:50])
+        if len(unique) == 2:
+            break
+    return ", ".join(unique)
 
 
 def _extract_reply_text(guest: dict) -> str:
@@ -163,13 +208,24 @@ async def _answer_guest_query(context: ContextTypes.DEFAULT_TYPE, guest_query_id
 
 
 async def _analyze_guest_task(user_id: int, request_text: str) -> dict:
-    """Analyze the guest request with Groq; do not use a non-AI fallback."""
+    """Analyze with AI; if AI is unavailable, build a complete deterministic task."""
     from services.task_intelligence import normalize_user_text
 
     normalized = normalize_user_text(request_text)
     if not normalized:
         raise GroqRequestError("متن درخواست خالی است.")
-    return await asyncio.to_thread(parse_task_request, user_id, normalized)
+    try:
+        return await asyncio.to_thread(parse_task_request, user_id, normalized)
+    except (GroqConfigurationError, GroqRequestError):
+        return {
+            "action": "CREATE_TASK",
+            "title": normalized[:200],
+            "deadline": _extract_deadline(normalized),
+            "priority": _extract_priority(normalized),
+            "category": "",
+            "tags": _extract_fallback_tags(normalized),
+            "description": "",
+        }
 
 
 async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -243,23 +299,24 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     try:
         draft = await _analyze_guest_task(user_id, ai_request)
-    except GroqConfigurationError:
-        await _answer_guest_query(context, guest_query_id, "⚠️ هوش مصنوعی در حال حاضر فعال نیست؛ تسک ثبت نشد.")
-        return
-    except GroqRequestError as exc:
-        logger.warning("guest_task_ai_failed user_id=%s error=%s", user_id, exc)
-        await _answer_guest_query(context, guest_query_id, "⚠️ تحلیل پیام توسط هوش مصنوعی انجام نشد؛ تسک ثبت نشد.")
-        return
     except Exception:
-        logger.exception("guest_task_ai_unexpected_error user_id=%s", user_id)
-        await _answer_guest_query(context, guest_query_id, "⚠️ خطایی هنگام تحلیل پیام رخ داد؛ تسک ثبت نشد.")
-        return
+        logger.exception("guest_task_analysis_unexpected_error user_id=%s", user_id)
+        draft = {
+            "action": "CREATE_TASK",
+            "title": title_text,
+            "deadline": _extract_deadline(ai_request),
+            "priority": _extract_priority(ai_request),
+            "tags": _extract_fallback_tags(ai_request),
+        }
 
-    # Guest Mode intentionally persists only task fields. Category, tags,
-    # description, habit data, and chat/report metadata are not stored.
+    # Guest Mode always creates exactly one Task. AI only enriches title,
+    # priority, deadline and at most two tags; no habit/category/description is persisted.
     title = str(draft.get("title") or title_text).strip()[:240]
-    priority = draft.get("priority") if draft.get("priority") in {"high", "medium", "low"} else "medium"
+    priority = draft.get("priority") if draft.get("priority") in {"high", "medium", "low"} else _extract_priority(ai_request)
     deadline = str(draft.get("deadline") or "").strip()
+    if not deadline:
+        deadline = _extract_deadline(ai_request)
+    tags = _limit_tags(draft.get("tags")) or _extract_fallback_tags(ai_request)
 
     task_id = create_task(
         user_id=user_id,
@@ -267,16 +324,17 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         priority=priority,
         deadline=deadline,
         category="",
-        tags="",
+        tags=tags,
         description="",
     )
 
-    logger.info("guest_task_created task_id=%s user_id=%s chat_id=%s ai=true", task_id, user_id, chat.get("id", ""))
+    logger.info("guest_task_created task_id=%s user_id=%s chat_id=%s ai=%s", task_id, user_id, chat.get("id", ""), bool(draft))
     await _answer_guest_query(
         context,
         guest_query_id,
-        "<b>✅ تسک با هوش مصنوعی ثبت شد</b>\n\n"
+        "<b>✅ تسک ثبت شد</b>\n\n"
         f"📌 {escape(title)}\n"
         f"🎯 {_PRIORITY_LABEL[priority]}\n"
-        f"📅 {escape(deadline or 'بدون ددلاین')}",
+        f"📅 {escape(deadline or 'بدون ددلاین')}\n"
+        f"🏷️ {escape(tags or 'بدون تگ')}",
     )
