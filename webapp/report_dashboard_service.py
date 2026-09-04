@@ -213,6 +213,7 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
     query, filters = _decode_filters(search)
     base_tasks = _query_tasks(access, start, end, query, {"q": query})
     tasks = _query_tasks(access, start, end, query, filters)
+    filtered_task_ids = {str(task.get("id")) for task in tasks}
     statuses, priorities, categories = {}, {}, {}
     for task in tasks:
         status = task.get("status") or "pending"
@@ -270,7 +271,11 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
     if section == "habits":
         result["habits"] = _habits(access, start, end); return result
     if section in {"recent_changes", "activity_feed"}:
-        return activity_feed(access, start, end, query)
+        data = activity_feed(access, start, end, query)
+        if filters and len(filters) > 1:
+            data["events"] = [event for event in data.get("events", []) if str(event.get("task_id")) in filtered_task_ids]
+            data["total"] = len(data["events"])
+        return data
     if section == "heatmap":
         counts = {}
         for task in tasks:
@@ -286,6 +291,8 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
             rows = [row for row in day.get("rows", []) if start.isoformat() <= day.get("date", "") <= end.isoformat()]
             if query:
                 needle = query.lower(); rows = [row for row in rows if needle in str(row.get("title", "")).lower() or needle in str(row.get("id", "")).lower() or needle in str(row.get("category", "")).lower()]
+            if filters and len(filters) > 1:
+                rows = [row for row in rows if str(row.get("id")) in filtered_task_ids]
             day["rows"], day["count"] = rows, len(rows)
         data["week"]["total"] = sum(day["count"] for day in data["week"]["days"]); return data
     return result
