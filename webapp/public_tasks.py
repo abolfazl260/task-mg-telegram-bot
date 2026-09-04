@@ -7,6 +7,7 @@ from urllib.parse import quote, urlparse
 
 from .report_tokens import resolve_report_token
 from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, create_task, update_task, change_status
+from services.task_service import get_task_comments_async, get_assignment_history_async
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -49,6 +50,14 @@ def _auth(token: str):
         raise WebAppTaskAccessError("invalid_or_expired_dashboard_token")
     return record
 
+async def _full_task(user_id, task_id, bot_key, runtime):
+    task = await get_task(user_id, task_id, bot_key)
+    if not task:
+        return None
+    comments = await get_task_comments_async(task_id)
+    assignment_history = await get_assignment_history_async(task_id)
+    return {**task, "comments": comments, "assignment_history": assignment_history}
+
 def handle_public_task_get(handler):
     path = urlparse(handler.path).path
     if not (path.startswith("/tasks/") or path.startswith("/task/")):
@@ -85,8 +94,11 @@ document.addEventListener('click',e=>{{const card=e.target.closest('[data-task-i
             _json(handler, 404, {"error": "not_found"})
             return True
         html = (STATIC_DIR / "task.html").read_text(encoding="utf-8")
+        task_id = parts[2]
         bridge = f"""<script>
-const __token={json.dumps(token)};
+window.__dashboardTaskToken={json.dumps(token)};
+window.__dashboardTaskId={json.dumps(task_id)};
+const __token=window.__dashboardTaskToken;
 const __origFetch=window.fetch.bind(window);
 window.fetch=(input,init)=>{{
   const u=typeof input==='string'?input:input.url;
@@ -97,7 +109,7 @@ window.fetch=(input,init)=>{{
   }}
   return __origFetch(input,init);
 }};
-const __p=new URLSearchParams(location.search);__p.set('bot_key',__token);history.replaceState(null,'',location.pathname+'?'+__p.toString());
+const __p=new URLSearchParams(location.search);__p.set('bot_key',__token);__p.set('id',__dashboardTaskId);history.replaceState(null,'',location.pathname+'?'+__p.toString());
 document.addEventListener('click',e=>{{if(e.target.closest('#back')){{e.preventDefault();e.stopImmediatePropagation();location.href='/tasks/'+encodeURIComponent(__token);}}}},true);
 </script>"""
         html = html.replace('<script src="/static/task.js"></script>', bridge + '<script src="/static/task.js"></script>')
@@ -135,13 +147,13 @@ def handle_public_task_api(handler):
             _json(handler, 400, {"error": "invalid_title"})
             return True
         tid = handler.server.webapp_runtime.submit(create_task(user_id, bot_key, title=title, priority=str(data.get("priority") or "medium"), deadline=str(data.get("deadline") or ""), category=str(data.get("category") or ""), tags=data.get("tags") if isinstance(data.get("tags"), str) else ", ".join(map(str, data.get("tags") or [])), description=str(data.get("description") or ""), team_id=str(data.get("team_id") or "")))
-        task = handler.server.webapp_runtime.submit(get_task(user_id, tid, bot_key))
+        task = handler.server.webapp_runtime.submit(_full_task(user_id, tid, bot_key, handler.server.webapp_runtime))
         _json(handler, 201, {"task": task})
         return True
     if len(parts) == 2:
         task_id = parts[1]
         if handler.command == "GET":
-            task = handler.server.webapp_runtime.submit(get_task(user_id, task_id, bot_key))
+            task = handler.server.webapp_runtime.submit(_full_task(user_id, task_id, bot_key, handler.server.webapp_runtime))
             _json(handler, 200, {"task": task}) if task else _json(handler, 404, {"error": "task_not_found"})
             return True
         if handler.command == "PATCH":
@@ -157,7 +169,7 @@ def handle_public_task_api(handler):
                 allowed["tags"] = ", ".join(map(str, allowed["tags"]))
             if allowed:
                 handler.server.webapp_runtime.submit(update_task(user_id, task_id, bot_key, **allowed))
-            task = handler.server.webapp_runtime.submit(get_task(user_id, task_id, bot_key))
+            task = handler.server.webapp_runtime.submit(_full_task(user_id, task_id, bot_key, handler.server.webapp_runtime))
             _json(handler, 200, {"task": task})
             return True
     _json(handler, 404, {"error": "not_found"})
