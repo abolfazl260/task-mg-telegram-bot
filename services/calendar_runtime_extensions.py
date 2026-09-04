@@ -64,7 +64,7 @@ async def format_task_card(task):
         if index == 0:
             continue
         if line.startswith("🆔 `") and line.endswith("`"):
-            lines[index] = "🆔 `" + _escape_markdown(line[4:-1]) + "`"
+            lines[index] = "🆔 `" + _escape_markdown(line[3:-1]) + "`"
         else:
             lines[index] = _escape_markdown(line)
 
