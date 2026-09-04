@@ -331,12 +331,22 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
 
     logger.info("guest_task_created task_id=%s user_id=%s chat_id=%s ai=%s", task_id, user_id, chat.get("id", ""), bool(draft))
+
+    description_html = escape(reply_text[:2000]) if reply_text else "—"
+    task_number = escape(str(task_id))
+    category_label = "بدون دسته‌بندی"
+    status_label = "⏳ در انتظار انجام"
     await _answer_guest_query(
         context,
         guest_query_id,
-        "<b>✅ تسک ثبت شد</b>\n\n"
-        f"📌 {escape(title)}\n"
-        f"🎯 {_PRIORITY_LABEL[priority]}\n"
-        f"📅 {escape(deadline or 'بدون ددلاین')}\n"
-        f"🏷️ {escape(tags or 'بدون تگ')}",
+        "<b>✅ تسک با موفقیت ثبت شد</b>\n"
+        f"<b>🆔 شماره تسک:</b> <code>#{task_number}</code>\n\n"
+        f"<b>📌 عنوان</b>\n{escape(title)}\n\n"
+        f"<b>📝 توضیحات</b>\n{description_html}\n\n"
+        f"<b>🎯 اولویت:</b> {_PRIORITY_LABEL[priority]}\n"
+        f"<b>📅 ددلاین:</b> {escape(deadline or 'بدون ددلاین')}\n"
+        f"<b>🏷️ تگ‌ها:</b> {escape(tags or 'بدون تگ')}\n"
+        f"<b>📂 دسته‌بندی:</b> {category_label}\n"
+        f"<b>📊 وضعیت:</b> {status_label}",
+        title=f"تسک #{task_number}",
     )
