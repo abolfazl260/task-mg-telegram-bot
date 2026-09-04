@@ -58,7 +58,6 @@ def activity_feed(access, start=None, end=None, query="", limit=100):
             for key in ("task_id", "task_title", "actor", "text", "title")
         )
 
-    # Task lifecycle activities are available directly from the existing task table.
     for task in tasks:
         created_at = task.get("created_at") or ""
         if in_range(created_at):
@@ -142,5 +141,8 @@ def activity_feed(access, start=None, end=None, query="", limit=100):
         ))
 
     events = [event for event in events if matches(event)]
-    events.sort(key=lambda item: (_parse(item.get("created_at")), item.get("id") or ""), reverse=True)
-    return {"section": "activity_feed", "total": len(events), "events": events[:max(1, int(limit))]}
+    events.sort(
+        key=lambda item: (_parse(item.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc), item.get("id") or ""),
+        reverse=True,
+    )
+    return {"section": "recent_changes", "total": len(events), "events": events[:max(1, int(limit))]}
