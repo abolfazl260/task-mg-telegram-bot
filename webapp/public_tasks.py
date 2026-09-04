@@ -67,8 +67,8 @@ const __origFetch=window.fetch.bind(window);
 window.fetch=(input,init)=>{{
   const u=typeof input==='string'?input:input.url;
   if(u.startsWith('/api/tasks')){{
-    const suffix=u.slice('/api/tasks'.length).replace(/^\\?/, '');
-    const target='/api/public-tasks/'+encodeURIComponent(__token)+(suffix?('/'+suffix):'');
+    const suffix=u.slice('/api/tasks'.length);
+    const target='/api/public-tasks/'+encodeURIComponent(__token)+suffix;
     return __origFetch(target,init);
   }}
   return __origFetch(input,init);
@@ -91,8 +91,8 @@ const __origFetch=window.fetch.bind(window);
 window.fetch=(input,init)=>{{
   const u=typeof input==='string'?input:input.url;
   if(u.startsWith('/api/tasks')){{
-    const suffix=u.slice('/api/tasks'.length).replace(/^\\?/, '');
-    const target='/api/public-tasks/'+encodeURIComponent(__token)+(suffix?('/'+suffix):'');
+    const suffix=u.slice('/api/tasks'.length);
+    const target='/api/public-tasks/'+encodeURIComponent(__token)+suffix;
     return __origFetch(target,init);
   }}
   return __origFetch(input,init);
@@ -119,6 +119,12 @@ def handle_public_task_api(handler):
         return True
     record = _auth(token)
     user_id, bot_key = str(record["user_id"]), str(record["bot_key"])
+
+    # Older dashboard pages generated /api/public-tasks/{token}/bot_key={token}.
+    # Treat that legacy suffix as compatibility metadata, not as a task id.
+    if len(parts) == 2 and parts[1] == f"bot_key={token}":
+        parts = [token]
+
     if len(parts) == 1 and handler.command == "GET":
         _json(handler, 200, {"tasks": handler.server.webapp_runtime.submit(list_tasks(user_id, bot_key))})
         return True
