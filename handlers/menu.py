@@ -102,7 +102,7 @@ async def button_handler(update,context):
         from handlers.ai import _ai_examples_text,_ai_examples_keyboard;return await query.message.reply_text(_ai_examples_text(),reply_markup=_ai_examples_keyboard(),parse_mode="Markdown")
     if data=="tasks":return await query.message.reply_text("📝 **تسک‌های من**",reply_markup=tasks_options_keyboard(context),parse_mode="Markdown")
     if data=="tasks_list":
-        from handlers.task_pagination import paginated_list_tasks;return await paginated_list_tasks(update,context)
+        from handlers.task import list_tasks;return await list_tasks(update,context)
     if data=="search":return await query.message.reply_text("🔎 عبارت مورد نظر را برای جستجو در تسک‌ها ارسال کنید:")
     if data=="teams":
         from handlers.team import team_command;return await team_command(update,context)
