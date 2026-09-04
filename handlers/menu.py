@@ -96,7 +96,8 @@ async def button_handler(update,context):
     await query.answer()
     if data=="add_task":return await show_add_task_menu(update,context)
     if data=="add_task_manual":
-        from handlers.task import add_task;return await add_task(update,context)
+        from handlers.start_create_task import start_create_task
+        return await start_create_task(update,context)
     if data=="ai_start":
         from handlers.ai import _ai_examples_text,_ai_examples_keyboard;return await query.message.reply_text(_ai_examples_text(),reply_markup=_ai_examples_keyboard(),parse_mode="Markdown")
     if data=="tasks":return await query.message.reply_text("📝 **تسک‌های من**",reply_markup=tasks_options_keyboard(context),parse_mode="Markdown")
