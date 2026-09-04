@@ -22,19 +22,50 @@ def _install_report_routes() -> None:
     global _report_routes_installed
     if _report_routes_installed:
         return
-    from .report_routes import add_monthly_web_button, handle_report_api, handle_report_get
+    from .report_routes import add_monthly_web_button, handle_report_api, handle_report_get, web_report_html
+    from .public_tasks import handle_public_task_api, handle_public_task_get
+    from .report_tokens import resolve_report_token
+    from .report_routes import _html
     from handlers import reports as reports_handler
+    from urllib.parse import quote, urlparse
 
     original_get = WebAppHandler.do_GET
+    original_post = WebAppHandler.do_POST
+    original_patch = WebAppHandler.do_PATCH
 
     def do_get(self):
+        if handle_public_task_get(self):
+            return
+        # The existing report URL remains the user's credential. Add a direct
+        # task-management entry point without changing report authentication.
+        path = urlparse(self.path).path
+        if path and path not in ('/', '/report-launch') and not path.startswith('/api/') and '/' not in path.strip('/') and len(path.strip('/')) >= 40:
+            token = path.strip('/')
+            if resolve_report_token(token):
+                html = web_report_html(token)
+                task_url = f'/tasks/{quote(token, safe="")}'
+                html = html.replace('</main>', f'<section class="card"><a href="{task_url}" style="display:block;text-align:center;text-decoration:none;border-radius:14px;padding:12px 16px;background:#172033;color:#fff;font-weight:800">مدیریت تسک‌ها</a></section></main>')
+                _html(self, 200, html)
+                return
         if handle_report_get(self):
             return
         if handle_report_api(self):
             return
         return original_get(self)
 
+    def do_post(self):
+        if handle_public_task_api(self):
+            return
+        return original_post(self)
+
+    def do_patch(self):
+        if handle_public_task_api(self):
+            return
+        return original_patch(self)
+
     WebAppHandler.do_GET = do_get
+    WebAppHandler.do_POST = do_post
+    WebAppHandler.do_PATCH = do_patch
 
     original_reports_menu = reports_handler.reports_menu_keyboard
 
