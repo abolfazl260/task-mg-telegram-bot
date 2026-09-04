@@ -310,13 +310,15 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         }
 
     # Guest Mode always creates exactly one Task. AI only enriches title,
-    # priority, deadline and at most two tags; no habit/category/description is persisted.
+    # priority, deadline and at most two tags. For a Reply, the full original
+    # message is retained as the task description.
     title = str(draft.get("title") or title_text).strip()[:240]
     priority = draft.get("priority") if draft.get("priority") in {"high", "medium", "low"} else _extract_priority(ai_request)
     deadline = str(draft.get("deadline") or "").strip()
     if not deadline:
         deadline = _extract_deadline(ai_request)
     tags = _limit_tags(draft.get("tags")) or _extract_fallback_tags(ai_request)
+    description = reply_text[:2000] if reply_text else ""
 
     task_id = create_task(
         user_id=user_id,
@@ -325,7 +327,7 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         deadline=deadline,
         category="",
         tags=tags,
-        description="",
+        description=description,
     )
 
     logger.info("guest_task_created task_id=%s user_id=%s chat_id=%s ai=%s", task_id, user_id, chat.get("id", ""), bool(draft))
