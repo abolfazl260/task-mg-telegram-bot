@@ -75,6 +75,14 @@ def _extract_deadline(text: str) -> str:
     return ""
 
 
+def _extract_reply_text(guest: dict) -> str:
+    """Return the text/caption of the message being replied to, if available."""
+    reply = guest.get("reply_to_message") or {}
+    if not isinstance(reply, dict):
+        return ""
+    return (reply.get("text") or reply.get("caption") or "").strip()
+
+
 def _is_report_request(text: str) -> bool:
     lowered = (text or "").lower()
     return any(word in lowered for word in ("report", "گزارش", "status", "وضعیت"))
@@ -156,6 +164,8 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     Usage in any supported chat after Guest Mode is enabled in BotFather:
     ``@YourBot add Buy server credits 2026-08-20 فوری``.
+    A reply can also be used as the task title:
+    reply to a message and send ``@YourBot`` (optionally with priority/date).
     Important reports can also be shared in groups with:
     ``@YourBot گزارش مهم``.
 
@@ -189,6 +199,7 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     caller = guest.get("from") or guest.get("guest_bot_caller_user") or {}
     user_id = caller.get("id")
     raw_text = guest.get("text") or guest.get("caption") or ""
+    reply_text = _extract_reply_text(guest)
     chat = guest.get("chat") or {}
     chat_title = (chat.get("title") or chat.get("username") or "Guest Mode").strip()
 
@@ -204,17 +215,29 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await _answer_guest_query(context, guest_query_id, _build_guest_report(user_id), title="گزارش مهم")
         return
 
+    # Normally the text after the bot mention is the task title. If the user
+    # only mentions the bot while replying to another message, use that
+    # referenced message as the title instead.
     title = _extract_title(raw_text, bot_username)
+    if not title and reply_text:
+        title = _extract_title(reply_text, "")
+
     if not title:
         await _answer_guest_query(
             context,
             guest_query_id,
-            "برای ثبت تسک، بات را همراه عنوان صدا بزنید؛ مثل:\n<code>@YourBot add پیگیری قرارداد 2026-08-20 فوری</code>",
+            "برای ثبت تسک، بات را همراه عنوان صدا بزنید؛ یا روی یک پیام Reply کنید و فقط بات را منشن کنید.\n\n"
+            "مثال:\n<code>@YourBot پیگیری قرارداد</code>\n"
+            "یا در Reply:\n<code>@YourBot</code>",
         )
         return
 
-    priority = _extract_priority(raw_text)
-    deadline = _extract_deadline(raw_text)
+    # Priority/deadline may be supplied alongside the mention. When the
+    # triggering message is empty, also inspect the referenced message so a
+    # task created from a reply can preserve explicit metadata in that message.
+    metadata_text = f"{raw_text} {reply_text}".strip()
+    priority = _extract_priority(metadata_text)
+    deadline = _extract_deadline(metadata_text)
     task_id = create_task(
         user_id=user_id,
         title=title,
