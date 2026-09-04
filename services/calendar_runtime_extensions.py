@@ -27,9 +27,48 @@ def viewer_id(task=None):
         return 0
 
 
+def _escape_markdown(value) -> str:
+    """Escape Telegram legacy-Markdown control characters in user data."""
+    return (
+        str(value if value is not None else "")
+        .replace("\\", "\\\\")
+        .replace("*", "\\*")
+        .replace("_", "\\_")
+        .replace("`", "\\`")
+        .replace("[", "\\[")
+    )
+
+
 async def format_task_card(task):
-    """Async adapter for task.py, which awaits the task-card formatter."""
-    return calendar_runtime.format_task_card(task, viewer_id(task))
+    """Return a Markdown-safe task card while preserving title/id formatting.
+
+    ``calendar_runtime.format_task_card`` intentionally formats the card with
+    legacy Markdown. Since most fields are user-controlled, raw ``*``, ``_``,
+    backticks or ``[`` characters can otherwise cause Telegram to reject an
+    edit with ``Can't parse entities``. Escape only the dynamic content and
+    keep the card's intentional title/code formatting intact.
+    """
+    raw = calendar_runtime.format_task_card(task, viewer_id(task))
+    lines = raw.splitlines()
+    if not lines:
+        return raw
+
+    # The first line intentionally uses **...** for the title. Escape only
+    # the title contents so user input cannot close/open Markdown entities.
+    if lines[0].startswith("**") and lines[0].endswith("**") and len(lines[0]) >= 4:
+        lines[0] = "**" + _escape_markdown(lines[0][2:-2]) + "**"
+
+    # The id line intentionally uses backticks. Keep those delimiters while
+    # escaping the id itself; all other lines contain no intentional Markdown.
+    for index, line in enumerate(lines):
+        if index == 0:
+            continue
+        if line.startswith("🆔 `") and line.endswith("`"):
+            lines[index] = "🆔 `" + _escape_markdown(line[4:-1]) + "`"
+        else:
+            lines[index] = _escape_markdown(line)
+
+    return "\n".join(lines)
 
 
 def build_full_report(tasks):
