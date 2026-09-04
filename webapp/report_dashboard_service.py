@@ -14,6 +14,14 @@ STATUS_ALIASES = {
     "لغو شده": "cancelled", "لغوشده": "cancelled",
 }
 
+SORT_OPTIONS = {
+    "newest": "جدیدترین",
+    "oldest": "قدیمی‌ترین",
+    "overdue": "بیشترین تأخیر",
+    "priority": "بالاترین اولویت",
+    "duration": "طولانی‌ترین زمان انجام",
+}
+
 
 def _parse_date(value: str | None, fallback: date) -> date:
     if not value:
@@ -115,7 +123,7 @@ def _filter_options(tasks):
     }
 
 
-def _parse_datetime(value: str):
+def _parse_datetime(value: str | None):
     if not value:
         return None
     raw = str(value).strip().replace("Z", "+00:00")
@@ -139,6 +147,41 @@ def _average_completion(tasks) -> float | None:
     return round(mean(durations), 1) if durations else None
 
 
+def _duration_seconds(task):
+    created = _parse_datetime(task.get("created_at"))
+    completed = _parse_datetime(task.get("completed_at"))
+    if not created or not completed or completed < created:
+        return -1
+    return (completed - created).total_seconds()
+
+
+def _overdue_seconds(task, now=None):
+    deadline = _parse_datetime(task.get("deadline"))
+    if not deadline or (task.get("status") or "") in {"done", "completed", "cancelled", "canceled"}:
+        return 0
+    now = now or datetime.now(timezone.utc)
+    return max(0, (now - deadline).total_seconds())
+
+
+def _priority_rank(task):
+    return {"high": 3, "medium": 2, "low": 1}.get(str(task.get("priority") or "medium").lower(), 0)
+
+
+def _sort_tasks(tasks, sort_key="newest"):
+    """Sort the complete filtered task set before pagination."""
+    sort_key = sort_key if sort_key in SORT_OPTIONS else "newest"
+    now = datetime.now(timezone.utc)
+    if sort_key == "newest":
+        return sorted(tasks, key=lambda x: (_parse_datetime(x.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc), str(x.get("id") or "")), reverse=True)
+    if sort_key == "oldest":
+        return sorted(tasks, key=lambda x: (_parse_datetime(x.get("created_at")) or datetime.max.replace(tzinfo=timezone.utc), str(x.get("id") or "")))
+    if sort_key == "overdue":
+        return sorted(tasks, key=lambda x: (_overdue_seconds(x, now), _parse_datetime(x.get("deadline")) or datetime.max.replace(tzinfo=timezone.utc)), reverse=True)
+    if sort_key == "priority":
+        return sorted(tasks, key=lambda x: (_priority_rank(x), _parse_datetime(x.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc)), reverse=True)
+    return sorted(tasks, key=lambda x: (_duration_seconds(x), _parse_datetime(x.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc)), reverse=True)
+
+
 def _row(task):
     return {
         "id": task.get("id"), "title": task.get("title") or "بدون عنوان",
@@ -146,6 +189,8 @@ def _row(task):
         "priority": task.get("priority") or "medium", "priority_label": _priority(task.get("priority")),
         "deadline": task.get("deadline") or "", "category": task.get("category") or "—",
         "assignee": task.get("assignee_name") or task.get("assignee_username") or "بدون مسئول",
+        "created_at": task.get("created_at") or "", "completed_at": task.get("completed_at") or "",
+        "duration_seconds": _duration_seconds(task), "overdue_seconds": _overdue_seconds(task),
     }
 
 
@@ -188,6 +233,7 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
         "report_type": "dashboard",
         "filter": {"period": period, "start": start.isoformat(), "end": end.isoformat(), "search": query, "filters": filters},
         "filter_options": _filter_options(base_tasks),
+        "sort_options": [{"value": k, "label": v} for k, v in SORT_OPTIONS.items()],
         "period": {"gregorian": f"{start.isoformat()} تا {end.isoformat()}", "jalali": _jmonth(start)},
         "summary": {
             "total": total, "total_change": _change(total, previous_total), "done": done,
@@ -204,11 +250,12 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
         return result
     if section in {"tasks", "deadlines", "calendar"}:
         selected = [task for task in tasks if section == "tasks" or task.get("deadline")]
-        selected.sort(key=lambda x: x.get("deadline") or "9999")
+        sort_key = str(filters.get("sort") or "newest")
+        selected = _sort_tasks(selected, sort_key)
         rows = [_row(task) for task in selected]
         total_rows = len(rows); page = max(1, int(page)); start_index = (page - 1) * page_size
         result.update({"section": section, "rows": rows[start_index:start_index + page_size], "page": page, "page_size": page_size,
-                       "total": total_rows, "pages": max(1, (total_rows + page_size - 1) // page_size)})
+                       "total": total_rows, "pages": max(1, (total_rows + page_size - 1) // page_size), "sort": sort_key})
         return result
     if section in {"status", "priority", "category"}:
         result["section"] = section
