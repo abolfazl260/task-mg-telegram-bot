@@ -75,6 +75,10 @@
 .busiest-list{display:flex!important;flex-wrap:wrap!important;gap:8px!important}
 .busy-pill{background:#f1f5f9!important;border:1px solid #cbd5e1!important;border-radius:999px!important;padding:5px 12px!important;font-size:12px!important;color:#1e293b!important}
 
+/* Header link to task management */
+.hero-link{display:inline-flex!important;align-items:center!important;gap:6px!important;text-decoration:none!important;border-radius:14px!important;padding:9px 15px!important;background:#ffffff18!important;border:1px solid #ffffff30!important;color:#fff!important;font-weight:800!important;font-size:13px!important;white-space:nowrap!important;transition:background .18s,transform .18s!important}
+.hero-link:hover{background:#ffffff2b!important;transform:translateY(-1px)!important}
+
 @media(max-width:900px){
   #reportFilters>div:nth-of-type(4){grid-template-columns:repeat(2,minmax(0,1fr))!important}
   #reportFilters>div:last-child{grid-template-columns:1fr 1fr!important}
@@ -765,6 +769,18 @@
     return `شمسی ${+m[1] - 621}/${String(m[2]).padStart(2, '0')}/${String(m[3]).padStart(2, '0')}`;
   }
 
+  function ensureTasksLink() {
+    const badge = document.querySelector('.hero .badge');
+    if (badge && !document.getElementById('tasks-mgmt-link')) {
+      const a = document.createElement('a');
+      a.id = 'tasks-mgmt-link';
+      a.className = 'hero-link';
+      a.href = `/tasks/${encodeURIComponent(token)}`;
+      a.textContent = '📋 مدیریت وظایف';
+      badge.parentElement.insertBefore(a, badge);
+    }
+  }
+
   window.loadSection = async function(section, page = 1) {
     window.activeReportSection = section;
     details.innerHTML = '<div class="loading">در حال دریافت گزارش...</div>';
@@ -782,6 +798,7 @@
         s = data.summary || {},
         t = trend(s.total_change);
       const prod = s.productivity || {};
+      const tasksUrl = `/tasks/${encodeURIComponent(token)}`;
 
       app.innerHTML = `
         <div class="hero-top">
@@ -789,7 +806,10 @@
             <h1>📊 گزارش تحت وب</h1>
             <p>${esc(data.period?.gregorian || '')} · ${esc(data.period?.jalali || '')}</p>
           </div>
-          <div class="badge">گزارش شخصی و اختصاصی</div>
+          <div class="hero-actions" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <a id="tasks-mgmt-link" class="hero-link" href="${tasksUrl}">📋 مدیریت وظایف</a>
+            <div class="badge">گزارش شخصی و اختصاصی</div>
+          </div>
         </div>
         <div class="stats">
           ${stat(s.total || 0, 'کل وظایف', t)}
@@ -825,5 +845,6 @@
   };
 
   save();
+  ensureTasksLink();
   window.loadSummary();
 })();

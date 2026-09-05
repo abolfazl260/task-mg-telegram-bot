@@ -2,8 +2,7 @@
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>مدیریت وظایف</title>
   <link rel="stylesheet" href="/static/app.css">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -16,7 +15,7 @@
         <h1 id="greeting">وظایف من</h1>
       </div>
       <div class="header-actions">
-        <a id="dashboard-link" class="header-link" href="#" hidden>📊 داشبورد</a>
+        <a id="dashboard-link" class="header-link" href="#" hidden>📊 گزارش تحت وب</a>
         <button id="theme-toggle" class="icon-button" type="button" aria-label="تغییر حالت نمایش">☾</button>
         <button id="refresh" class="icon-button" type="button" aria-label="به‌روزرسانی">↻</button>
       </div>
@@ -80,11 +79,16 @@
   </main>
   <script src="/static/app.js"></script>
   <script>
-    if (window.__dashboardTaskToken) {
+    (function() {
+      const pathToken = location.pathname.startsWith('/tasks/') ? location.pathname.split('/')[2] : '';
+      const token = window.__dashboardTaskToken || pathToken || new URLSearchParams(location.search).get('bot_key') || '';
       const button = document.getElementById('dashboard-link');
-      button.href = '/' + encodeURIComponent(window.__dashboardTaskToken);
-      button.hidden = false;
-    }
+      if (button && token) {
+        button.href = '/' + encodeURIComponent(token);
+        button.hidden = false;
+        button.textContent = '📊 گزارش تحت وب';
+      }
+    })();
   </script>
 </body>
 </html>
