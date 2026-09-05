@@ -3,80 +3,229 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>مدیریت وظایف</title>
+  <title>مدیریت وظایف · Notion Workspace</title>
   <link rel="stylesheet" href="/static/app.css">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <main class="app">
-    <header class="header">
-      <div>
-        <p class="eyebrow">مدیریت وظایف</p>
-        <h1 id="greeting">وظایف من</h1>
+  <div class="notion-app">
+    <!-- Topbar Navigation -->
+    <header class="notion-topbar">
+      <div class="notion-breadcrumbs">
+        <span>📁 فضای کاری</span>
+        <span>/</span>
+        <span class="active">📋 پایگاه داده وظایف</span>
       </div>
-      <div class="header-actions">
-        <a id="dashboard-link" class="header-link" href="#" hidden>📊 گزارش تحت وب</a>
-        <button id="theme-toggle" class="icon-button" type="button" aria-label="تغییر حالت نمایش">☾</button>
-        <button id="refresh" class="icon-button" type="button" aria-label="به‌روزرسانی">↻</button>
+      <div class="notion-top-actions">
+        <a id="dashboard-link" class="notion-btn" href="#" hidden>📊 گزارش تحت وب</a>
+        <button id="btn-new-task-top" class="notion-btn btn-primary" type="button">+ ایجاد وظیفه</button>
+        <button id="theme-toggle" class="notion-icon-btn" type="button" aria-label="تغییر تم">☾</button>
+        <button id="refresh" class="notion-icon-btn" type="button" aria-label="به‌روزرسانی">↻</button>
       </div>
     </header>
 
-    <section id="user-card" class="user-card" hidden></section>
+    <!-- Page Header -->
+    <div class="notion-header">
+      <div class="notion-page-icon">📋</div>
+      <h1 class="notion-title" id="greeting">وظایف من</h1>
+      <p class="notion-desc">مدیریت وظایف، برنامه‌ریزی و پیگیری پروژه‌ها به سبک نوشن (Notion Workspace)</p>
+    </div>
 
-    <section class="toolbar">
-      <input id="search" type="search" placeholder="جستجوی وظیفه..." autocomplete="off">
-      <select id="status-filter" aria-label="فیلتر وضعیت">
+    <!-- View Switcher Tabs -->
+    <div class="notion-tabs-bar">
+      <div class="notion-tabs">
+        <button class="notion-tab active" data-view="table" type="button">📋 جدول (Table)</button>
+        <button class="notion-tab" data-view="board" type="button">📌 بورد (Board)</button>
+        <button class="notion-tab" data-view="analytics" type="button">📊 آمار و تحلیل</button>
+      </div>
+      <div id="result-count" class="notion-desc" style="font-size:12px;font-weight:600"></div>
+    </div>
+
+    <!-- Toolbar: Search & Filter -->
+    <div class="notion-toolbar">
+      <div class="notion-search-wrap">
+        <input id="search" class="notion-search-input" type="search" placeholder="🔍 جستجو در وظایف..." autocomplete="off">
+      </div>
+      <select id="status-filter" class="notion-filter-select" aria-label="فیلتر وضعیت">
         <option value="">همه وضعیت‌ها</option>
-        <option value="pending">در انتظار</option>
-        <option value="in_progress">در حال انجام</option>
-        <option value="done">انجام‌شده</option>
-        <option value="cancelled">لغوشده</option>
+        <option value="pending">⏳ در انتظار</option>
+        <option value="in_progress">🚀 در حال انجام</option>
+        <option value="done">✅ انجام‌شده</option>
+        <option value="cancelled">❌ لغوشده</option>
       </select>
-    </section>
+      <select id="priority-filter" class="notion-filter-select" aria-label="فیلتر اولویت">
+        <option value="">همه اولویت‌ها</option>
+        <option value="urgent">🔴 فوری</option>
+        <option value="high">🟠 بالا</option>
+        <option value="medium">🔵 متوسط</option>
+        <option value="low">⚪ پایین</option>
+      </select>
+      <button id="btn-quick-new" class="notion-btn" type="button">+ سطر جدید</button>
+    </div>
 
-    <section class="report-panel" aria-labelledby="report-title">
-      <div class="report-header">
-        <div>
-          <h2 id="report-title">گزارش وضعیت وظایف</h2>
-          <p>توزیع وظایف بر اساس وضعیت</p>
+    <!-- State Indicator -->
+    <div id="state" class="notion-desc" style="padding:16px 0;text-align:center" hidden>در حال بارگذاری وظایف...</div>
+
+    <!-- VIEW 1: TABLE VIEW -->
+    <div id="view-table" class="notion-view-panel">
+      <div class="notion-table-wrap">
+        <table class="notion-table">
+          <thead>
+            <tr>
+              <th class="col-check"></th>
+              <th>عنوان وظیفه</th>
+              <th>وضعیت</th>
+              <th>اولویت</th>
+              <th>مهلت</th>
+              <th>دسته‌بندی</th>
+              <th>تگ‌ها</th>
+              <th class="col-actions">عملیات</th>
+            </tr>
+          </thead>
+          <tbody id="notion-table-body"></tbody>
+        </table>
+        <button id="btn-table-add" class="notion-table-add-row" type="button">
+          <span>+ سطر جدید (افزودن وظیفه)</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- VIEW 2: BOARD (KANBAN) VIEW -->
+    <div id="view-board" class="notion-view-panel" hidden>
+      <div class="notion-board-grid">
+        <div class="notion-board-col" data-col-status="pending">
+          <div class="notion-board-col-header">
+            <div class="notion-board-col-title">
+              <span class="notion-pill status-pending">در انتظار</span>
+              <span class="notion-board-count" id="count-pending">0</span>
+            </div>
+            <button class="notion-board-add-btn" data-add-status="pending" title="افزودن به این ستون">+</button>
+          </div>
+          <div class="notion-board-cards" id="cards-pending"></div>
+        </div>
+
+        <div class="notion-board-col" data-col-status="in_progress">
+          <div class="notion-board-col-header">
+            <div class="notion-board-col-title">
+              <span class="notion-pill status-in_progress">در حال انجام</span>
+              <span class="notion-board-count" id="count-in_progress">0</span>
+            </div>
+            <button class="notion-board-add-btn" data-add-status="in_progress" title="افزودن به این ستون">+</button>
+          </div>
+          <div class="notion-board-cards" id="cards-in_progress"></div>
+        </div>
+
+        <div class="notion-board-col" data-col-status="done">
+          <div class="notion-board-col-header">
+            <div class="notion-board-col-title">
+              <span class="notion-pill status-done">انجام‌شده</span>
+              <span class="notion-board-count" id="count-done">0</span>
+            </div>
+            <button class="notion-board-add-btn" data-add-status="done" title="افزودن به این ستون">+</button>
+          </div>
+          <div class="notion-board-cards" id="cards-done"></div>
+        </div>
+
+        <div class="notion-board-col" data-col-status="cancelled">
+          <div class="notion-board-col-header">
+            <div class="notion-board-col-title">
+              <span class="notion-pill status-cancelled">لغوشده</span>
+              <span class="notion-board-count" id="count-cancelled">0</span>
+            </div>
+            <button class="notion-board-add-btn" data-add-status="cancelled" title="افزودن به این ستون">+</button>
+          </div>
+          <div class="notion-board-cards" id="cards-cancelled"></div>
         </div>
       </div>
-      <div id="status-report" class="status-report"></div>
-    </section>
+    </div>
 
-    <section class="report-panel" aria-labelledby="priority-title">
-      <div class="report-header">
-        <div>
-          <h2 id="priority-title">گزارش اولویت وظایف</h2>
-          <p>نمودار جدید: توزیع وظایف بر اساس اولویت</p>
+    <!-- VIEW 3: ANALYTICS & CHARTS -->
+    <div id="view-analytics" class="notion-view-panel" hidden>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
+        <section class="notion-table-wrap" style="padding:18px">
+          <h3 style="margin:0 0 12px;font-size:15px">📊 توزیع وضعیت وظایف</h3>
+          <div id="status-report"></div>
+        </section>
+        <section class="notion-table-wrap" style="padding:18px">
+          <h3 style="margin:0 0 12px;font-size:15px">🚦 توزیع اولویت‌ها</h3>
+          <div id="priority-report"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Legacy / Compatibility hidden containers -->
+    <section id="user-card" hidden></section>
+    <section id="tasks" hidden></section>
+    <nav id="pagination" hidden></nav>
+  </div>
+
+  <!-- NOTION TASK MODAL (Create & Edit) -->
+  <div id="notion-modal" class="notion-modal-backdrop" hidden>
+    <div class="notion-modal" role="dialog" aria-modal="true">
+      <div class="notion-modal-header">
+        <div class="notion-modal-icon">📋</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <a id="modal-full-page" class="notion-btn" href="#" style="font-size:12px;height:28px" hidden>↗ نمایش تمام‌صفحه</a>
+          <button id="modal-close" class="notion-icon-btn" type="button" aria-label="بستن">✕</button>
         </div>
       </div>
-      <div id="priority-report" class="priority-report"></div>
-    </section>
 
-    <section class="tasks-header">
-      <div>
-        <h2>فهرست وظایف</h2>
-        <span id="result-count" class="result-count"></span>
-      </div>
-      <label class="page-size-label">نمایش
-        <select id="page-size" aria-label="تعداد وظایف در صفحه">
-          <option value="5">5</option>
-          <option value="10" selected>10</option>
-          <option value="20">20</option>
-        </select>
-      </label>
-    </section>
+      <form id="notion-task-form">
+        <input id="modal-task-id" type="hidden">
+        <input id="modal-title" class="notion-modal-title-input" required maxlength="500" placeholder="عنوان وظیفه...">
 
-    <section id="state" class="state">در حال دریافت وظایف...</section>
-    <section id="tasks" class="tasks" aria-live="polite"></section>
+        <div class="notion-props-table">
+          <div class="notion-prop-label">📌 وضعیت</div>
+          <div class="notion-prop-val">
+            <select id="modal-status">
+              <option value="pending">در انتظار</option>
+              <option value="in_progress">در حال انجام</option>
+              <option value="done">انجام شده</option>
+              <option value="cancelled">لغو شده</option>
+            </select>
+          </div>
 
-    <nav id="pagination" class="pagination" aria-label="صفحه‌بندی وظایف" hidden>
-      <button id="prev-page" type="button">قبلی</button>
-      <span id="page-info">صفحه ۱ از ۱</span>
-      <button id="next-page" type="button">بعدی</button>
-    </nav>
-  </main>
+          <div class="notion-prop-label">🚦 اولویت</div>
+          <div class="notion-prop-val">
+            <select id="modal-priority">
+              <option value="low">کم</option>
+              <option value="medium" selected>متوسط</option>
+              <option value="high">زیاد</option>
+              <option value="urgent">فوری</option>
+            </select>
+          </div>
+
+          <div class="notion-prop-label">⏰ موعد زمانی</div>
+          <div class="notion-prop-val">
+            <input id="modal-deadline" type="datetime-local">
+          </div>
+
+          <div class="notion-prop-label">🗂 دسته‌بندی</div>
+          <div class="notion-prop-val">
+            <input id="modal-category" placeholder="مثلاً: کار، شخصی، پروژه...">
+          </div>
+
+          <div class="notion-prop-label">🏷 تگ‌ها</div>
+          <div class="notion-prop-val">
+            <input id="modal-tags" placeholder="تگ‌ها با ویرگول جدا شوند">
+          </div>
+        </div>
+
+        <hr style="border:0;border-top:1px solid var(--border-light);margin:16px 0">
+
+        <label style="display:block;margin-bottom:6px;font-size:12px;color:var(--text-secondary);font-weight:600">توضیحات و یادداشت‌ها</label>
+        <textarea id="modal-description" class="notion-modal-desc" placeholder="توضیحات و یادداشت‌های این وظیفه را اینجا بنویسید..."></textarea>
+
+        <div id="modal-error" style="color:#e03e3e;font-size:12px;margin-top:10px" hidden></div>
+
+        <div class="notion-modal-actions">
+          <button id="modal-cancel" class="notion-btn" type="button">انصراف</button>
+          <button id="modal-save" class="notion-btn btn-primary" type="submit">ذخیره وظیفه</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="/static/app.js"></script>
   <script>
     (function() {

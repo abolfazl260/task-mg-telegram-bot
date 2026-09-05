@@ -3,36 +3,90 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>جزئیات وظیفه</title>
+  <title>جزئیات وظیفه · Notion Workspace</title>
   <link rel="stylesheet" href="/static/app.css">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <main class="app">
-    <header class="header">
-      <div>
-        <p class="eyebrow">جزئیات</p>
-        <h1 id="task-title">در حال دریافت...</h1>
+  <div class="notion-app">
+    <!-- Topbar -->
+    <header class="notion-topbar">
+      <div class="notion-breadcrumbs">
+        <button id="back" class="notion-btn" type="button">← بازگشت به وظایف</button>
       </div>
-      <div class="header-actions">
-        <a id="dashboard-link" class="header-link" href="#">📊 گزارش تحت وب</a>
-        <button id="back" class="icon-button" type="button" aria-label="بازگشت">←</button>
+      <div class="notion-top-actions">
+        <a id="dashboard-link" class="notion-btn" href="#">📊 گزارش تحت وب</a>
+        <button id="edit" class="notion-btn btn-primary" type="button">✏️ ویرایش وظیفه</button>
       </div>
     </header>
-    <section id="state" class="state">در حال دریافت وظیفه...</section>
-    <article id="task" class="task" hidden></article>
-    <form id="edit-form" class="task" hidden>
-      <label>عنوان<input id="edit-title" required maxlength="500"></label>
-      <label>توضیحات<textarea id="edit-description" rows="5"></textarea></label>
-      <label>وضعیت<select id="edit-status"><option value="pending">در انتظار</option><option value="in_progress">در حال انجام</option><option value="done">انجام شده</option><option value="cancelled">لغو شده</option></select></label>
-      <label>اولویت<select id="edit-priority"><option value="low">پایین</option><option value="medium">متوسط</option><option value="high">بالا</option></select></label>
-      <label>مهلت<input id="edit-deadline" type="datetime-local"></label>
-      <label>دسته‌بندی<input id="edit-category"></label>
-      <label>تگ‌ها<input id="edit-tags"></label>
-      <button class="submit-button" type="submit">ذخیره تغییرات</button>
+
+    <!-- Page Header -->
+    <div class="notion-header">
+      <div class="notion-page-icon">📋</div>
+      <h1 class="notion-title" id="task-title">در حال دریافت...</h1>
+    </div>
+
+    <div id="state" class="notion-desc" style="padding:16px 0;text-align:center">در حال دریافت اطلاعات...</div>
+
+    <!-- Task Read View -->
+    <article id="task" class="notion-table-wrap" style="padding:22px" hidden></article>
+
+    <!-- Task Edit Form -->
+    <form id="edit-form" class="notion-table-wrap" style="padding:24px;margin-top:16px" hidden>
+      <h3 style="margin:0 0 16px;font-size:18px">✏️ ویرایش مشخصات وظیفه</h3>
+      
+      <label style="display:block;margin-bottom:12px">
+        <span style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">عنوان وظیفه</span>
+        <input id="edit-title" class="notion-search-input" required maxlength="500">
+      </label>
+
+      <div class="notion-props-table">
+        <div class="notion-prop-label">📌 وضعیت</div>
+        <div class="notion-prop-val">
+          <select id="edit-status" class="notion-filter-select" style="width:100%">
+            <option value="pending">در انتظار</option>
+            <option value="in_progress">در حال انجام</option>
+            <option value="done">انجام شده</option>
+            <option value="cancelled">لغو شده</option>
+          </select>
+        </div>
+
+        <div class="notion-prop-label">🚦 اولویت</div>
+        <div class="notion-prop-val">
+          <select id="edit-priority" class="notion-filter-select" style="width:100%">
+            <option value="low">کم</option>
+            <option value="medium">متوسط</option>
+            <option value="high">زیاد</option>
+            <option value="urgent">فوری</option>
+          </select>
+        </div>
+
+        <div class="notion-prop-label">⏰ موعد زمانی</div>
+        <div class="notion-prop-val">
+          <input id="edit-deadline" class="notion-search-input" type="datetime-local">
+        </div>
+
+        <div class="notion-prop-label">🗂 دسته‌بندی</div>
+        <div class="notion-prop-val">
+          <input id="edit-category" class="notion-search-input">
+        </div>
+
+        <div class="notion-prop-label">🏷 تگ‌ها</div>
+        <div class="notion-prop-val">
+          <input id="edit-tags" class="notion-search-input">
+        </div>
+      </div>
+
+      <label style="display:block;margin:16px 0 6px;font-size:13px;font-weight:600">توضیحات و یادداشت‌ها</label>
+      <textarea id="edit-description" class="notion-modal-desc" rows="5"></textarea>
+
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px">
+        <button id="cancel-edit" class="notion-btn" type="button">انصراف</button>
+        <button class="notion-btn btn-primary" type="submit">ذخیره تغییرات</button>
+      </div>
     </form>
-    <button id="edit" class="submit-button" type="button" hidden>ویرایش وظیفه</button>
-  </main>
+  </div>
+
   <script src="/static/task.js"></script>
   <script>
     (function() {
@@ -46,6 +100,10 @@
       } else if (b) {
         b.hidden = true;
       }
+      document.getElementById('cancel-edit')?.addEventListener('click', () => {
+        document.getElementById('edit-form').hidden = true;
+        document.getElementById('edit').hidden = false;
+      });
     })();
   </script>
 </body>
