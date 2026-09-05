@@ -4,6 +4,7 @@ import asyncio
 import atexit
 import sqlite3
 import threading
+import time
 from pathlib import Path
 
 import aiosqlite
@@ -11,7 +12,10 @@ import aiosqlite
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = (BASE_DIR / "data" / "data.db").resolve()
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-SCHEMA = "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=10000;"
+SQLITE_TIMEOUT_SECONDS = 30
+SQLITE_BUSY_TIMEOUT_MS = 30000
+SQLITE_MAX_RETRIES = 6
+SCHEMA = "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=30000;"
 
 
 class Database:
@@ -23,10 +27,12 @@ class Database:
     async def connect(self):
         if self.conn is None:
             DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-            self.conn = await aiosqlite.connect(str(DB_PATH))
+            self.conn = await aiosqlite.connect(
+                str(DB_PATH), timeout=SQLITE_TIMEOUT_SECONDS
+            )
             self.conn.row_factory = aiosqlite.Row
             await self.conn.execute("PRAGMA foreign_keys=ON")
-            await self.conn.execute("PRAGMA busy_timeout=10000")
+            await self.conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
             await self.conn.execute("PRAGMA journal_mode=WAL")
             await self.conn.execute("PRAGMA synchronous=NORMAL")
         if not self.initialized:
@@ -195,25 +201,53 @@ async def transaction(statements):
             raise
 
 
+def _is_locked_error(exc: BaseException) -> bool:
+    return isinstance(exc, sqlite3.OperationalError) and any(
+        marker in str(exc).lower() for marker in ("database is locked", "database table is locked", "database is busy")
+    )
+
+
+def _retry_delay(attempt: int) -> float:
+    return min(0.25 * (2 ** attempt), 4.0)
+
+
+def _configure_sync_connection(conn: sqlite3.Connection) -> None:
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+
+
 def _sync_sql(sql, params=(), fetch="none"):
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH), timeout=10)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("PRAGMA foreign_keys=ON")
-        conn.execute("PRAGMA busy_timeout=10000")
-        cur = conn.execute(sql, tuple(params))
-        if fetch == "one":
-            out = cur.fetchone()
-            result = dict(out) if out else None
-        elif fetch == "all":
-            result = [dict(r) for r in cur.fetchall()]
-        else:
-            result = cur.lastrowid
-        conn.commit()
-        return result
-    finally:
-        conn.close()
+    last_error = None
+    for attempt in range(SQLITE_MAX_RETRIES + 1):
+        conn = sqlite3.connect(str(DB_PATH), timeout=SQLITE_TIMEOUT_SECONDS)
+        try:
+            _configure_sync_connection(conn)
+            cur = conn.execute(sql, tuple(params))
+            if fetch == "one":
+                out = cur.fetchone()
+                result = dict(out) if out else None
+            elif fetch == "all":
+                result = [dict(r) for r in cur.fetchall()]
+            else:
+                result = cur.lastrowid
+            conn.commit()
+            return result
+        except sqlite3.OperationalError as exc:
+            last_error = exc
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            if not _is_locked_error(exc) or attempt >= SQLITE_MAX_RETRIES:
+                raise
+            time.sleep(_retry_delay(attempt))
+        finally:
+            conn.close()
+    raise last_error
 
 
 def sync_all(table, where="", params=()):
@@ -230,24 +264,35 @@ def sync_execute(sql, params=()):
 
 def sync_transaction(statements):
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH), timeout=10)
-    try:
-        conn.execute("PRAGMA foreign_keys=ON")
-        conn.execute("PRAGMA busy_timeout=10000")
-        conn.execute("BEGIN IMMEDIATE")
-        for sql, p in statements:
-            conn.execute(sql, tuple(p))
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    last_error = None
+    for attempt in range(SQLITE_MAX_RETRIES + 1):
+        conn = sqlite3.connect(str(DB_PATH), timeout=SQLITE_TIMEOUT_SECONDS)
+        try:
+            _configure_sync_connection(conn)
+            conn.execute("BEGIN IMMEDIATE")
+            for sql, p in statements:
+                conn.execute(sql, tuple(p))
+            conn.commit()
+            return
+        except sqlite3.OperationalError as exc:
+            last_error = exc
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            if not _is_locked_error(exc) or attempt >= SQLITE_MAX_RETRIES:
+                raise
+            time.sleep(_retry_delay(attempt))
+        finally:
+            conn.close()
+    raise last_error
 
 
 def get_connection():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return sqlite3.connect(str(DB_PATH), timeout=10)
+    conn = sqlite3.connect(str(DB_PATH), timeout=SQLITE_TIMEOUT_SECONDS)
+    _configure_sync_connection(conn)
+    return conn
 
 
 async def shutdown_database():
