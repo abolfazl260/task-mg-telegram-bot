@@ -468,6 +468,7 @@ button, input, select, textarea {
   z-index: 999;
   padding: 20px;
 }
+.notion-modal-backdrop[hidden] { display: none; }
 .notion-modal {
   background: var(--bg);
   border: 1px solid var(--border);
