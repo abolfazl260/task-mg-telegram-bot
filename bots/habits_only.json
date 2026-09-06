@@ -23,24 +23,20 @@
     "task_options": {
       "allow_assignment": false,
       "allow_tags": false,
-      "allow_comments": false,
-      "allow_categories": false,
-      "allow_priority": false,
+      "allow_comments": true,
+      "allow_categories": true,
       "allow_search": true,
       "allow_templates": false,
       "allow_bulk_import": false,
       "allow_ai_task_creation": true
     },
-    "reminders": {
-      "enabled": true,
-      "simple": true
-    }
+    "reminders": {"enabled": true, "simple": true}
   },
   "features": {
     "custom_bots": false,
     "integrations": false,
     "tasks": true,
-    "teams": false,
+    "teams": true,
     "templates": false,
     "habits": true,
     "reports": false,
