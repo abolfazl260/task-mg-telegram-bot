@@ -84,7 +84,7 @@ async def track_usage(update,context):
     user=update.effective_user
     if not user:return
     is_new=await record_user_async(user,increment_usage=True);logger.info("user_activity user_id=%s username=%s full_name=%s chat_id=%s update_id=%s",user.id,user.username or "",user.full_name or "",update.effective_chat.id if update.effective_chat else "",update.update_id)
-    if is_new:await notify_new_user(context)
+    if is_new:await notify_new_user(context,user)
 def _parse_report_time():
     try:
         hour,minute=ADMIN_REPORT_TIME.split(":",1);return dt_time(hour=int(hour),minute=int(minute))
@@ -127,6 +127,7 @@ def _feature(app,name):
     profile=app.bot_data.get("bot_config")
     if profile is None or not profile.feature_enabled(name):return False
     option={"search":"allow_search","templates":"allow_templates","bulk_import":"allow_bulk_import"}.get(name);return option is None or task_option_enabled(app,option)
+_CAPABILITY_FEATURE_CONTRACT={"search": "allow_search", "templates": "allow_templates", "bulk_import": "allow_bulk_import"}
 def build_application(profile):
     request=HTTPXRequest(connection_pool_size=16,read_timeout=30.0,write_timeout=120.0,connect_timeout=30.0,pool_timeout=30.0,media_write_timeout=120.0,http_version="1.1");app=Application.builder().token(profile.token).request(request).post_init(post_init).build();app.bot_data["bot_config"]=profile
     if not getattr(task_handler,"_tag_flow_installed",False):install_tag_flow(task_handler)
