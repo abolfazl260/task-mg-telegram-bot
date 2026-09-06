@@ -60,12 +60,16 @@ def _rich_ai_draft_html(draft: dict) -> str:
     )
 
 async def _stream_rich_draft(bot, chat_id: int, draft_id: int, html: str, *, can_stop: bool = False) -> None:
+    if bot is None:
+        return
     try:
         await bot._post("sendRichMessageDraft", data={"chat_id": chat_id, "draft_id": draft_id, "rich_message": {"html": html, "is_rtl": True}, "can_stop": can_stop})
     except Exception as exc:
         logger.debug("voice_rich_draft_failed chat_id=%s error=%s", chat_id, exc)
 
 async def _send_rich_final(bot, chat_id: int, html: str):
+    if bot is None:
+        return None
     return await bot._post("sendRichMessage", data={"chat_id": chat_id, "rich_message": {"html": html, "is_rtl": True}})
 
 async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -91,9 +95,10 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await _replace_status(message, "⚠️ شناسه گفت‌وگو قابل تشخیص نیست.")
         return
 
+    bot = getattr(context, "bot", None)
     draft_id = max(1, int(time.time_ns() % 2_000_000_000))
     temp_path: Path | None = None
-    await _stream_rich_draft(context.bot, chat_id, draft_id, _rich_draft_html("🎙️ پردازش وویس", "در حال دریافت و تبدیل وویس به متن...", thinking=True), can_stop=True)
+    await _stream_rich_draft(bot, chat_id, draft_id, _rich_draft_html("🎙️ پردازش وویس", "در حال دریافت و تبدیل وویس به متن...", thinking=True), can_stop=True)
     try:
         async with _VOICE_PROCESSING_SEMAPHORE:
             try:
@@ -108,22 +113,22 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 raise SpeechToTextRequestError("فایل صوتی خالی یا خراب است.")
             if temp_path.stat().st_size > max_size:
                 raise SpeechToTextRequestError("حجم فایل صوتی بیش از حد مجاز است.")
-            await _stream_rich_draft(context.bot, chat_id, draft_id, _rich_draft_html("🎙️ پردازش وویس", "وویس دریافت شد؛ در حال تبدیل صدا به متن...", thinking=True), can_stop=True)
+            await _stream_rich_draft(bot, chat_id, draft_id, _rich_draft_html("🎙️ پردازش وویس", "وویس دریافت شد؛ در حال تبدیل صدا به متن...", thinking=True), can_stop=True)
             service = get_speech_to_text_service()
             text = await asyncio.to_thread(service.transcribe, temp_path)
             if not text.strip():
                 raise SpeechToTextRequestError("متنی از فایل صوتی قابل تشخیص نبود.")
-            await _stream_rich_draft(context.bot, chat_id, draft_id, _rich_draft_html("🧠 ساخت پیش‌نویس", "متن وویس دریافت شد؛ هوش مصنوعی در حال ساخت پیش‌نویس تسک است...", thinking=True), can_stop=True)
+            await _stream_rich_draft(bot, chat_id, draft_id, _rich_draft_html("🧠 ساخت پیش‌نویس", "متن وویس دریافت شد؛ هوش مصنوعی در حال ساخت پیش‌نویس تسک است...", thinking=True), can_stop=True)
             try:
                 draft = await asyncio.to_thread(parse_task_request_smart, update.effective_user.id, text)
             except Exception:
                 draft = None
             if isinstance(draft, dict) and draft.get("action") in {"CREATE_TASK", "CREATE_HABIT"}:
                 context.user_data["ai_request_draft"] = draft
-                await _stream_rich_draft(context.bot, chat_id, draft_id, _rich_ai_draft_html(draft))
-                await _send_rich_final(context.bot, chat_id, _rich_ai_draft_html(draft))
+                await _stream_rich_draft(bot, chat_id, draft_id, _rich_ai_draft_html(draft))
+                await _send_rich_final(bot, chat_id, _rich_ai_draft_html(draft))
                 return
-            await _stream_rich_draft(context.bot, chat_id, draft_id, _rich_draft_html("🤖 دستیار هوشمند", "درخواست شما شناسایی شد؛ در حال آماده‌سازی پاسخ...", thinking=True), can_stop=True)
+            await _stream_rich_draft(bot, chat_id, draft_id, _rich_draft_html("🤖 دستیار هوشمند", "درخواست شما شناسایی شد؛ در حال آماده‌سازی پاسخ...", thinking=True), can_stop=True)
             original_args = getattr(context, "args", None)
             context.args = [text]
             try:
