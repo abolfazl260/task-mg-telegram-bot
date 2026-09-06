@@ -129,6 +129,12 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
                     user_data["ai_request_draft"] = draft
                     await _stream_rich_draft(bot, chat_id, draft_id, _rich_ai_draft_html(draft))
                     await _send_rich_final(bot, chat_id, _rich_ai_draft_html(draft))
+                    delete_message = getattr(message, "delete", None)
+                    if delete_message is not None:
+                        try:
+                            await delete_message()
+                        except Exception:
+                            logger.debug("voice_message_delete_failed", exc_info=True)
                     return
             await _stream_rich_draft(bot, chat_id, draft_id, _rich_draft_html("🤖 دستیار هوشمند", "درخواست شما شناسایی شد؛ در حال آماده‌سازی پاسخ...", thinking=True), can_stop=True)
             original_args = getattr(context, "args", None)
