@@ -1,5 +1,45 @@
 from .tag_suggestions_legacy import *
 
+
+def _validate_create_task(task: dict) -> str | None:
+    """Backward-compatible validation for the unified create-task flow."""
+    title = str(task.get("title") or "").strip()
+    if not title:
+        return "عنوان تسک نمی‌تواند خالی باشد."
+    if len(title) > 200:
+        return "عنوان تسک نباید بیشتر از ۲۰۰ کاراکتر باشد."
+
+    if task.get("priority") not in {"high", "medium", "low"}:
+        return "اولویت تسک نامعتبر است."
+
+    deadline = str(task.get("deadline") or "").strip()
+    if deadline:
+        from utils.date_parse import parse_deadline_input
+        if not parse_deadline_input(deadline):
+            return "تاریخ deadline نامعتبر است."
+
+    for field, label in (("category", "دسته‌بندی"), ("tags", "تگ")):
+        value = task.get(field)
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple, set)):
+            value = ", ".join(str(item) for item in value)
+        if len(str(value).strip()) > 30:
+            return f"{label} نباید بیشتر از ۳۰ کاراکتر باشد."
+
+    return None
+
+
+def _clear_create_task_state(context) -> None:
+    """Clear only create-task state while preserving unrelated user state."""
+    for key in (
+        "new_task", "step", "tag_suggestions", "awaiting_tag_input",
+        "create_task_finalizing", "create_task_message_id", "create_task_user_id",
+        "_create_selected_team_id", "created_task_id", "_create_task_submitting",
+    ):
+        context.user_data.pop(key, None)
+
+
 _original_install_tag_flow = install_tag_flow
 
 
