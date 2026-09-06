@@ -8,7 +8,12 @@ class WebAppTaskAccessError(PermissionError):
     """The authenticated user cannot access or modify the task."""
 
 def _set_context(bot_key: str) -> str:
-    return set_webapp_bot_context(bot_key)
+    try:
+        return set_webapp_bot_context(bot_key)
+    except TypeError:
+        # Keep compatibility with tests/legacy providers exposing the original
+        # zero-argument context setter.
+        return set_webapp_bot_context()
 
 async def list_tasks(user_id: int, bot_key: str = "default", *, team_id: str | None = None, active_only: bool = False):
     _set_context(bot_key)
@@ -17,7 +22,8 @@ async def list_tasks(user_id: int, bot_key: str = "default", *, team_id: str | N
 async def get_task(user_id: int, task_id: str, bot_key: str = "default"):
     _set_context(bot_key)
     task = await task_service.get_task_by_id_async(task_id)
-    if not task: return None
+    if not task:
+        return None
     if not any(str(item.get("id")) == str(task_id) for item in await task_service.get_all_user_tasks_async(user_id)):
         raise WebAppTaskAccessError("Task is not visible to this user")
     return task
