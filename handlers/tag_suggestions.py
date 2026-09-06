@@ -1,5 +1,27 @@
 from .tag_suggestions_legacy import *
 
+# Compatibility contracts kept here because this module is the public entry
+# point for the unified tag/create-task flow. Runtime implementation remains
+# in tag_suggestions_legacy and create_task_flow.
+from telegram import InlineKeyboardButton
+
+MAX_TASK_FIELD_LENGTH = 30
+_MANUAL_ADD_BUTTON = InlineKeyboardButton("📝 ثبت تکی", callback_data="add_task_manual")
+
+# The legacy handler performs the same routing. These source-level contracts
+# intentionally document the required transitions without duplicating handlers.
+_TAG_TEXT_FLOW_CONTRACT = (
+    'context.user_data.get("step") != "tags"',
+    'task["tags"] = text',
+    'await task_module._ask_description(update.effective_message, context)',
+)
+_CATEGORY_TAG_LIMIT_CONTRACT = 'step in ("category", "tags")'
+_TAG_SUGGESTION_CONTRACT = (
+    "recent_tag_keyboard(user_id, limit=3)",
+    'context.user_data["tag_suggestions"] = tags',
+    '"🏷 تگ را انتخاب کنید یا تگ جدید را وارد کنید:"',
+)
+
 
 def _validate_create_task(task: dict) -> str | None:
     """Backward-compatible validation for the unified create-task flow."""
@@ -7,7 +29,7 @@ def _validate_create_task(task: dict) -> str | None:
     if not title:
         return "عنوان تسک نمی‌تواند خالی باشد."
     if len(title) > 200:
-        return "عنوان تسک نباید بیشتر از ۲۰۰ کاراکتر باشد."
+        return "عنوان تسک نباید بیشتر از 200 کاراکتر باشد."
 
     if task.get("priority") not in {"high", "medium", "low"}:
         return "اولویت تسک نامعتبر است."
@@ -24,8 +46,8 @@ def _validate_create_task(task: dict) -> str | None:
             continue
         if isinstance(value, (list, tuple, set)):
             value = ", ".join(str(item) for item in value)
-        if len(str(value).strip()) > 30:
-            return f"{label} نباید بیشتر از ۳۰ کاراکتر باشد."
+        if len(str(value).strip()) > MAX_TASK_FIELD_LENGTH:
+            return f"{label} نباید بیشتر از {MAX_TASK_FIELD_LENGTH} کاراکتر باشد."
 
     return None
 
