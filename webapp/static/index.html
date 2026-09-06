@@ -202,12 +202,14 @@
 
           <div class="notion-prop-label">🗂 دسته‌بندی</div>
           <div class="notion-prop-val">
-            <input id="modal-category" placeholder="مثلاً: کار، شخصی، پروژه...">
+            <input id="modal-category" list="task-category-options" placeholder="مثلاً: کار، شخصی، پروژه..." autocomplete="off">
+            <datalist id="task-category-options"></datalist>
           </div>
 
           <div class="notion-prop-label">🏷 تگ‌ها</div>
           <div class="notion-prop-val">
-            <input id="modal-tags" placeholder="تگ‌ها با ویرگول جدا شوند">
+            <input id="modal-tags" list="task-tag-options" placeholder="تگ‌ها با ویرگول جدا شوند" autocomplete="off">
+            <datalist id="task-tag-options"></datalist>
           </div>
         </div>
 
@@ -229,14 +231,52 @@
   <script src="/static/app.js"></script>
   <script>
     (function() {
+      const params = new URLSearchParams(location.search);
       const pathToken = location.pathname.startsWith('/tasks/') ? location.pathname.split('/')[2] : '';
-      const token = window.__dashboardTaskToken || pathToken || new URLSearchParams(location.search).get('bot_key') || '';
+      const token = window.__dashboardTaskToken || pathToken || params.get('bot_key') || '';
       const button = document.getElementById('dashboard-link');
+
       if (button && token) {
         button.href = '/' + encodeURIComponent(token);
         button.hidden = false;
         button.textContent = '📊 گزارش تحت وب';
       }
+
+      // Keep the existing table edit action as a direct web-page navigation.
+      document.addEventListener('click', function(e) {
+        const editButton = e.target.closest('.col-actions [data-open-id]');
+        if (!editButton || !token) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const taskId = editButton.dataset.openId;
+        location.href = '/task/' + encodeURIComponent(token) + '/' + encodeURIComponent(taskId);
+      }, true);
+
+      // Suggest categories and individual tags already used by the current user's tasks.
+      const categoryList = document.getElementById('task-category-options');
+      const tagList = document.getElementById('task-tag-options');
+      if (!categoryList || !tagList || !token) return;
+
+      const addOptions = (list, values) => {
+        const unique = [...new Set(values.map(v => String(v || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fa'));
+        list.replaceChildren(...unique.map(value => {
+          const option = document.createElement('option');
+          option.value = value;
+          return option;
+        }));
+      };
+
+      const apiPath = '/api/tasks?bot_key=' + encodeURIComponent(token);
+      fetch(apiPath, { cache: 'no-store' })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          const taskItems = Array.isArray(data?.tasks) ? data.tasks : [];
+          const categories = taskItems.map(task => task.category);
+          const tags = taskItems.flatMap(task => String(task.tags || '').split(','));
+          addOptions(categoryList, categories);
+          addOptions(tagList, tags);
+        })
+        .catch(() => {});
     })();
   </script>
 </body>
