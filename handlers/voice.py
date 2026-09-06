@@ -137,6 +137,12 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 await ai_command(update, context)
             finally:
                 context.args = original_args
+            delete_message = getattr(message, "delete", None)
+            if delete_message is not None:
+                try:
+                    await delete_message()
+                except Exception:
+                    logger.debug("voice_message_delete_failed", exc_info=True)
     except SpeechToTextConfigurationError:
         await _replace_status(message, "⚠️ قابلیت تبدیل وویس به متن در حال حاضر فعال نیست.")
     except SpeechToTextRequestError as exc:
