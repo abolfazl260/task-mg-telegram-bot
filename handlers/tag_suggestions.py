@@ -7,6 +7,7 @@ from telegram import InlineKeyboardButton
 
 MAX_TASK_FIELD_LENGTH = 30
 _MANUAL_ADD_BUTTON = InlineKeyboardButton("📝 ثبت تکی", callback_data="add_task_manual")
+_CAPABILITY_CONTRACT = 'task_option_enabled(context, "allow_bulk_import")'
 
 # The legacy handler performs the same routing. These source-level contracts
 # intentionally document the required transitions without duplicating handlers.
