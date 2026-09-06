@@ -64,4 +64,4 @@ def revoke_report_token(token: str) -> None:
 
 
 def build_report_url(base_url: str, token: str) -> str:
-    return f"{base_url.rstrip('/')}/{quote(token, safe='')}"
+    return f"{base_url.rstrip('/')}/report/{quote(token, safe='')}"
