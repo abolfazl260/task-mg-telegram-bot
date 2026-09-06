@@ -31,6 +31,9 @@ class FakeMessage:
         self.status.replies.append(text)
         return self.status
 
+    async def delete(self):
+        await self.status.delete()
+
 
 class FakeTelegramFile:
     async def download_to_drive(self, custom_path):
