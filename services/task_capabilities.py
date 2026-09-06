@@ -99,6 +99,11 @@ def wrap_callback(original):
         if data.startswith(("assign_","owner_","take_","asg_","chg_")) and not task_option_enabled(context,"allow_assignment"):await update.callback_query.answer("تخصیص مسئول برای این ربات فعال نیست.",show_alert=True);return
         if data.startswith("comment_") and not task_option_enabled(context,"allow_comments"):await update.callback_query.answer("کامنت برای این ربات فعال نیست.",show_alert=True);return
         if data.startswith(("tag_","tags_","step_back_tags")) and not task_option_enabled(context,"allow_tags"):await update.callback_query.answer("تگ برای این ربات فعال نیست.",show_alert=True);return
+        if data in {"template_open", "import_bulk"}:
+            option = "allow_templates" if data == "template_open" else "allow_bulk_import"
+            if not task_option_enabled(context, option):
+                await update.callback_query.answer("این قابلیت برای این ربات فعال نیست.", show_alert=True)
+                return
         return await original(update,context)
     return wrapper
 
@@ -110,9 +115,13 @@ def _sanitize_ai_draft(context,draft):
     return draft
 
 def install_task_capabilities(app):
+    if app is None:return
+    if getattr(app,"_task_capabilities_installed",False):return
     state=getattr(app,"bot_data",None)
-    if state is None:return
-    if state.get("_task_capabilities_installed",False):return
+    if state is None: state={}; setattr(app,"bot_data",state)
+    if state.get("_task_capabilities_installed",False):
+        setattr(app,"_task_capabilities_installed",True)
+        return
     for handlers in app.handlers.values():
         for handler in handlers:
             callback=getattr(handler,"callback",None);name=getattr(callback,"__name__","")
@@ -124,3 +133,4 @@ def install_task_capabilities(app):
             else:wrapped=wrap_callback(callback)
             setattr(wrapped,"_task_capability_wrapped",True);handler.callback=wrapped
     state["_task_capabilities_installed"]=True
+    setattr(app,"_task_capabilities_installed",True)
