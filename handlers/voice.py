@@ -81,8 +81,6 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await message.reply_text(f"⚠️ حجم وویس بیش از حد مجاز است. حداکثر حجم {VOICE_MAX_SIZE_MB} مگابایت است.")
         return
 
-    # FakeMessage/test doubles may not expose Message.chat_id; effective_chat is
-    # the canonical PTB source and preserves the real Message behavior.
     chat_id = getattr(message, "chat_id", None)
     if chat_id is None:
         chat = getattr(update, "effective_chat", None)
@@ -150,6 +148,9 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def _replace_status(message, text: str) -> None:
     try:
-        await message.reply_text(text)
+        status = await message.reply_text(text)
+        edit_text = getattr(status, "edit_text", None)
+        if edit_text is not None:
+            await edit_text(text)
     except Exception:
         pass
