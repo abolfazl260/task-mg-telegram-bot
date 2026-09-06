@@ -117,7 +117,7 @@ def _sanitize_ai_draft(context,draft):
 def install_task_capabilities(app):
     if app is None:return
     state=getattr(app,"bot_data",None)
-    if state is None:return
+    if state is None:state={}
     if state.get("_task_capabilities_installed",False) or getattr(app,"_task_capabilities_installed",False):return
     for handlers in app.handlers.values():
         for handler in handlers:
