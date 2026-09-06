@@ -62,6 +62,7 @@ async def handle_tag_callback(update,context):
     return await callback(update,context)
 
 _TAG_CALLBACK_EXCLUSION_MARKER="|tag_|tags_|step_back_description|step_back_category|"
+_PRIORITY_CALLBACK_MARKER="priority_high"
 
 def _add_calendar_pdf_button(markup):
     rows=[list(row) for row in markup.inline_keyboard]
@@ -131,8 +132,8 @@ def build_application(profile):
     if not getattr(task_handler,"_tag_flow_installed",False):install_tag_flow(task_handler)
     app.add_handler(TypeHandler(Update,bind_bot_context),group=-100)
     if _feature(app,"guest_mode"):app.add_handler(TypeHandler(Update,handle_guest_task),group=-2)
-    app.add_handler(MessageHandler(filters.ALL,track_usage),group=-1);app.add_handler(TypeHandler(Update,handle_business_connection),group=-10);app.add_handler(TypeHandler(Update,handle_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_edited_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_deleted_business_messages),group=-10);app.add_handler(CommandHandler("start",start))
-    if _feature(app,"tasks"):app.add_handler(CommandHandler("add",add_task));app.add_handler(CommandHandler("tasks",paginated_list_tasks))
+    app.add_handler(MessageHandler(filters.ALL,track_usage),group=-1);app.add_handler(TypeHandler(Update,handle_business_connection),group=-10);app.add_handler(TypeHandler(Update,handle_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_edited_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_deleted_business_messages),group=-10);app.add_handler(CommandHandler("start", start))
+    if _feature(app,"tasks"):app.add_handler(CommandHandler("add", add_task));app.add_handler(CommandHandler("tasks",paginated_list_tasks))
     if _feature(app,"unassigned"):app.add_handler(CommandHandler("unassigned",unassigned_tasks))
     if _feature(app,"teams"):app.add_handler(CommandHandler("team",team_command))
     if _feature(app,"search"):app.add_handler(CommandHandler("search",search_command))
