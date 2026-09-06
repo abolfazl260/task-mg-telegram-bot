@@ -116,12 +116,9 @@ def _sanitize_ai_draft(context,draft):
 
 def install_task_capabilities(app):
     if app is None:return
-    if getattr(app,"_task_capabilities_installed",False):return
     state=getattr(app,"bot_data",None)
-    if state is None: state={}; setattr(app,"bot_data",state)
-    if state.get("_task_capabilities_installed",False):
-        setattr(app,"_task_capabilities_installed",True)
-        return
+    if state is None:return
+    if state.get("_task_capabilities_installed",False):return
     for handlers in app.handlers.values():
         for handler in handlers:
             callback=getattr(handler,"callback",None);name=getattr(callback,"__name__","")
@@ -133,4 +130,3 @@ def install_task_capabilities(app):
             else:wrapped=wrap_callback(callback)
             setattr(wrapped,"_task_capability_wrapped",True);handler.callback=wrapped
     state["_task_capabilities_installed"]=True
-    setattr(app,"_task_capabilities_installed",True)
