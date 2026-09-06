@@ -286,7 +286,7 @@
       modalDescription.value = task.description || '';
       modalSaveBtn.textContent = 'ذخیره تغییرات';
       if (modalFullPage) {
-        modalFullPage.href = `/task/${encodeURIComponent(task.id)}?bot_key=${encodeURIComponent(botKey)}`;
+        modalFullPage.href = `/task/${encodeURIComponent(botKey)}/${encodeURIComponent(task.id)}`;
         modalFullPage.hidden = false;
       }
     } else {
@@ -418,16 +418,21 @@
     const openBtn = e.target.closest('[data-open-id]');
     if (openBtn) {
       e.preventDefault();
-      const tid = openBtn.dataset.openId;
-      const t = tasks.find(x => String(x.id) === String(tid));
-      if (t) openModal(t);
+      const id = openBtn.dataset.openId;
+      const task = tasks.find(t => String(t.id) === String(id));
+      if (task) openModal(task);
       return;
     }
 
-    const chk = e.target.closest('[data-toggle-id]');
-    if (chk) {
-      toggleTaskDone(chk.dataset.toggleId, chk.checked);
+    const toggle = e.target.closest('[data-toggle-id]');
+    if (toggle) {
+      e.stopPropagation();
     }
+  });
+
+  document.addEventListener('change', e => {
+    const toggle = e.target.closest('[data-toggle-id]');
+    if (toggle) toggleTaskDone(toggle.dataset.toggleId, toggle.checked);
   });
 
   modalClose?.addEventListener('click', closeModal);
@@ -437,6 +442,8 @@
   });
   modalForm?.addEventListener('submit', handleModalSubmit);
 
+  // Initial state
   initTheme();
+  switchView(currentView);
   load();
 })();
