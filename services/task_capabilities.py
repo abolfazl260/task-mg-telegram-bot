@@ -118,7 +118,7 @@ def install_task_capabilities(app):
     if app is None:return
     state=getattr(app,"bot_data",None)
     if state is None:return
-    if state.get("_task_capabilities_installed",False):return
+    if state.get("_task_capabilities_installed",False) or getattr(app,"_task_capabilities_installed",False):return
     for handlers in app.handlers.values():
         for handler in handlers:
             callback=getattr(handler,"callback",None);name=getattr(callback,"__name__","")
@@ -130,3 +130,8 @@ def install_task_capabilities(app):
             else:wrapped=wrap_callback(callback)
             setattr(wrapped,"_task_capability_wrapped",True);handler.callback=wrapped
     state["_task_capabilities_installed"]=True
+    try:
+        setattr(app,"_task_capabilities_installed",True)
+    except (AttributeError,TypeError):
+        # telegram.ext.Application uses slots; bot_data remains the canonical state.
+        pass
