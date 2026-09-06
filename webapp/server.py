@@ -1,6 +1,6 @@
 """HTTP server for the Telegram Web App and admin dashboard."""
 from __future__ import annotations
-import asyncio, json, mimetypes
+import asyncio, json, mimetypes, os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
@@ -71,7 +71,11 @@ class WebAppHandler(BaseHTTPRequestHandler):
             return self._json(200,{"user":profile}) if profile else self._json(404,{"error":"user_not_found"})
         return self._json(404,{"error":"not_found"})
     def _handle_api(self,method):
-        path=urlparse(self.path).path; bot_key=self._bot_key(); user=self._authenticate(bot_key)
+        path=urlparse(self.path).path; bot_key=self._bot_key()
+        known = path=="/api/me" or path=="/api/tasks" or path.startswith("/api/tasks/")
+        if not known:
+            return self._json(404,{"error":"not_found"})
+        user=self._authenticate(bot_key)
         if path=="/api/me" and method=="GET": return self._json(200,{"user":user.__dict__,"bot_key":bot_key})
         if path=="/api/tasks" and method=="GET": return self._json(200,{"tasks":self.server.webapp_runtime.submit(list_tasks(user.id,bot_key))})
         if path=="/api/tasks" and method=="POST":
@@ -117,7 +121,9 @@ class WebAppHandler(BaseHTTPRequestHandler):
     def log_message(self,format,*args): return
 class WebAppHTTPServer(ThreadingHTTPServer): webapp_runtime: WebAppAsyncRuntime
 def create_server():
-    server=WebAppHTTPServer((WEBAPP_HOST,WEBAPP_PORT),WebAppHandler); server.webapp_runtime=WebAppAsyncRuntime(); server.webapp_runtime.start(); return server
+    host=os.getenv("WEBAPP_HOST", WEBAPP_HOST)
+    port=int(os.getenv("WEBAPP_PORT", str(WEBAPP_PORT)))
+    server=WebAppHTTPServer((host,port),WebAppHandler); server.webapp_runtime=WebAppAsyncRuntime(); server.webapp_runtime.start(); return server
 def run():
     server=create_server(); print(f"Telegram Web App server listening on {WEBAPP_HOST}:{WEBAPP_PORT}")
     try: server.serve_forever()
