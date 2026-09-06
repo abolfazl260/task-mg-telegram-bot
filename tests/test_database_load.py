@@ -7,6 +7,7 @@ real application database.
 
 import asyncio
 import sqlite3
+import time
 
 import aiosqlite
 import pytest
@@ -48,9 +49,18 @@ async def test_concurrent_sqlite_load_uses_isolated_database(tmp_path, monkeypat
 
     workers = 100
     operations_per_worker = 25
+    total_operations = workers * operations_per_worker
+    started_at = time.perf_counter()
+
+    print(f"\n[LOAD TEST] workers={workers} operations_per_worker={operations_per_worker}")
+    print(f"[LOAD TEST] total database writes={total_operations}")
+    print("[LOAD TEST] database=temporary pytest database (production DB untouched)")
+
     await asyncio.gather(
         *(worker(worker_id, operations_per_worker) for worker_id in range(workers))
     )
+
+    elapsed = time.perf_counter() - started_at
 
     async with aiosqlite.connect(str(db_path)) as conn:
         row = await (await conn.execute(
@@ -58,11 +68,18 @@ async def test_concurrent_sqlite_load_uses_isolated_database(tmp_path, monkeypat
             ("load-test-user",),
         )).fetchone()
 
-    assert row[0] == workers * operations_per_worker
+    actual_count = row[0]
+    assert actual_count == total_operations
+    assert db_path.exists()
+
+    print(f"[LOAD TEST] successful writes={actual_count}/{total_operations}")
+    print(f"[LOAD TEST] failed writes=0")
+    print(f"[LOAD TEST] elapsed={elapsed:.2f}s")
+    print(f"[LOAD TEST] average write time={elapsed / total_operations:.6f}s")
+    print("[LOAD TEST] RESULT=PASSED")
 
     # The temporary directory is removed by pytest after the test; no
     # production database path is used or modified.
-    assert db_path.exists()
 
 
 @pytest.mark.asyncio
@@ -98,6 +115,7 @@ async def test_concurrent_sqlite_load_retries_locked_writes(tmp_path, monkeypatc
             ("retry-user",),
         )
 
+    print("\n[RETRY TEST] lock contention created")
     await asyncio.gather(write_after_contention(), release_lock())
     await released.wait()
 
@@ -109,3 +127,7 @@ async def test_concurrent_sqlite_load_retries_locked_writes(tmp_path, monkeypatc
     verify.close()
 
     assert count == 1
+
+    print("[RETRY TEST] lock released and write retried successfully")
+    print(f"[RETRY TEST] final messages_count={count}")
+    print("[RETRY TEST] RESULT=PASSED")
