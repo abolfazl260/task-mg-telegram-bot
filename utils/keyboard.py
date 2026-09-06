@@ -110,6 +110,7 @@ def task_action_keyboard(task_id: str, current_status: str = "pending", bot_prof
     if _task_option_enabled(bot_profile, "allow_comments"):
         detail_buttons.insert(0, InlineKeyboardButton(f"💬 کامنت ({comment_count})", callback_data=f"comment_add_{task_id}"))
     buttons.append(detail_buttons)
+    buttons.append([InlineKeyboardButton("✏️ ویرایش تحت وب", callback_data=f"task_web_edit_{task_id}")])
 
     if _task_option_enabled(bot_profile, "allow_assignment"):
         buttons.append([
