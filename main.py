@@ -153,5 +153,11 @@ def build_application(profile):
     app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.ALL | filters.LOCATION, save_task))
     app.add_handler(MessageHandler(filters.VOICE,handle_voice_message));app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_tag_text));app.add_handler(PreCheckoutQueryHandler(precheckout_callback));app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT,successful_payment_callback));app.add_error_handler(error_handler);return app
 def main():
-    apps=[build_application(profile) for profile in BOT_PROFILES];logger.info("Starting %s bot application(s): %s",len(apps),", ".join(p.key for p in BOT_PROFILES));apps[0].run_polling(allowed_updates=[*Update.ALL_TYPES,"guest_message"]) if len(apps)==1 else asyncio.run(run_applications(apps))
+    apps=[build_application(profile) for profile in BOT_PROFILES];logger.info("Starting %s bot application(s): %s",len(apps),", ".join(p.key for p in BOT_PROFILES))
+    if len(apps)==1:
+        loop=asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        apps[0].run_polling(allowed_updates=[*Update.ALL_TYPES,"guest_message"])
+    else:
+        asyncio.run(run_applications(apps))
 if __name__=="__main__":main()
