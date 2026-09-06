@@ -124,10 +124,12 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
             except Exception:
                 draft = None
             if isinstance(draft, dict) and draft.get("action") in {"CREATE_TASK", "CREATE_HABIT"}:
-                context.user_data["ai_request_draft"] = draft
-                await _stream_rich_draft(bot, chat_id, draft_id, _rich_ai_draft_html(draft))
-                await _send_rich_final(bot, chat_id, _rich_ai_draft_html(draft))
-                return
+                user_data = getattr(context, "user_data", None)
+                if user_data is not None:
+                    user_data["ai_request_draft"] = draft
+                    await _stream_rich_draft(bot, chat_id, draft_id, _rich_ai_draft_html(draft))
+                    await _send_rich_final(bot, chat_id, _rich_ai_draft_html(draft))
+                    return
             await _stream_rich_draft(bot, chat_id, draft_id, _rich_draft_html("🤖 دستیار هوشمند", "درخواست شما شناسایی شد؛ در حال آماده‌سازی پاسخ...", thinking=True), can_stop=True)
             original_args = getattr(context, "args", None)
             context.args = [text]
