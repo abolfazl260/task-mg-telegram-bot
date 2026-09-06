@@ -149,3 +149,22 @@ try:
         CallbackQueryHandler.__init__ = _category_safe_callback_handler_init
 except Exception:
     pass
+
+# python-telegram-bot's synchronous Application.run_polling() expects a
+# current event loop. Python 3.12 may have no current loop by the time main()
+# reaches run_polling(), for example after another library has closed it.
+try:
+    from telegram.ext import Application
+    _original_run_polling = Application.run_polling
+    if not getattr(_original_run_polling, "_taskmg_event_loop_safe", False):
+        @wraps(_original_run_polling)
+        def _safe_run_polling(self, *args, **kwargs):
+            try:
+                asyncio.get_event_loop()
+            except RuntimeError:
+                asyncio.set_event_loop(asyncio.new_event_loop())
+            return _original_run_polling(self, *args, **kwargs)
+        _safe_run_polling._taskmg_event_loop_safe = True
+        Application.run_polling = _safe_run_polling
+except Exception:
+    pass
