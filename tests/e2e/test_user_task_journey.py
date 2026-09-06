@@ -5,6 +5,8 @@ not call Telegram or external services, so it is deterministic and safe to run
 in CI without leaving test data behind.
 """
 
+import time
+
 import pytest
 
 from services import task_service
@@ -14,6 +16,10 @@ from services import task_service
 async def test_user_can_create_view_edit_comment_and_complete_task(test_db, monkeypatch):
     user_id = "e2e-user-1001"
     title = "E2E Test Task"
+    started_at = time.perf_counter()
+
+    print("\n[E2E TEST] starting real user task journey")
+    print("[E2E TEST] database=isolated test database")
 
     # Keep bot provenance deterministic without touching application settings.
     monkeypatch.setattr(task_service, "_bot", lambda: "e2e-test-bot")
@@ -29,6 +35,7 @@ async def test_user_can_create_view_edit_comment_and_complete_task(test_db, monk
         description="Created by the end-to-end user journey.",
     )
     assert task_id
+    print(f"[E2E TEST] 1/7 CREATE TASK      -> id={task_id}")
 
     # 2. User opens the task and sees exactly what was submitted.
     task = await task_service.get_task_by_id_async(task_id)
@@ -41,6 +48,7 @@ async def test_user_can_create_view_edit_comment_and_complete_task(test_db, monk
     assert task["category"] == "Work"
     assert task["tags"] == "e2e,test"
     assert task["description"] == "Created by the end-to-end user journey."
+    print("[E2E TEST] 2/7 READ TASK        -> all created fields verified")
 
     # 3. User edits the task.
     updated = await task_service.update_task_async(
@@ -60,6 +68,7 @@ async def test_user_can_create_view_edit_comment_and_complete_task(test_db, monk
     assert task["tags"] == "e2e,test,updated"
     assert task["category"] == "Work"
     assert task["deadline"] == "2026-09-30"
+    print("[E2E TEST] 3/7 UPDATE TASK      -> updated fields persisted")
 
     # 4. User adds a comment and then verifies it was persisted.
     comment = {
@@ -80,10 +89,12 @@ async def test_user_can_create_view_edit_comment_and_complete_task(test_db, monk
     assert comments[0]["author_username"] == "e2e_user"
     assert comments[0]["text"] == "E2E comment persisted successfully"
     assert comments[0]["type"] == "text"
+    print("[E2E TEST] 4/7 ADD COMMENT      -> comment persisted and reloaded")
 
     # 5. User completes the task.
     completed = await task_service.update_task_status_async(task_id, "done")
     assert completed is True
+    print("[E2E TEST] 5/7 COMPLETE TASK    -> status changed to done")
 
     # 6. Final read verifies the complete persisted state.
     task = await task_service.get_task_by_id_async(task_id)
@@ -94,11 +105,16 @@ async def test_user_can_create_view_edit_comment_and_complete_task(test_db, monk
     assert task["category"] == "Work"
     assert task["tags"] == "e2e,test,updated"
     assert task["description"] == "Updated by the end-to-end journey."
+    print("[E2E TEST] 6/7 FINAL READ       -> complete task state verified")
 
-    # 7. The task is still visible in the user's complete task list and the
-    # comment remains attached to the same task.
+    # 7. User still sees the task and its comment in the persisted data.
     tasks = await task_service.get_all_user_tasks_async(user_id)
     matching = [item for item in tasks if item["id"] == task_id]
     assert len(matching) == 1
     assert matching[0]["status"] == "done"
     assert await task_service.get_task_comments_async(task_id) == comments
+
+    elapsed = time.perf_counter() - started_at
+    print("[E2E TEST] 7/7 DATABASE CHECK   -> task and comment still linked")
+    print(f"[E2E TEST] elapsed={elapsed:.2f}s")
+    print("[E2E TEST] RESULT=PASSED")
