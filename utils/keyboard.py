@@ -1,11 +1,14 @@
 from datetime import datetime, timedelta
 import logging
+from urllib.parse import quote
 
 import jdatetime
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from services.database import get_db
-from bot_context import get_current_bot_key
+from bot_context import get_current_bot_key, get_current_user_id
+from webapp.config import WEBAPP_BASE_URL
+from webapp.report_tokens import create_report_token
 
 logger = logging.getLogger(__name__)
 MAX_TAG_LENGTH = 30
@@ -89,6 +92,15 @@ def _task_option_enabled(bot_profile, name: str) -> bool:
     return bool(options.get(name, True))
 
 
+def _task_web_url(task_id: str) -> str | None:
+    user_id = get_current_user_id()
+    if not user_id:
+        return None
+    bot_key = get_current_bot_key() or "default"
+    token = create_report_token(bot_key, user_id, report_type="task", ttl_days=30)
+    return f"{WEBAPP_BASE_URL.rstrip('/')}/task/{quote(token, safe='')}/{quote(str(task_id), safe='')}"
+
+
 def task_action_keyboard(task_id: str, current_status: str = "pending", bot_profile=None, comment_count: int = 0):
     """Compact task-card actions filtered by the active BotProfile capabilities."""
     labels = bot_profile.workflow.get("actions", {}) if bot_profile is not None else {}
@@ -110,6 +122,9 @@ def task_action_keyboard(task_id: str, current_status: str = "pending", bot_prof
     if _task_option_enabled(bot_profile, "allow_comments"):
         detail_buttons.insert(0, InlineKeyboardButton(f"💬 کامنت ({comment_count})", callback_data=f"comment_add_{task_id}"))
     buttons.append(detail_buttons)
+    web_url = _task_web_url(task_id)
+    if web_url:
+        buttons.append([InlineKeyboardButton("✏️ ویرایش تحت وب", url=web_url)])
 
     if _task_option_enabled(bot_profile, "allow_assignment"):
         buttons.append([

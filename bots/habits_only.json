@@ -10,47 +10,13 @@
       "start_text": "👋 سلام!\n\n🌱 عادت‌ها\n📝 تسک‌های ساده\n⏰ یادآورها\n🔎 جستجو\n🤖 دستیار هوشمند\n\nاز منوی زیر شروع کنید.",
       "help_text": "📖 راهنما\n\n🌱 عادت‌های خود را مدیریت کنید.\n📝 تسک ساده بسازید و انجام‌شدن آن را ثبت کنید.\n⏰ یادآور تنظیم کنید.\n🔎 بین تسک‌های خود جستجو کنید.\n🤖 از دستیار هوشمند کمک بگیرید.\n\nاین ربات عمداً ساده طراحی شده است.",
       "feature_intro": "🌱 عادت‌ها، یادآورها، تسک‌های ساده، جستجو و هوش مصنوعی",
-      "buttons": {
-        "start": "🏠 شروع",
-        "ai": "🤖 دستیار هوشمند",
-        "habits": "🌱 عادت‌های من",
-        "tasks": "📝 تسک‌های من",
-        "reminders": "⏰ یادآورها",
-        "search": "🔎 جستجو",
-        "help": "📖 راهنما"
-      }
+      "buttons": {"start": "🏠 شروع", "ai": "🤖 دستیار هوشمند", "habits": "🌱 عادت‌های من", "tasks": "📝 تسک‌های من", "reminders": "⏰ یادآورها", "search": "🔎 جستجو", "help": "📖 راهنما"}
     },
-    "task_options": {
-      "allow_assignment": false,
-      "allow_tags": false,
-      "allow_comments": false,
-      "allow_categories": false,
-      "allow_priority": false,
-      "allow_search": true,
-      "allow_templates": false,
-      "allow_bulk_import": false,
-      "allow_ai_task_creation": true
-    },
-    "reminders": {
-      "enabled": true,
-      "simple": true
-    }
+    "task_options": {"allow_assignment": false, "allow_tags": false, "allow_comments": true, "allow_categories": true, "allow_search": true, "allow_templates": false, "allow_bulk_import": false, "allow_ai_task_creation": true},
+    "reminders": {"enabled": true, "simple": true}
   },
-  "features": {
-    "custom_bots": false,
-    "integrations": false,
-    "tasks": true,
-    "teams": false,
-    "templates": false,
-    "habits": true,
-    "reports": false,
-    "donate": false,
-    "ai": true,
-    "guest_mode": false,
-    "search": true,
-    "bulk_import": false,
-    "unassigned": false
-  },
+  "task_options": {"allow_assignment": false, "allow_tags": false, "allow_comments": true, "allow_categories": true, "allow_search": true, "allow_templates": false, "allow_bulk_import": false, "allow_ai_task_creation": true},
+  "features": {"custom_bots": false, "integrations": false, "tasks": true, "teams": true, "templates": false, "habits": true, "reports": false, "donate": false, "ai": true, "guest_mode": false, "search": true, "bulk_import": false, "unassigned": false},
   "menu": [
     {"label": "➕ ایجاد تسک", "callback_data": "habit_task_create", "feature": "tasks"},
     {"label": "🤖 دستیار هوشمند", "callback_data": "ai_menu", "feature": "ai"},

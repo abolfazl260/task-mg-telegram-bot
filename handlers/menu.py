@@ -96,6 +96,7 @@ async def button_handler(update,context):
     await query.answer()
     if data=="add_task":return await show_add_task_menu(update,context)
     if data=="add_task_manual":
+        # Manual task flow contract: context.user_data["step"] = "title"
         from handlers.start_create_task import start_create_task
         return await start_create_task(update,context)
     if data=="ai_start":

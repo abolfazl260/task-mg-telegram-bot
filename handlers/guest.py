@@ -67,7 +67,7 @@ def _extract_priority(text: str) -> str:
     for priority, words in _PRIORITY_WORDS.items():
         if any(word.lower() in lowered for word in words):
             return priority
-    return "low"
+    return "medium"
 
 
 def _extract_deadline(text: str) -> str:

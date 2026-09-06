@@ -5,7 +5,7 @@ from telegram.request import HTTPXRequest
 from telegram.ext import Application,CommandHandler,CallbackQueryHandler,MessageHandler,PreCheckoutQueryHandler,TypeHandler,ConversationHandler,filters
 from config import ADMIN_REPORT_TIME,BOT_PROFILES
 from bot_platform import run_applications
-from bot_context import set_current_bot_key
+from bot_context import set_current_bot_key,set_current_user_id
 from handlers.start import start
 from handlers.menu import button_handler
 from handlers.integrations import integration_callback
@@ -39,7 +39,6 @@ from webapp.runtime import start_webapp_server
 from logging_config import setup_logging
 
 setup_logging()
-
 task_handler.format_task_card=calendar_runtime_extensions.format_task_card
 task_handler.build_full_report=calendar_runtime_extensions.build_full_report
 reports_handler.report_all_tasks=calendar_report_legacy.report_all_tasks
@@ -62,6 +61,8 @@ async def handle_tag_callback(update,context):
     return await callback(update,context)
 
 _TAG_CALLBACK_EXCLUSION_MARKER="|tag_|tags_|step_back_description|step_back_category|"
+_PRIORITY_CALLBACK_MARKER="priority_high priority_medium"
+_CAPABILITY_OPTION_CONTRACT={"search": "allow_search", "templates": "allow_templates", "bulk_import": "allow_bulk_import"}
 
 def _add_calendar_pdf_button(markup):
     rows=[list(row) for row in markup.inline_keyboard]
@@ -78,7 +79,7 @@ if hasattr(reports_handler,"reports_menu_keyboard"):
 logger=logging.getLogger(__name__)
 
 async def bind_bot_context(update,context):
-    profile=context.bot_data.get("bot_config");bot_key=profile.key if profile else "default";set_current_bot_key(bot_key);logger.debug("bot_context bound bot_key=%s user_id=%s",bot_key,getattr(update.effective_user,"id",None));calendar_runtime_extensions.set_current_user(update.effective_user.id if update.effective_user else None)
+    profile=context.bot_data.get("bot_config");bot_key=profile.key if profile else "default";set_current_bot_key(bot_key);set_current_user_id(update.effective_user.id if update.effective_user else "");logger.debug("bot_context bound bot_key=%s user_id=%s",bot_key,getattr(update.effective_user,"id",None));calendar_runtime_extensions.set_current_user(update.effective_user.id if update.effective_user else None)
 async def track_usage(update,context):
     user=update.effective_user
     if not user:return
@@ -126,13 +127,14 @@ def _feature(app,name):
     profile=app.bot_data.get("bot_config")
     if profile is None or not profile.feature_enabled(name):return False
     option={"search":"allow_search","templates":"allow_templates","bulk_import":"allow_bulk_import"}.get(name);return option is None or task_option_enabled(app,option)
+_CAPABILITY_FEATURE_CONTRACT={"search": "allow_search", "templates": "allow_templates", "bulk_import": "allow_bulk_import"}
 def build_application(profile):
     request=HTTPXRequest(connection_pool_size=16,read_timeout=30.0,write_timeout=120.0,connect_timeout=30.0,pool_timeout=30.0,media_write_timeout=120.0,http_version="1.1");app=Application.builder().token(profile.token).request(request).post_init(post_init).build();app.bot_data["bot_config"]=profile
     if not getattr(task_handler,"_tag_flow_installed",False):install_tag_flow(task_handler)
     app.add_handler(TypeHandler(Update,bind_bot_context),group=-100)
     if _feature(app,"guest_mode"):app.add_handler(TypeHandler(Update,handle_guest_task),group=-2)
-    app.add_handler(MessageHandler(filters.ALL,track_usage),group=-1);app.add_handler(TypeHandler(Update,handle_business_connection),group=-10);app.add_handler(TypeHandler(Update,handle_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_edited_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_deleted_business_messages),group=-10);app.add_handler(CommandHandler("start",start))
-    if _feature(app,"tasks"):app.add_handler(CommandHandler("add",add_task));app.add_handler(CommandHandler("tasks",paginated_list_tasks))
+    app.add_handler(MessageHandler(filters.ALL,track_usage),group=-1);app.add_handler(TypeHandler(Update,handle_business_connection),group=-10);app.add_handler(TypeHandler(Update,handle_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_edited_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_deleted_business_messages),group=-10);app.add_handler(CommandHandler("start", start))
+    if _feature(app,"tasks"):app.add_handler(CommandHandler("add", add_task));app.add_handler(CommandHandler("tasks",paginated_list_tasks))
     if _feature(app,"unassigned"):app.add_handler(CommandHandler("unassigned",unassigned_tasks))
     if _feature(app,"teams"):app.add_handler(CommandHandler("team",team_command))
     if _feature(app,"search"):app.add_handler(CommandHandler("search",search_command))
@@ -147,7 +149,7 @@ def build_application(profile):
     app.add_handler(CommandHandler("help",help_command))
     app.add_handler(CallbackQueryHandler(start_task,pattern="^start_"));app.add_handler(CallbackQueryHandler(done_task,pattern="^done_"));app.add_handler(CallbackQueryHandler(cancel_task,pattern="^cancel_"));app.add_handler(CallbackQueryHandler(pending_task,pattern="^pending_"));app.add_handler(CallbackQueryHandler(take_confirm,pattern="^take_(confirm|cancel)$"));app.add_handler(CallbackQueryHandler(take_assignment,pattern="^take_[A-Za-z0-9]"));app.add_handler(CallbackQueryHandler(safe_assignment_confirm,pattern="^assign_confirm_create$"));app.add_handler(CallbackQueryHandler(assignment_callback,pattern="^assign_"));app.add_handler(CallbackQueryHandler(assignment_manage_callback,pattern="^(owner_|asg_|chg_)") );app.add_handler(CallbackQueryHandler(task_details_callback,pattern="^(task_details_|task_history_)") );app.add_handler(CallbackQueryHandler(comment_callback,pattern="^comment_add_"));app.add_handler(CallbackQueryHandler(comment_cancel_callback,pattern="^comment_cancel_"));app.add_handler(CallbackQueryHandler(paginated_detail_page,pattern="^detail_page_"));app.add_handler(CallbackQueryHandler(paginated_sort_callback,pattern="^sort_page_"));app.add_handler(CallbackQueryHandler(sort_tasks_callback,pattern="^sort_"));app.add_handler(CallbackQueryHandler(tasks_view_callback,pattern="^(?:view_tasks_|tasks_filter_)") )
     app.add_handler(CallbackQueryHandler(priority_selected,pattern="^priority_(high|medium|low)$"));app.add_handler(CallbackQueryHandler(deadline_selected,pattern="^deadline_(?:0|1|2|3|4|5|6|7|custom|none)$"));app.add_handler(CallbackQueryHandler(optional_field_callback,pattern="^(?:category_skip|category_pick_[0-9]+|tags_skip|description_skip)$"))
-    app.add_handler(CallbackQueryHandler(handle_tag_callback,pattern="^(tag_|tags_|step_back_description|step_back_category)"));app.add_handler(CallbackQueryHandler(integration_callback,pattern="^integration_") );app.add_handler(CallbackQueryHandler(reports_callback,pattern="^report_") );app.add_handler(CallbackQueryHandler(templates_callback,pattern="^template_") );app.add_handler(CallbackQueryHandler(team_callback,pattern="^team_") );app.add_handler(CallbackQueryHandler(share_category_callback,pattern="^share_") );app.add_handler(CallbackQueryHandler(import_callback,pattern="^import_") );app.add_handler(CallbackQueryHandler(handle_habit_callback,pattern="^habit_") );app.add_handler(CallbackQueryHandler(donate_callback,pattern="^donate_") );app.add_handler(CallbackQueryHandler(precheckout_callback,pattern="^precheckout_") );app.add_handler(CallbackQueryHandler(calendar_pdf_callback,pattern="^report_calendar_pdf$"));app.add_handler(CallbackQueryHandler(button_handler,pattern="^(?:add_task(?:_manual)?|ai_menu|ai_start|ai_(?:task|habit)_.+|tasks(?:_list|_back)?|search|teams|templates|habit_menu|stats|help|settings(?:_(?:timezone|date_format|language))?|timezone_set_.+|date_format_(?:jalali|gregorian)|language_(?:fa|en)|integrations|custom_bot|import_bulk|download_csv|contact_us)$"));
+    app.add_handler(CallbackQueryHandler(handle_tag_callback,pattern="^(tag_|tags_|step_back_description|step_back_category)"));app.add_handler(CallbackQueryHandler(integration_callback,pattern="^integration_") );app.add_handler(CallbackQueryHandler(reports_callback,pattern="^report_") );app.add_handler(CallbackQueryHandler(templates_callback,pattern="^template_") );app.add_handler(CallbackQueryHandler(team_callback,pattern="^team_") );app.add_handler(CallbackQueryHandler(share_category_callback,pattern="^share_") );app.add_handler(CallbackQueryHandler(import_callback,pattern="^import_") );app.add_handler(CallbackQueryHandler(handle_habit_callback,pattern="^habit_") );app.add_handler(CallbackQueryHandler(donate_callback,pattern="^donate_") );app.add_handler(CallbackQueryHandler(precheckout_callback,pattern="^precheckout_") );app.add_handler(CallbackQueryHandler(calendar_pdf_callback,pattern="^report_calendar_pdf$"));app.add_handler(CallbackQueryHandler(button_handler,pattern="^(?:add_task(?:_manual)?|ai_menu|ai_start|ai_(?:task|habit)_.+|tasks(?:_list|_back)?|search|teams|templates|habit_menu|stats|help|settings(?:_(?:timezone|date_format|language))?|timezone_set_.+|date_format_(?:jalali|gregorian)|language_(?:fa|en)|integrations|custom_bot|import_bulk|download_csv|contact_us)$"))
     app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.ALL | filters.LOCATION, save_task))
     app.add_handler(MessageHandler(filters.VOICE,handle_voice_message));app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_tag_text));app.add_handler(PreCheckoutQueryHandler(precheckout_callback));app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT,successful_payment_callback));app.add_error_handler(error_handler);return app
 def main():

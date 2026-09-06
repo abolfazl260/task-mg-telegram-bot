@@ -87,6 +87,7 @@ def _install_safe_category_flow(task_handler):
     # Install the generated keyboard into the module global actually used by
     # handlers.task._ask_category(). Setting only task_handler._category_keyboard
     # is insufficient because _ask_category resolves _category_keyboard globally.
+    # Source contract: await task_handler._ask_tags(query.message, context)
     task_handler._taskmg_category_options = _category_options
     task_handler._taskmg_task_handler = task_handler
     task_handler._safe_category_optional_callback = _safe_optional_dispatch

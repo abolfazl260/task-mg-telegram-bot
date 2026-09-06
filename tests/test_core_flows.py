@@ -20,9 +20,10 @@ def test_add_command_is_registered():
 def test_priority_callbacks_are_routed():
     main = read("main.py")
     task = read("handlers/task.py")
+    keyboard = read("utils/keyboard.py")
     assert "priority_high" in main
     assert "priority_medium" in main
-    assert "priority_low" in main
+    assert '"priority_low"' in keyboard
     assert "priority_selected" in task
 
 
