@@ -39,7 +39,6 @@ from webapp.runtime import start_webapp_server
 from logging_config import setup_logging
 
 setup_logging()
-
 task_handler.format_task_card=calendar_runtime_extensions.format_task_card
 task_handler.build_full_report=calendar_runtime_extensions.build_full_report
 reports_handler.report_all_tasks=calendar_report_legacy.report_all_tasks
@@ -62,7 +61,8 @@ async def handle_tag_callback(update,context):
     return await callback(update,context)
 
 _TAG_CALLBACK_EXCLUSION_MARKER="|tag_|tags_|step_back_description|step_back_category|"
-_PRIORITY_CALLBACK_MARKER="priority_high"
+_PRIORITY_CALLBACK_MARKER="priority_high priority_medium"
+_CAPABILITY_OPTION_CONTRACT={"search": "allow_search", "templates": "allow_templates", "bulk_import": "allow_bulk_import"}
 
 def _add_calendar_pdf_button(markup):
     rows=[list(row) for row in markup.inline_keyboard]
@@ -84,7 +84,7 @@ async def track_usage(update,context):
     user=update.effective_user
     if not user:return
     is_new=await record_user_async(user,increment_usage=True);logger.info("user_activity user_id=%s username=%s full_name=%s chat_id=%s update_id=%s",user.id,user.username or "",user.full_name or "",update.effective_chat.id if update.effective_chat else "",update.update_id)
-    if is_new:await notify_new_user(context,user)
+    if is_new:await notify_new_user(context)
 def _parse_report_time():
     try:
         hour,minute=ADMIN_REPORT_TIME.split(":",1);return dt_time(hour=int(hour),minute=int(minute))
