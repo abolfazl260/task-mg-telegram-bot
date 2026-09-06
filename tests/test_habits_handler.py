@@ -1,62 +1,85 @@
 import handlers.habits as habits
 
 
+def _callbacks(keyboard):
+    return [button.callback_data for row in keyboard.inline_keyboard for button in row]
+
+
 def test_habit_menu_keyboard_has_expected_actions():
     keyboard = habits.habit_menu_keyboard()
-    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+    callbacks = _callbacks(keyboard)
     assert "habit_create" in callbacks
     assert "habit_list" in callbacks
     assert "habit_today" in callbacks
+    assert "habit_records" in callbacks
+    assert "habit_dashboard" in callbacks
+    assert "habit_reminders" in callbacks
 
 
-def test_create_habit_keyboard_has_expected_actions():
-    keyboard = habits.create_habit_keyboard()
-    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
-    assert "habit_template" in callbacks
-    assert "habit_custom" in callbacks
-    assert "habit_menu" in callbacks
+def test_create_keyboard_has_expected_actions():
+    keyboard = habits._create_keyboard()
+    callbacks = _callbacks(keyboard)
+    assert "habit_new" in callbacks
+    assert "habit_templates" in callbacks
+    assert "habit_list" in callbacks
 
 
 def test_reminder_keyboard_has_expected_actions():
-    keyboard = habits.reminder_keyboard()
-    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
-    assert "habit_reminder_none" in callbacks
-    assert "habit_reminder_custom" in callbacks
+    keyboard = habits._reminder_keyboard("h1")
+    callbacks = _callbacks(keyboard)
+    assert "habit_remtime_h1_07:00" in callbacks
+    assert "habit_remtime_h1_09:00" in callbacks
+    assert "habit_remtime_h1_21:00" in callbacks
+    assert "habit_remtime_h1_none" in callbacks
+    assert "habit_list" in callbacks
 
 
-def test_reminder_labels_are_defined():
-    labels = habits.REMINDER_LABELS
-    assert labels
-    assert all(isinstance(key, str) and isinstance(value, str) for key, value in labels.items())
+def test_reminder_label_handles_supported_repeat_types():
+    assert habits.reminder_label({"repeat_type": "daily", "reminder_time": "09:00"}) == "روزانه ساعت 09:00"
+    assert habits.reminder_label({"repeat_type": "weekly", "reminder_time": "09:00"}) == "هفتگی در روز شروع عادت، ساعت 09:00"
+    assert habits.reminder_label({"repeat_type": "monthly", "reminder_time": "09:00"}) == "ماهانه در تاریخ روز شروع عادت، ساعت 09:00"
+    assert habits.reminder_label({"repeat_type": "daily", "reminder_time": ""}) == "بدون یادآوری"
 
 
 def test_template_lookup_returns_template():
-    template = habits.get_template("water")
+    template = habits._find_template("water")
+    assert template is not None
     assert template["title"]
     assert template["category"]
 
 
+def test_template_lookup_missing_returns_none():
+    assert habits._find_template("missing") is None
+
+
 def test_format_template_contains_template_fields():
-    template = habits.get_template("water")
+    template = habits._find_template("water")
     text = habits.format_template(template)
     assert template["title"] in text
-    assert template["category"] in text
+    assert template["description"] in text
+    assert "🎯 هدف:" in text
+    assert "🔁 تکرار:" in text
+    assert "⏰ یادآوری:" in text
 
 
 def test_prepare_template_does_not_mutate_template():
-    template = habits.get_template("water")
+    template = habits._find_template("water")
     original = dict(template)
-    prepared = habits.prepare_template(template)
+    context = type("Context", (), {"user_data": {}})()
+    habits._prepare_template(context, template)
     assert template == original
-    assert prepared["title"] == original["title"]
+    assert context.user_data["new_habit"]["title"] == original["title"]
+    assert context.user_data["new_habit"]["template_key"] == "water"
 
 
 def test_template_form_keyboard_has_expected_actions():
-    keyboard = habits.template_form_keyboard()
-    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
-    assert "habit_template_water" in callbacks
-    assert "habit_template_medicine" in callbacks
-    assert "habit_template_meditation" in callbacks
+    keyboard = habits._template_form_keyboard("water")
+    callbacks = _callbacks(keyboard)
+    assert "habit_tpl_target_water" in callbacks
+    assert "habit_tpl_rem_water" in callbacks
+    assert "habit_tpl_date_water" in callbacks
+    assert "habit_tpl_confirm_water" in callbacks
+    assert "habit_templates" in callbacks
 
 
 def test_format_habit_includes_status_and_statistics(monkeypatch):
@@ -80,6 +103,6 @@ def test_format_habit_includes_inactive_status():
 
 
 def test_habit_buttons_include_expected_actions():
-    keyboard = habits.habit_buttons({"id": "h1", "active": "1"})
-    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
-    assert any("habit_done_h1" == callback for callback in callbacks)
+    keyboard = habits._habit_buttons([{"id": "h1", "title": "Reading"}], "habit_done")
+    callbacks = _callbacks(keyboard)
+    assert callbacks == ["habit_done_h1"]
