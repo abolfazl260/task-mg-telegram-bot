@@ -5,8 +5,16 @@ import uuid
 from datetime import datetime, timezone
 
 from bot_context import get_current_bot_key
-from services.database import fetch_all, fetch_all_sql, fetch_one, execute, transaction, sync_all, get_db, _run as db_run
-from services.team_service import acan_edit, ais_member, aget_team
+from services.database import (
+    _run as db_run,
+    execute,
+    fetch_all,
+    fetch_all_sql,
+    fetch_one,
+    get_db,
+    transaction,
+)
+from services.team_service import acan_edit, aget_team, ais_member
 
 VALID_STATUSES = {"pending", "in_progress", "done", "cancelled"}
 VALID_PRIORITIES = {"low", "medium", "high"}
