@@ -140,9 +140,9 @@ def _custom_bot_profiles() -> list[BotProfile]:
 
 def load_bot_profiles() -> list[BotProfile]:
     load_dotenv(BASE_DIR / ".env")
+    if os.getenv("TESTING", "").lower() in {"1", "true", "yes", "on"}: return [BotProfile(key="test", name="Test Bot", username="test_bot", token="test-token")]
     # JSON profiles remain backward-compatible seed/config sources. Managed DB profiles are loaded last.
     _run(seed_default_profiles())
-    if os.getenv("TESTING", "").lower() in {"1", "true", "yes", "on"}: return [BotProfile(key="test", name="Test Bot", username="test_bot", token="test-token")]
     profile_names = [item.strip() for item in os.getenv("BOT_PROFILES", "").split(",") if item.strip()]; profiles: list[BotProfile] = []; legacy_profile = _legacy_default_profile()
     if legacy_profile is not None: profiles.append(legacy_profile)
     if profile_names: profiles.extend(_load_json_profile(BOTS_DIR / f"{name}.json") for name in profile_names)
