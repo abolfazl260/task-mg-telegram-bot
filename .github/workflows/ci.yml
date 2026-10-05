@@ -172,27 +172,35 @@ jobs:
           import tempfile
 
           def run_bandit(root):
-              result = subprocess.run(
-                  [
-                      "bandit",
-                      "-r",
-                      ".",
-                      "-x",
-                      ".git,tests,.venv,venv",
-                      "--severity-level",
-                      "medium",
-                      "-f",
-                      "json",
-                  ],
-                  cwd=root,
-                  capture_output=True,
-                  text=True,
-              )
-              if result.returncode not in (0, 1):
-                  sys.stderr.write(result.stderr)
-                  raise SystemExit(result.returncode)
-              payload = json.loads(result.stdout or "{}")
-              return payload.get("results") or []
+              fd, output_path = tempfile.mkstemp(prefix="bandit-", suffix=".json")
+              os.close(fd)
+              os.unlink(output_path)
+              try:
+                  result = subprocess.run(
+                      [
+                          "bandit",
+                          "-r",
+                          ".",
+                          "-x",
+                          ".git,tests,.venv,venv",
+                          "--severity-level",
+                          "medium",
+                          "-f",
+                          "json",
+                          "-o",
+                          output_path,
+                      ],
+                      cwd=root,
+                      capture_output=True,
+                      text=True,
+                  )
+                  if result.returncode not in (0, 1):
+                      sys.stderr.write(result.stderr)
+                      raise SystemExit(result.returncode)
+                  payload = json.loads(Path(output_path).read_text(encoding="utf-8") or "{}")
+                  return payload.get("results") or []
+              finally:
+                  Path(output_path).unlink(missing_ok=True)
 
           def finding_key(item, root):
               path = Path(item["filename"])
