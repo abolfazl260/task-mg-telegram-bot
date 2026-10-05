@@ -101,6 +101,7 @@ async def test_edit_replace_token_and_preserve_key():
             "display_name": "Operations",
             "bot_token": "123456:abcdefghijklmnopqrstuvwxyzABCDE22222",
             "features": ["core", "tasks", "teams", "assignment"],
+            "settings": {"ui": {"language": "fa"}},
         },
         1,
         token_validator=_valid_token,
@@ -109,6 +110,7 @@ async def test_edit_replace_token_and_preserve_key():
     assert updated["display_name"] == "Operations"
     assert updated["token_masked"].endswith("2222")
     assert "assignment" in updated["features"]
+    assert updated["settings"]["ui"]["language"] == "fa"
 
 
 @pytest.mark.asyncio
