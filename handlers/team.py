@@ -347,7 +347,7 @@ async def _open_team(update, context, team_id: str):
         await update.callback_query.message.reply_text('پیدا نشد یا عضو نیستید.')
         return
     linked = await _sync_category_tasks(user_id, team)
-    active = await get_team_tasks_async(team_id, active_only=True)
+    active = await get_team_tasks_async(team_id, user_id, active_only=True)
     members = await aget_team_members(team_id)
     preview = '، '.join((_e(member_display(m)) for m in members[:5]))
     if len(members) > 5:
@@ -374,7 +374,7 @@ async def _show_team_tasks(update, context, team_id: str):
         await update.callback_query.message.reply_text('دسترسی ندارید.')
         return
     await _sync_category_tasks(user_id, team)
-    tasks = await get_team_tasks_async(team_id, active_only=True)
+    tasks = await get_team_tasks_async(team_id, user_id, active_only=True)
     if not tasks:
         await update.callback_query.message.reply_text(f"دسته «{team['name']}» تسک فعالی ندارد.\nاگر تسک شخصی با همین نام دسته داری، یک\u200cبار «باز کردن این دسته» را بزن تا وصل شوند؛ یا با «➕ تسک در این دسته» تسک جدید بساز.")
         return
