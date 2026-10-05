@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -355,6 +356,19 @@ async def seed_default_profiles() -> list[str]:
         workflow = clinic.get("workflow", {}) if key == "clinic" else {}
         menu = clinic.get("menu", []) if key == "clinic" else []
         username = clinic.get("username", "") if key == "clinic" else ""
+        token = ""
+        status = "inactive"
+        source = "seed"
+        if key == "clinic":
+            configured_profiles = {item.strip() for item in os.getenv("BOT_PROFILES", "").split(",") if item.strip()}
+            if "clinic" in configured_profiles:
+                token_env = clinic.get("token_env") or "BOT_CLINIC_TOKEN"
+                username_env = clinic.get("username_env") or "BOT_CLINIC_USERNAME"
+                token = os.getenv(token_env, "").strip()
+                username = os.getenv(username_env, username).strip().lstrip("@")
+                if token:
+                    status = "active"
+                    source = "migrated_json"
         await db.conn.execute(
             """INSERT INTO custom_bots(
                 bot_key,owner_user_id,owner_name,owner_username,bot_token,bot_username,
@@ -363,11 +377,11 @@ async def seed_default_profiles() -> list[str]:
                 workflow_json,menu_json,source,last_error,last_connectivity_check
             ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                key, None, "", "", "", username,
-                ",".join(normalize_features(template["features"])), "inactive", "template",
+                key, None, "", "", token, username,
+                ",".join(normalize_features(template["features"])), status, "template",
                 now, now, template["name"], template["description"], key, key,
                 _json(settings, {}), "{}", _json(commands, []), _json(workflow, {}),
-                _json(menu, []), "seed", "", "",
+                _json(menu, []), source, "", "",
             ),
         )
         await db.conn.commit()
