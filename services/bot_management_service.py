@@ -187,7 +187,11 @@ async def create_managed_bot(
         token_info = await token_validator(token)
     if status == "active" and not token:
         raise ValueError("active_bot_requires_token")
-    features = normalize_features(payload.get("features"))
+    base_profile = str(payload.get("base_profile") or "").strip()
+    requested_features = payload.get("features")
+    if requested_features is None and base_profile in DEFAULT_PROFILE_TEMPLATES:
+        requested_features = DEFAULT_PROFILE_TEMPLATES[base_profile]["features"]
+    features = normalize_features(requested_features)
     username = str(payload.get("bot_username") or "").strip().lstrip("@")
     if token_info and not username:
         username = token_info["username"]
@@ -207,7 +211,7 @@ async def create_managed_bot(
                 str(payload.get("display_name") or bot_key).strip(),
                 str(payload.get("description") or "").strip(),
                 str(payload.get("profile_type") or "custom").strip() or "custom",
-                str(payload.get("base_profile") or "").strip(),
+                base_profile,
                 _json(payload.get("settings"), {}),
                 _json(payload.get("permissions"), {}),
                 _json(payload.get("commands"), []),
