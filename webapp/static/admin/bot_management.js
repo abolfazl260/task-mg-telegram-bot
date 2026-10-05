@@ -4,6 +4,7 @@
   const tg2 = window.Telegram?.WebApp;
   const initData2 = tg2?.initData || "";
   let registry = [];
+  let templates = {};
   let editingKey = "";
 
   async function request(url, options = {}) {
@@ -111,7 +112,8 @@
   async function loadRegistry() {
     const data = await request("/api/admin/bot-features");
     registry = data.features || [];
-    renderFeatureGrid(["core","tasks"]);
+    templates = Object.fromEntries((data.profiles || []).map(profile => [profile.key, profile]));
+    renderFeatureGrid((templates.custom && templates.custom.features) || ["core","tasks"]);
   }
 
   async function saveBot(event) {
@@ -154,6 +156,10 @@
   }
 
   q("#botEditorForm")?.addEventListener("submit", e => saveBot(e).catch(err => message(err.message, true)));
+  q("#botProfileType")?.addEventListener("change", e => {
+    const template = templates[e.target.value];
+    if (template?.features) renderFeatureGrid(template.features);
+  });
   q("#validateBotToken")?.addEventListener("click", validateToken);
   q("#cancelBotEdit")?.addEventListener("click", resetEditor);
   q("#newBotButton")?.addEventListener("click", resetEditor);
