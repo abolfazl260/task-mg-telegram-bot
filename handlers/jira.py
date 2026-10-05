@@ -1,10 +1,13 @@
 import asyncio
+import logging
 from functools import partial
 
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
 from services.jira_service import disconnect, get_connection, save_connection, validate_connection
+
+logger = logging.getLogger(__name__)
 
 JIRA_TYPE, JIRA_URL, JIRA_IDENTITY, JIRA_CREDENTIAL, JIRA_PROJECT = range(5)
 
@@ -70,7 +73,7 @@ async def jira_credential(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await update.effective_message.delete()
     except Exception:
-        pass
+        logger.exception("jira_credential_message_delete_failed user_id=%s", update.effective_user.id if update.effective_user else None)
     await update.effective_message.reply_text("مرحله ۵ از ۵\nکلید پروژه Jira را ارسال کنید. مثال: PROJ")
     return JIRA_PROJECT
 
@@ -85,9 +88,15 @@ async def jira_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("jira_connect", None)
         label = "Jira Server / Data Center" if data["deployment"] == "server" else "Jira Cloud"
         await update.effective_message.reply_text(f"✅ اتصال {label} با موفقیت انجام شد.\n\nProject: {project}\n🔄 همگام‌سازی خودکار فعال شد.\nهر ۶۰ ثانیه تغییرات Jira و Telegram بررسی می‌شوند.")
-    except Exception as exc:
+    except Exception:
+        logger.exception(
+            "jira_connection_failed user_id=%s deployment=%s project=%s operation=connect",
+            update.effective_user.id if update.effective_user else None,
+            data.get("deployment"),
+            project,
+        )
         context.user_data.pop("jira_connect", None)
-        await update.effective_message.reply_text(f"❌ اتصال برقرار نشد.\n\nجزئیات: {str(exc)[:500]}\n\nدوباره /jira را اجرا کنید.")
+        await update.effective_message.reply_text("❌ اتصال برقرار نشد. جزئیات خطا ثبت شد. دوباره /jira را اجرا کنید.")
     return ConversationHandler.END
 
 
