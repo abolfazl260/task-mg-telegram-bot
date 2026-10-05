@@ -4,6 +4,7 @@ import pytest
 
 from handlers.task import _is_bare_task_id
 from services import task_service
+from services.integration_service import _task_marker
 from utils.keyboard import task_action_keyboard
 
 
@@ -81,3 +82,9 @@ def test_task_action_callbacks_fit_telegram_limit_with_full_uuid():
     assert callbacks
     assert all(task_id in callback for callback in callbacks)
     assert all(len(callback.encode("utf-8")) <= 64 for callback in callbacks)
+
+
+def test_external_integration_marker_preserves_full_uuid():
+    task_id = str(uuid.uuid4())
+
+    assert _task_marker(task_id) == f"[BOT_TASK:{task_id}]"
