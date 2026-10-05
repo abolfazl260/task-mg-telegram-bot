@@ -1,12 +1,9 @@
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import threading
-import urllib.error
-import urllib.request
-
-import pytest
 
 from webapp import report_routes
 from webapp.server import ThreadingHTTPServer, WebAppHandler
@@ -88,13 +85,15 @@ def test_generic_webapp_500_does_not_expose_exception_text(monkeypatch):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        with pytest.raises(urllib.error.HTTPError) as caught:
-            urllib.request.urlopen(
-                f"http://127.0.0.1:{server.server_port}/api/me",
-                timeout=2,
-            )
-        assert caught.value.code == 500
-        body = caught.value.read()
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", server.server_port, timeout=2
+        )
+        connection.request("GET", "/api/me")
+        response = connection.getresponse()
+        body = response.read()
+        connection.close()
+
+        assert response.status == 500
         assert json.loads(body) == {"error": "internal_server_error"}
         assert secret.encode() not in body
         assert b"detail" not in body
