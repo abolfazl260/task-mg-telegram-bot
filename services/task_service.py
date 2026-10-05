@@ -5,8 +5,8 @@ import uuid
 from datetime import datetime, timezone
 
 from bot_context import get_current_bot_key
+from services.database import _run as db_run
 from services.database import (
-    _run as db_run,
     execute,
     fetch_all,
     fetch_all_sql,
