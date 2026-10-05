@@ -13,9 +13,9 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application
 
-from services.custom_bot_service import read_custom_bots
 from services.bot_feature_registry import FEATURE_REGISTRY
 from services.bot_management_service import seed_default_profiles
+from services.custom_bot_service import read_custom_bots
 from services.database import _run
 from services.task_capabilities import install_task_capabilities
 
