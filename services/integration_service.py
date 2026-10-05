@@ -75,9 +75,9 @@ def _ensure_list(row,lists):
  x=lists[0];set_list(row['user_id'],row['provider'],x.get('id'),x.get('displayName') or x.get('title') or '',row['bot_key']);row['external_list_id']=x.get('id');return row['external_list_id']
 def _deadline_iso(value,google=False):
  try:dt=datetime.strptime(value.strip(),'%Y-%m-%d %H:%M')
- except Exception:
+ except (ValueError,TypeError,AttributeError):
   try:dt=datetime.strptime(value.strip(),'%Y-%m-%d')
-  except Exception:return value
+  except (ValueError,TypeError,AttributeError):return value
  return dt.strftime('%Y-%m-%dT%H:%M:%SZ') if google else dt.strftime('%Y-%m-%dT%H:%M:%S')
 def _task_marker(local_task_id):return f'[BOT_TASK:{local_task_id}]'
 def _notes_with_marker(text,local_task_id):
