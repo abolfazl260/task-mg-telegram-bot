@@ -79,17 +79,20 @@ async def _visible_async(user_id,team_id=None,active=False):
         return await fetch_all("tasks",where,(team_id,))
 
     uid = str(user_id)
-    status_filter = " AND t.status IN ('pending','in_progress')" if active else ""
+    active_only = 1 if active else 0
     return await fetch_all_sql(
-        f"""SELECT t.*
+        """SELECT t.*
             FROM tasks AS t
-            WHERE (t.team_id IS NULL OR t.team_id='') AND t.user_id=?{status_filter}
+            WHERE (t.team_id IS NULL OR t.team_id='')
+              AND t.user_id=?
+              AND (?=0 OR t.status IN ('pending','in_progress'))
             UNION ALL
             SELECT t.*
             FROM tasks AS t
             JOIN team_members AS tm ON tm.team_id=t.team_id
-            WHERE tm.user_id=?{status_filter}""",
-        (uid, uid),
+            WHERE tm.user_id=?
+              AND (?=0 OR t.status IN ('pending','in_progress'))""",
+        (uid, active_only, uid, active_only),
     )
 
 async def get_active_tasks_async(user_id,team_id=None): return await _visible_async(user_id,team_id,True)
