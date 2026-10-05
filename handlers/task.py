@@ -110,6 +110,11 @@ async def _send_comment_attachments(message, task_id: str):
             elif ctype == 'document' and file_id:
                 await message.reply_document(file_id, caption=caption)
         except Exception:
+            logger.exception(
+                "task_comment_attachment_send_failed task_id=%s content_type=%s operation=send_attachment",
+                task_id,
+                ctype,
+            )
             continue
 
 def _extract_comment_content(message) -> dict | None:
@@ -330,7 +335,7 @@ async def format_task_card(task: dict) -> str:
         try:
             deadline_date = datetime.strptime(task['deadline'], '%Y-%m-%d').date(); jalali = jdatetime.date.fromgregorian(date=deadline_date).strftime('%Y/%m/%d'); diff = (deadline_date - datetime.now().date()).days
             remaining = f'🔻 {abs(diff)} روز گذشته' if diff < 0 else ('⏰ امروز' if diff == 0 else (f'⚠️ {diff} روز مانده' if diff <= 3 else f'🕒 {diff} روز مانده'))
-        except Exception: pass
+        except (ValueError, TypeError, OverflowError): pass
     team_line = f'👥 تیم: `{team_id}`\n' if team_id else ''; assignee = task.get('assignee_name') or '❌ تعیین نشده'; comments_count = len(await get_task_comments_async(task_id)) if task_id else 0
     return f'**{title}**\n\n🆔 `{task_id}`\n{team_line}🎯 اولویت: {priority}\n📌 وضعیت: {status}\n👤 مسئول: 🖼 {assignee}\n📅 مهلت: {deadline}\n🗓️ شمسی: {jalali}\n⏳ باقی\u200cمانده: {remaining}\n📂 دسته: {category}\n🏷 تگ: {tags}\n📄 توضیح: {description}\n🕐 ثبت: {created}\n💬 کامنت\u200cها: {comments_count}'
 
@@ -384,7 +389,9 @@ async def task_details_callback(update, context):
     if not task or not await _can_view_task(update.effective_user.id, task): await query.message.reply_text('تسک پیدا نشد یا دسترسی ندارید.'); return
     text=f'{await format_task_card(task)}\n\n{_history_text(task)}\n\n{await _comments_markdown(task_id)}'
     try: await context.bot._post('sendRichMessage', data={'chat_id': query.message.chat_id, 'rich_message': {'markdown': text}})
-    except Exception: await query.message.reply_text(text, parse_mode='Markdown')
+    except Exception:
+        logger.warning("task_rich_message_failed task_id=%s operation=send_rich_message", task_id, exc_info=True)
+        await query.message.reply_text(text, parse_mode='Markdown')
     await _send_comment_attachments(query.message, task_id); await query.message.reply_text('برای ثبت کامنت جدید دکمه زیر را بزنید:', reply_markup=_task_details_keyboard(task_id))
 
 async def comment_callback(update, context):
@@ -437,7 +444,8 @@ async def _notify_assignment(context, task, assignee, creator):
     if not uid: return
     creator_name=creator.full_name if creator else '—'; text=f"🔔 وظیفه جدید به شما اختصاص داده شد\n\n📌 عنوان:\n{task.get('title','-')}\n\n👤 ایجاد کننده:\n{creator_name}\n\n⭐ اولویت:\n{PRIORITY_LABEL.get(task.get('priority'),task.get('priority','-'))}\n\n⏰ مهلت:\n{task.get('deadline') or 'بدون مهلت'}\n\nوضعیت:\n⏳ منتظر شروع"
     try: await context.bot.send_message(chat_id=uid,text=text,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('مشاهده وظیفه',callback_data=f"assignee_view_{task.get('id')}")],[InlineKeyboardButton('شروع کار',callback_data=f"start_{task.get('id')}")]]))
-    except Exception: pass
+    except Exception:
+        logger.exception("task_assignment_notification_failed task_id=%s assignee_id=%s operation=notify_assignee", task.get("id"), uid)
 
 async def assignment_callback(update, context):
     query=update.callback_query; await query.answer(); data=query.data; uid=update.effective_user.id

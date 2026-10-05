@@ -1,6 +1,10 @@
+import logging
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from services.async_bridge import integration as integration_service
+
+logger = logging.getLogger(__name__)
 
 PROVIDERS = {
     "microsoft": "🪟 Microsoft To Do",
@@ -80,8 +84,9 @@ async def integration_callback(update, context):
                 f"🔐 برای اتصال {PROVIDERS.get(provider, provider)} روی دکمه زیر بزنید و اجازه دسترسی به تسک‌ها را تأیید کنید:",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 اتصال حساب", url=url)], [InlineKeyboardButton("🔙 بازگشت", callback_data="integrations")]]),
             )
-        except Exception as exc:
-            await query.message.reply_text(f"⚠️ امکان شروع اتصال وجود ندارد:\n{exc}")
+        except Exception:
+            logger.exception("integration_handler_failed operation=start_oauth provider=%s user_id=%s bot_key=%s", provider, user_id, bot_key)
+            await query.message.reply_text("⚠️ امکان شروع اتصال وجود ندارد. جزئیات خطا ثبت شد.")
         return
 
     if data.startswith("int_menu_"):
@@ -100,8 +105,9 @@ async def integration_callback(update, context):
                 await query.message.reply_text("⚠️ هیچ فهرستی پیدا نشد.")
                 return
             await query.message.reply_text("📋 فهرست مقصد را انتخاب کنید:", reply_markup=lists_keyboard(provider, lists))
-        except Exception as exc:
-            await query.message.reply_text(f"⚠️ دریافت فهرست‌ها ناموفق بود:\n{exc}")
+        except Exception:
+            logger.exception("integration_handler_failed operation=get_lists provider=%s user_id=%s bot_key=%s", provider, user_id, bot_key)
+            await query.message.reply_text("⚠️ دریافت فهرست‌ها ناموفق بود. جزئیات خطا ثبت شد.")
         return
 
     if data.startswith("int_setlist_"):
@@ -118,8 +124,9 @@ async def integration_callback(update, context):
             name = chosen.get("displayName") or chosen.get("title") or "بدون نام"
             await integration_service.set_list(user_id, provider, list_id, name, bot_key)
             await query.message.reply_text("✅ فهرست مقصد تنظیم شد.", reply_markup=await provider_keyboard(user_id, provider, bot_key))
-        except Exception as exc:
-            await query.message.reply_text(f"⚠️ ذخیره فهرست ناموفق بود:\n{exc}")
+        except Exception:
+            logger.exception("integration_handler_failed operation=set_list provider=%s user_id=%s bot_key=%s", provider, user_id, bot_key)
+            await query.message.reply_text("⚠️ ذخیره فهرست ناموفق بود. جزئیات خطا ثبت شد.")
         return
 
     if data.startswith("int_sync_"):
@@ -128,11 +135,13 @@ async def integration_callback(update, context):
             results = await integration_service.sync_user(user_id, bot_key, provider)
             result = results[0] if results else (provider, 0, None)
             if result[2]:
-                await query.message.reply_text(f"⚠️ همگام‌سازی انجام نشد:\n{result[2]}")
+                logger.error("integration_sync_reported_failure provider=%s user_id=%s bot_key=%s", provider, user_id, bot_key)
+                await query.message.reply_text("⚠️ همگام‌سازی انجام نشد. جزئیات خطا ثبت شد.")
             else:
                 await query.message.reply_text(f"✅ همگام‌سازی انجام شد.\nتعداد تغییرات: {result[1]}", reply_markup=await provider_keyboard(user_id, provider, bot_key))
-        except Exception as exc:
-            await query.message.reply_text(f"⚠️ خطا در همگام‌سازی:\n{exc}")
+        except Exception:
+            logger.exception("integration_handler_failed operation=sync provider=%s user_id=%s bot_key=%s", provider, user_id, bot_key)
+            await query.message.reply_text("⚠️ خطا در همگام‌سازی. جزئیات خطا ثبت شد.")
         return
 
     if data.startswith("int_disconnect_"):

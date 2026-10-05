@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 
 from bot_context import get_current_bot_key
 from services.database import fetch_all, fetch_one, execute, transaction, sync_all, get_db, _run as db_run
 from services.team_service import aget_user_teams, acan_edit, ais_member, aget_team
+
+logger = logging.getLogger(__name__)
 
 VALID_STATUSES = {"pending", "in_progress", "done", "cancelled"}
 VALID_PRIORITIES = {"low", "medium", "high"}
@@ -96,7 +99,9 @@ async def get_task_comments_async(task_id):
     out=[]
     for r in await fetch_all("task_comments","task_id=? ORDER BY id",(task_id,)):
         try: content=json.loads(r.get("content_json") or "{}")
-        except Exception: content={}
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("task_comment_content_invalid task_id=%s comment_id=%s", task_id, r.get("id"))
+            content={}
         if not isinstance(content,dict): content={"content":content}
         out.append({"author_id":str(r.get("author_id") or ""),"author_name":r.get("author_name") or "کاربر","author_username":r.get("author_username") or "","created_at":r.get("created_at") or "",**content})
     return out
