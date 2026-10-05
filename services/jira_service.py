@@ -120,7 +120,7 @@ def sync_connection(c,bot_key=None):
  if changed:
   try:_write_all(tasks,bot)
   except Exception as exc:
-   logger.exception('Jira inbound persistence failed provider=jira user_id=%s bot_key=%s project=%s operation=persist_inbound exception_type=%s error=%s',c.get('user_id'),bot,c.get('project_key',''),type(exc).__name__,str(exc)[:500])
+   logger.exception('Jira inbound persistence failed provider=jira user_id=%s bot_key=%s project=%s operation=persist_inbound exception_type=%s',c.get('user_id'),bot,c.get('project_key',''),type(exc).__name__)
    failures.append({'task_id':'','jira_key':'','operation':'persist_inbound','error':type(exc).__name__})
    return {'success':False,'partial':False,'updated':0,'failed':len(failures),'errors':failures}
  for t,key in inbound_links:
@@ -128,7 +128,7 @@ def sync_connection(c,bot_key=None):
    h=_local_hash(t); _persist_link(t,key,h,bot); t['jira_sync_hash']=h
   except Exception as exc:
    failures.append({'task_id':str(t.get('id') or ''),'jira_key':str(key or ''),'operation':'persist_link','error':type(exc).__name__})
-   logger.exception('Jira link persistence failed provider=jira user_id=%s bot_key=%s project=%s jira_key=%s task_id=%s operation=persist_link exception_type=%s error=%s',c.get('user_id'),bot,c.get('project_key',''),key,t.get('id',''),type(exc).__name__,str(exc)[:500])
+   logger.exception('Jira link persistence failed provider=jira user_id=%s bot_key=%s project=%s jira_key=%s task_id=%s operation=persist_link exception_type=%s',c.get('user_id'),bot,c.get('project_key',''),key,t.get('id',''),type(exc).__name__)
  for t in tasks:
   if str(t.get('user_id'))!=str(c['user_id']): continue
   try:
@@ -137,7 +137,7 @@ def sync_connection(c,bot_key=None):
   except Exception as exc:
    operation='create_issue' if not t.get('jira_key') else 'update_issue'
    failures.append({'task_id':str(t.get('id') or ''),'jira_key':str(t.get('jira_key') or ''),'operation':operation,'error':type(exc).__name__})
-   logger.exception('Jira sync task failed provider=jira user_id=%s bot_key=%s project=%s jira_key=%s task_id=%s operation=%s exception_type=%s error=%s',c.get('user_id'),bot,c.get('project_key',''),t.get('jira_key',''),t.get('id',''),operation,type(exc).__name__,str(exc)[:500])
+   logger.exception('Jira sync task failed provider=jira user_id=%s bot_key=%s project=%s jira_key=%s task_id=%s operation=%s exception_type=%s',c.get('user_id'),bot,c.get('project_key',''),t.get('jira_key',''),t.get('id',''),operation,type(exc).__name__)
  return {'success':not failures,'partial':bool(failures and changed),'updated':changed,'failed':len(failures),'errors':failures}
 def sync_all_connections(bot_key=None):
  bot=bot_key or get_current_bot_key() or 'default'; cs=[x for x in _load_connections() if x.get('bot_key')==bot]; results=[]; updated=0; failed_connections=0
@@ -147,5 +147,5 @@ def sync_all_connections(bot_key=None):
    if result.get('success'): sync_execute('UPDATE jira_connections SET last_sync_at=? WHERE bot_key=? AND user_id=?',(datetime.now(timezone.utc).isoformat(timespec='seconds'),bot,str(c['user_id'])))
    else: failed_connections+=1
   except Exception as exc:
-   failed_connections+=1; logger.exception('Jira connection sync failed provider=jira user_id=%s bot_key=%s project=%s operation=sync_connection exception_type=%s error=%s',c.get('user_id'),bot,c.get('project_key',''),type(exc).__name__,str(exc)[:500]); results.append({'user_id':str(c.get('user_id')),'project_key':c.get('project_key',''),'success':False,'partial':False,'updated':0,'failed':1,'errors':[{'operation':'sync_connection','error':type(exc).__name__}]})
+   failed_connections+=1; logger.exception('Jira connection sync failed provider=jira user_id=%s bot_key=%s project=%s operation=sync_connection exception_type=%s',c.get('user_id'),bot,c.get('project_key',''),type(exc).__name__); results.append({'user_id':str(c.get('user_id')),'project_key':c.get('project_key',''),'success':False,'partial':False,'updated':0,'failed':1,'errors':[{'operation':'sync_connection','error':type(exc).__name__}]})
  return {'success':failed_connections==0,'partial':0<failed_connections<len(cs),'updated':updated,'connections':len(cs),'failed_connections':failed_connections,'results':results}
