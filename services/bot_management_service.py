@@ -193,8 +193,11 @@ async def create_managed_bot(
         requested_features = DEFAULT_PROFILE_TEMPLATES[base_profile]["features"]
     features = normalize_features(requested_features)
     username = str(payload.get("bot_username") or "").strip().lstrip("@")
-    if token_info and not username:
-        username = token_info["username"]
+    if token_info:
+        actual_username = token_info["username"]
+        if username and username.lower() != actual_username.lower():
+            raise ValueError("telegram_username_mismatch")
+        username = actual_username
     now = _now()
     db = await get_db()
     async with db.lock:
@@ -251,8 +254,11 @@ async def update_managed_bot(
         else str(existing.get("features") or "").split(",")
     )
     username = str(payload.get("bot_username", existing.get("bot_username") or "")).strip().lstrip("@")
-    if token_info and not username:
-        username = token_info["username"]
+    if token_info:
+        actual_username = token_info["username"]
+        if username and username.lower() != actual_username.lower():
+            raise ValueError("telegram_username_mismatch")
+        username = actual_username
     db = await get_db()
     async with db.lock:
         await db.conn.execute(
