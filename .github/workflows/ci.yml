@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - main
+      - Stage
   pull_request:
     branches:
       - main
+      - Stage
   workflow_dispatch:
 
 permissions:

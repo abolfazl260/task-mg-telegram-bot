@@ -32,6 +32,8 @@ def _stub_provider_io(monkeypatch, connections, created):
     monkeypatch.setattr(
         integration_service, "_ensure_list", lambda row, lists: "list-1"
     )
+    monkeypatch.setattr(integration_service, "_load_task_links", lambda *args: [])
+    monkeypatch.setattr(integration_service, "_save_task_link", lambda *args: None)
 
     def request_json(url, token, method="GET", payload=None):
         if "graph.microsoft.com" in url:
@@ -39,11 +41,12 @@ def _stub_provider_io(monkeypatch, connections, created):
         return {"items": []}
 
     monkeypatch.setattr(integration_service, "_request_json", request_json)
-    monkeypatch.setattr(
-        integration_service,
-        "_create_external",
-        lambda row, task: created.append((row["provider"], task["id"])),
-    )
+
+    def create_external(row, task):
+        created.append((row["provider"], task["id"]))
+        return {"id": f"{row['provider']}-{task['id']}", "status": "pending"}
+
+    monkeypatch.setattr(integration_service, "_create_external", create_external)
     monkeypatch.setattr(integration_service, "sync_execute", lambda *args, **kwargs: None)
 
 
@@ -84,7 +87,7 @@ def test_manual_sync_reads_only_users_tasks_once_for_both_providers(monkeypatch)
     ]
 
 
-def test_scheduled_sync_scales_with_connected_users_not_global_task_count(monkeypatch):
+def test_scheduled_sync_reads_one_scoped_task_set_per_connected_user(monkeypatch):
     users = ["100", "200", "300"]
     connections = {}
     integration_rows = []

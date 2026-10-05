@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -16,11 +17,14 @@ from services.database import (
 )
 from services.team_service import acan_edit, aget_team, ais_member
 
+logger = logging.getLogger(__name__)
+
 VALID_STATUSES = {"pending", "in_progress", "done", "cancelled"}
 VALID_PRIORITIES = {"low", "medium", "high"}
 
 def _now(): return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
 def _bot(): return get_current_bot_key() or "default"
+def _new_task_id(): return str(uuid.uuid4())
 
 async def _ensure_user_async(uid):
     uid=str(uid or "")
@@ -38,7 +42,7 @@ async def get_task_dashboard_counts_async(user_id: int) -> dict[str, int]:
     return {"count_active": int((row[0] if row else 0) or 0), "count_today": int((row[1] if row else 0) or 0), "count_overdue": int((row[2] if row else 0) or 0)}
 
 async def save_task_async(data):
-    v=list(data)+[""]*20; task_id=str(v[0] or uuid.uuid4().hex[:8]); user_id=str(v[1] or "")
+    v=list(data)+[""]*20; task_id=str(v[0] or _new_task_id()); user_id=str(v[1] or "")
     if not user_id: raise ValueError("task user_id is required")
     await _ensure_user_async(user_id)
     if v[12]: await _ensure_user_async(v[12])
@@ -52,7 +56,7 @@ async def update_task_status_async(task_id,new_status):
 
 async def create_task_async(user_id,title,priority,deadline,category,tags,description="",team_id="",assignee=None):
     if priority not in VALID_PRIORITIES: raise ValueError("invalid priority")
-    await _ensure_user_async(user_id); tid=str(uuid.uuid4())[:8]
+    await _ensure_user_async(user_id); tid=_new_task_id()
     if team_id and not category:
         team=await aget_team(team_id); category=team.get("name","") if team else category
     aid=str((assignee or {}).get("user_id") or "") or None
@@ -118,7 +122,9 @@ async def get_task_comments_async(task_id):
     out=[]
     for r in await fetch_all("task_comments","task_id=? ORDER BY id",(task_id,)):
         try: content=json.loads(r.get("content_json") or "{}")
-        except Exception: content={}
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("task_comment_content_invalid task_id=%s comment_id=%s", task_id, r.get("id"))
+            content={}
         if not isinstance(content,dict): content={"content":content}
         out.append({"author_id":str(r.get("author_id") or ""),"author_name":r.get("author_name") or "کاربر","author_username":r.get("author_username") or "","created_at":r.get("created_at") or "",**content})
     return out
