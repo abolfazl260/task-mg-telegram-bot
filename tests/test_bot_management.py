@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+import pytest_asyncio
 
 from services import database
 from services.bot_feature_registry import normalize_features
@@ -20,7 +21,7 @@ async def _valid_token(token: str) -> dict:
     return {"id": 123456, "username": "managed_test_bot"}
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def isolated_db(tmp_path, monkeypatch):
     await database.close_all_dbs()
     monkeypatch.setattr(database, "DB_PATH", tmp_path / "bot_management.db")
