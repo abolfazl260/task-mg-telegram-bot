@@ -1,5 +1,8 @@
-"""HTTP server for the Telegram Web App and admin dashboard."""
-from __future__ import annotations
+"logger = logging.getLogger(__name__)
+
+""HTTP server for the Telegram Web App and admin dashboard."""
+from __future__ import logging
+import annotations
 import asyncio, json, mimetypes, os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -107,7 +110,9 @@ class WebAppHandler(BaseHTTPRequestHandler):
         except WebAppBotProfileError: return self._json(400,{"error":"invalid_bot_profile"})
         except WebAppTaskAccessError: return self._json(403,{"error":"forbidden"})
         except ValueError as e: return self._json(400,{"error":str(e)})
-        except Exception as e: return self._json(500,{"error":"internal_server_error","detail":str(e)})
+        except Exception:
+            logger.exception("webapp_task_request_failed method=%s path=%s operation=task_api", self.command, self.path)
+            return self._json(500,{"error":"internal_server_error"})
     def do_GET(self):
         path=urlparse(self.path).path
         if path.startswith("/tasks/") or path.startswith("/task/"):
