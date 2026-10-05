@@ -5,8 +5,16 @@ import uuid
 from datetime import datetime, timezone
 
 from bot_context import get_current_bot_key
-from services.database import fetch_all, fetch_one, execute, transaction, sync_all, get_db, _run as db_run
-from services.team_service import aget_user_teams, acan_edit, ais_member, aget_team
+from services.database import _run as db_run
+from services.database import (
+    execute,
+    fetch_all,
+    fetch_all_sql,
+    fetch_one,
+    get_db,
+    transaction,
+)
+from services.team_service import acan_edit, aget_team, ais_member
 
 VALID_STATUSES = {"pending", "in_progress", "done", "cancelled"}
 VALID_PRIORITIES = {"low", "medium", "high"}
@@ -69,8 +77,23 @@ async def _visible_async(user_id,team_id=None,active=False):
         if not await ais_member(team_id,user_id): return []
         where="team_id=?"+((" AND status IN ('pending','in_progress')") if active else "")
         return await fetch_all("tasks",where,(team_id,))
-    teams=await aget_user_teams(user_id); ids={x["team"]["team_id"] for x in teams}; uid=str(user_id); rows=await read_tasks_async()
-    return [x for x in rows if (not active or x.get("status") in ("pending","in_progress")) and ((x.get("team_id") or "") in ids or (not x.get("team_id") and str(x.get("user_id"))==uid))]
+
+    uid = str(user_id)
+    active_only = 1 if active else 0
+    return await fetch_all_sql(
+        """SELECT t.*
+            FROM tasks AS t
+            WHERE (t.team_id IS NULL OR t.team_id='')
+              AND t.user_id=?
+              AND (?=0 OR t.status IN ('pending','in_progress'))
+            UNION ALL
+            SELECT t.*
+            FROM tasks AS t
+            JOIN team_members AS tm ON tm.team_id=t.team_id
+            WHERE tm.user_id=?
+              AND (?=0 OR t.status IN ('pending','in_progress'))""",
+        (uid, active_only, uid, active_only),
+    )
 
 async def get_active_tasks_async(user_id,team_id=None): return await _visible_async(user_id,team_id,True)
 async def get_all_user_tasks_async(user_id,team_id=None): return await _visible_async(user_id,team_id,False)
