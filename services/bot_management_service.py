@@ -9,9 +9,9 @@ import json
 import logging
 import os
 import re
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Awaitable, Callable
 
 import aiohttp
 
@@ -115,10 +115,12 @@ async def validate_telegram_token(token: str) -> dict:
     timeout = aiohttp.ClientTimeout(total=8)
     url = f"https://api.telegram.org/bot{token}/getMe"
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url) as response:
-                payload = await response.json(content_type=None)
-                response_ok = response.status == 200
+        async with (
+            aiohttp.ClientSession(timeout=timeout) as session,
+            session.get(url) as response,
+        ):
+            payload = await response.json(content_type=None)
+            response_ok = response.status == 200
     except Exception as exc:
         raise ValueError("telegram_validation_unavailable") from exc
     if not response_ok or not isinstance(payload, dict) or not payload.get("ok"):
