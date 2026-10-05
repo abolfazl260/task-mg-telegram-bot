@@ -141,12 +141,18 @@ def _custom_bot_profiles() -> list[BotProfile]:
 def load_bot_profiles() -> list[BotProfile]:
     load_dotenv(BASE_DIR / ".env")
     if os.getenv("TESTING", "").lower() in {"1", "true", "yes", "on"}: return [BotProfile(key="test", name="Test Bot", username="test_bot", token="test-token")]
-    # JSON profiles remain backward-compatible seed/config sources. Managed DB profiles are loaded last.
+    # JSON profiles are migration/compatibility inputs. Once a bot_key exists in
+    # the managed store, that row is authoritative even when it is inactive.
     _run(seed_default_profiles())
+    managed_rows = read_custom_bots(include_tokens=True)
+    managed_keys = {str(row.get("bot_key") or "").strip() for row in managed_rows if row.get("bot_key")}
     profile_names = [item.strip() for item in os.getenv("BOT_PROFILES", "").split(",") if item.strip()]; profiles: list[BotProfile] = []; legacy_profile = _legacy_default_profile()
     if legacy_profile is not None: profiles.append(legacy_profile)
-    if profile_names: profiles.extend(_load_json_profile(BOTS_DIR / f"{name}.json") for name in profile_names)
-    elif not profiles: raise RuntimeError("Set BOT_TOKEN for one bot or BOT_PROFILES with per-bot token env vars.")
+    file_profile_names = [name for name in profile_names if name not in managed_keys]
+    if file_profile_names: profiles.extend(_load_json_profile(BOTS_DIR / f"{name}.json") for name in file_profile_names)
+    elif profile_names and not managed_keys and not profiles: raise RuntimeError("Set BOT_TOKEN for one bot or BOT_PROFILES with per-bot token env vars.")
+    elif not profile_names and not profiles and not any(row.get("status") == "active" and row.get("bot_token") for row in managed_rows):
+        raise RuntimeError("Set BOT_TOKEN, BOT_PROFILES, or activate a managed Bot Profile.")
     profiles.extend(_custom_bot_profiles()); unique: dict[str, BotProfile] = {}
     for profile in profiles:
         if profile.active: unique[profile.key] = profile
