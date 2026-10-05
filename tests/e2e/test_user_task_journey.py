@@ -92,7 +92,7 @@ async def test_user_can_create_view_edit_comment_and_complete_task(test_db, monk
     print("[E2E TEST] 4/7 ADD COMMENT      -> comment persisted and reloaded")
 
     # 5. User completes the task.
-    completed = await task_service.update_task_status_async(task_id, "done")
+    completed = await task_service.update_task_status_async(task_id, "done", user_id)
     assert completed is True
     print("[E2E TEST] 5/7 COMPLETE TASK    -> status changed to done")
 
