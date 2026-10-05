@@ -1,0 +1,243 @@
+"""Minimal role-scoped clinic execution menu using the shared domain service."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+from services.healthcare import followups, reports, service
+from services.healthcare.access import ClinicAccessError, Scope, actor_scopes
+
+
+async def _scope(update, context):
+    profile = context.application.bot_data.get("bot_config")
+    if not profile or not profile.feature_enabled("healthcare"):
+        raise ClinicAccessError("forbidden")
+    memberships = await actor_scopes(str(update.effective_user.id), profile.key)
+    oid = context.user_data.get("clinic_organization_id")
+    if not oid and len({m["organization_id"] for m in memberships}) == 1:
+        oid = memberships[0]["organization_id"]
+        context.user_data["clinic_organization_id"] = oid
+    if not oid or not any(m["organization_id"] == oid for m in memberships):
+        raise ClinicAccessError("forbidden")
+    return Scope(oid, str(update.effective_user.id))
+
+
+async def _render(update, title, rows):
+    markup = InlineKeyboardMarkup(rows)
+    if update.callback_query:
+        await update.callback_query.edit_message_text(title, reply_markup=markup)
+    else:
+        await update.effective_message.reply_text(title, reply_markup=markup)
+
+
+async def clinic_menu(update, context):
+    try:
+        profile = context.application.bot_data.get("bot_config")
+        if not profile or not profile.feature_enabled("healthcare"):
+            raise ClinicAccessError("forbidden")
+        memberships = await actor_scopes(str(update.effective_user.id), profile.key)
+        orgs = {m["organization_id"]: m["name"] for m in memberships}
+        if (
+            len(orgs) > 1
+            and context.user_data.get("clinic_organization_id") not in orgs
+        ):
+            return await _render(
+                update,
+                "کلینیک را انتخاب کنید",
+                [
+                    [InlineKeyboardButton(name, callback_data=f"clinic:org:{oid}")]
+                    for oid, name in orgs.items()
+                ],
+            )
+        scope = await _scope(update, context)
+        labels = profile.settings.get("terminology", {})
+        rows = [
+            [
+                InlineKeyboardButton(
+                    "پیگیری‌های امروز", callback_data="clinic:queue:today:0"
+                ),
+                InlineKeyboardButton(
+                    "عقب‌افتاده", callback_data="clinic:queue:overdue:0"
+                ),
+            ],
+            [
+                InlineKeyboardButton("آینده", callback_data="clinic:queue:upcoming:0"),
+                InlineKeyboardButton(
+                    "جواب نداد", callback_data="clinic:queue:no_answer:0"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    labels.get("patient", "بیمار"), callback_data="clinic:patients:0"
+                ),
+                InlineKeyboardButton(
+                    labels.get("case", "پرونده عملیاتی"), callback_data="clinic:cases:0"
+                ),
+            ],
+        ]
+        if any(
+            m["role"] in {"owner", "manager", "admin"}
+            and m["organization_id"] == scope.organization_id
+            for m in memberships
+        ):
+            rows.append(
+                [InlineKeyboardButton("خلاصه مدیریت", callback_data="clinic:metrics")]
+            )
+        await scope.predicate("followups.view", doctor_context="?=?")
+        await _render(update, labels.get("workspace", "فضای کار کلینیک"), rows)
+    except ClinicAccessError:
+        await update.effective_message.reply_text("دسترسی مجاز به کلینیک پیدا نشد.")
+
+
+async def clinic_callback(update, context):
+    query = update.callback_query
+    await query.answer()
+    try:
+        parts = (query.data or "").split(":")
+        if parts[1] == "org":
+            profile = context.application.bot_data.get("bot_config")
+            if not profile or not profile.feature_enabled("healthcare"):
+                raise ClinicAccessError("forbidden")
+            memberships = await actor_scopes(str(update.effective_user.id), profile.key)
+            if not any(m["organization_id"] == parts[2] for m in memberships):
+                raise ClinicAccessError("forbidden")
+            context.user_data["clinic_organization_id"] = parts[2]
+            return await clinic_menu(update, context)
+        scope = await _scope(update, context)
+        if parts[1] == "menu":
+            return await clinic_menu(update, context)
+        if parts[1] == "metrics":
+            data = await reports.metrics(scope)
+            message = (
+                f"اقدام‌های باز: {data['tasks']['total'] - data['tasks']['completed']}\n"
+                f"اقدام‌های عقب‌افتاده: {data['tasks']['overdue']}\n"
+                f"پرونده‌های بدون اقدام بعدی: {data['cases']['missing_next_action']}\n"
+                f"پیگیری‌های عقب‌افتاده: {data['followups']['overdue']}"
+            )
+            return await _render(
+                update,
+                message,
+                [[InlineKeyboardButton("منو", callback_data="clinic:menu")]],
+            )
+        if parts[1] == "queue":
+            view, offset = parts[2], max(0, int(parts[3]))
+            page = await followups.queue(scope, view, limit=6, offset=offset)
+            rows = [
+                [
+                    InlineKeyboardButton(
+                        f"{f['due_at'][:10]} · پیگیری {f['attempt_number']}",
+                        callback_data=f"clinic:followup:{f['id']}",
+                    )
+                ]
+                for f in page["items"]
+            ]
+            if offset:
+                rows.append(
+                    [
+                        InlineKeyboardButton(
+                            "قبلی",
+                            callback_data=f"clinic:queue:{view}:{max(0, offset - 6)}",
+                        )
+                    ]
+                )
+            if offset + 6 < page["total"]:
+                rows.append(
+                    [
+                        InlineKeyboardButton(
+                            "بعدی", callback_data=f"clinic:queue:{view}:{offset + 6}"
+                        )
+                    ]
+                )
+            rows.append([InlineKeyboardButton("منو", callback_data="clinic:menu")])
+            return await _render(update, f"صف پیگیری · {page['total']} مورد", rows)
+        if parts[1] in {"patients", "cases"}:
+            kind, offset = parts[1], max(0, int(parts[2]))
+            page = await service.list_entities(scope, kind, limit=6, offset=offset)
+            lines = [
+                f"{item.get('display_name') or item.get('title')} · {item['status']}"
+                for item in page["items"]
+            ]
+            rows = []
+            if offset:
+                rows.append(
+                    [
+                        InlineKeyboardButton(
+                            "قبلی", callback_data=f"clinic:{kind}:{max(0, offset - 6)}"
+                        )
+                    ]
+                )
+            if offset + 6 < page["total"]:
+                rows.append(
+                    [
+                        InlineKeyboardButton(
+                            "بعدی", callback_data=f"clinic:{kind}:{offset + 6}"
+                        )
+                    ]
+                )
+            rows.append([InlineKeyboardButton("منو", callback_data="clinic:menu")])
+            return await _render(update, "\n".join(lines) or "موردی وجود ندارد.", rows)
+        if parts[1] == "followup":
+            item = await service.get_entity(scope, "followups", parts[2])
+            case = await service.get_entity(scope, "cases", item["case_id"])
+            rows = [
+                [
+                    InlineKeyboardButton(
+                        label, callback_data=f"clinic:out:{item['id']}:{key}"
+                    )
+                ]
+                for key, label in [
+                    ("reached", "ارتباط برقرار شد"),
+                    ("no_answer", "جواب نداد"),
+                    ("needs_time", "زمان جدید"),
+                    ("escalated", "نیاز به بررسی مسئول"),
+                    ("closed", "بستن پیگیری"),
+                ]
+            ]
+            return await _render(
+                update,
+                f"{case['title']}\nموعد: {item['due_at']}\nتلاش: {item['attempt_number']}",
+                rows,
+            )
+        if parts[1] in {"out", "retry"}:
+            fid, key = parts[2:4]
+            # Recheck backend permission before displaying or executing a write.
+            await service.get_entity(scope, "followups", fid, manage=True)
+            if parts[1] == "out" and service.OUTCOMES.get(key, ("", False))[1]:
+                return await _render(
+                    update,
+                    "ثبت نتیجه و زمان اقدام بعدی را تأیید کنید:",
+                    [
+                        [
+                            InlineKeyboardButton(
+                                label, callback_data=f"clinic:retry:{fid}:{key}:{days}"
+                            )
+                        ]
+                        for days, label in [
+                            (1, "تأیید · ۲۴ ساعت بعد"),
+                            (7, "تأیید · ۷ روز بعد"),
+                        ]
+                    ],
+                )
+            due = None
+            if parts[1] == "retry":
+                days = int(parts[4])
+                if days not in {1, 7}:
+                    raise ValueError("invalid_retry")
+                due = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+            await followups.record_outcome(scope, fid, key, next_due_at=due)
+            return await _render(
+                update,
+                "نتیجه ثبت شد.",
+                [
+                    [
+                        InlineKeyboardButton(
+                            "صف امروز", callback_data="clinic:queue:today:0"
+                        )
+                    ]
+                ],
+            )
+        raise ValueError("invalid_callback")
+    except (ClinicAccessError, ValueError, IndexError):
+        await query.edit_message_text("این اقدام مجاز نیست یا اطلاعات آن معتبر نیست.")

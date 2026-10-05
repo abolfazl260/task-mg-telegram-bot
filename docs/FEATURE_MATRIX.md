@@ -295,3 +295,13 @@ AI Reports        ✓
 8. تغییر Featureهای یک Bot Profile نباید داده‌های Bot Profile یا دیتابیس سایر بات‌ها را حذف کند.
 9. هر Feature جدید باید یک ورودی در این ماتریس داشته باشد.
 10. برای قابلیت‌های مشترک، نام Permission باید یکتا، توصیفی و قابل توسعه باشد.
+
+## Healthcare vertical foundation
+
+`healthcare` defaults off for Core bots and is enabled in the Clinic profile.
+It adds separate PatientReference, Case, FollowUp and Outcome entities over Core
+Tasks. `clinic_staff_reminders` controls staff-only durable notifications and
+requires `healthcare`. Clinic generic AI/Voice and external integrations remain
+disabled pending scoped drafts/confirmation and tenant mapping. Template versions
+are configured through the Healthcare API, not the generic single-task template
+menu. See [implementation and rollout limits](HEALTHCARE_IMPLEMENTATION.md).

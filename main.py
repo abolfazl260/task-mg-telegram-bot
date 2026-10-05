@@ -1,42 +1,125 @@
-import asyncio,logging,os
+import asyncio
+import logging
+import os
 from datetime import time as dt_time
-from telegram import BotCommand,Update,InlineKeyboardButton
+
+from telegram import BotCommand, InlineKeyboardButton, Update
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ConversationHandler,
+    MessageHandler,
+    PreCheckoutQueryHandler,
+    TypeHandler,
+    filters,
+)
 from telegram.request import HTTPXRequest
-from telegram.ext import Application,CommandHandler,CallbackQueryHandler,MessageHandler,PreCheckoutQueryHandler,TypeHandler,ConversationHandler,filters
-from config import ADMIN_REPORT_TIME,BOT_PROFILES
+
+import handlers.extra_reports as extra_reports_handler
+import handlers.reports as reports_handler
+import handlers.task as task_handler
+from bot_context import set_current_bot_key, set_current_user_id
 from bot_platform import run_applications
-from bot_context import set_current_bot_key,set_current_user_id
-from handlers.start import start
-from handlers.menu import button_handler
-from handlers.integrations import integration_callback
-from handlers.task import add_task,save_task,list_tasks,priority_selected,deadline_selected,optional_field_callback,detail_page,download_csv,start_task,done_task,cancel_task,pending_task,sort_tasks_callback,assignment_callback,unassigned_tasks,take_assignment,take_confirm,assignment_manage_callback,task_details_callback,comment_callback,comment_cancel_callback
-from handlers.task_pagination import paginated_list_tasks,paginated_detail_page,paginated_sort_callback,tasks_view_callback
-from handlers.reports import show_reports_menu,reports_callback
-from handlers.templates import show_templates_menu,templates_callback
-from handlers.search_share import search_command,share_category_callback
-from handlers.extra_reports import report_compare_months,report_performance,report_progress_bar
-from handlers.import_bulk import import_callback
-from handlers.team import team_command,team_callback
-from services.reminders import morning_today_tasks,midday_summary_and_weekly,habit_reminders,weekly_habit_reports
-from services.user_service import record_user_async
-from services.sync_scheduler import run_external_sync,run_jira_sync
-from handlers.custom_bot import custom_bot_callback
-from services.admin_service import notify_new_user,daily_admin_report,error_handler
-from handlers.habits import handle_habit_callback,show_habit_menu
-from handlers.donate import donate_callback,donate_command,precheckout_callback,successful_payment_callback
-from handlers.guest import handle_guest_task
+from config import ADMIN_REPORT_TIME, BOT_PROFILES
 from handlers.ai import ai_command
-from handlers.voice import handle_voice_message
-from handlers.business import handle_business_connection,handle_business_message,handle_deleted_business_messages,handle_edited_business_message
-from handlers.jira import jira_start,jira_type,jira_url,jira_identity,jira_credential,jira_project,jira_cancel,jira_disconnect_command,jira_status_command,JIRA_TYPE,JIRA_URL,JIRA_IDENTITY,JIRA_CREDENTIAL,JIRA_PROJECT
-from handlers.tag_suggestions import handle_tag_text,safe_assignment_confirm,install_tag_flow
+from handlers.business import (
+    handle_business_connection,
+    handle_business_message,
+    handle_deleted_business_messages,
+    handle_edited_business_message,
+)
 from handlers.calendar_pdf import calendar_pdf_callback
-import handlers.task as task_handler,handlers.reports as reports_handler,handlers.extra_reports as extra_reports_handler
-from services import calendar_runtime,calendar_runtime_extensions,calendar_reports_v2,calendar_report_legacy
-from services.database import init_db
-from services.task_capabilities import install_task_capabilities,task_option_enabled
-from webapp.runtime import start_webapp_server
+from handlers.custom_bot import custom_bot_callback
+from handlers.donate import (
+    donate_callback,
+    donate_command,
+    precheckout_callback,
+    successful_payment_callback,
+)
+from handlers.extra_reports import (
+    report_performance,
+    report_progress_bar,
+)
+from handlers.guest import handle_guest_task
+from handlers.habits import handle_habit_callback, show_habit_menu
+from handlers.import_bulk import import_callback
+from handlers.integrations import integration_callback
+from handlers.jira import (
+    JIRA_CREDENTIAL,
+    JIRA_IDENTITY,
+    JIRA_PROJECT,
+    JIRA_TYPE,
+    JIRA_URL,
+    jira_cancel,
+    jira_credential,
+    jira_disconnect_command,
+    jira_identity,
+    jira_project,
+    jira_start,
+    jira_status_command,
+    jira_type,
+    jira_url,
+)
+from handlers.menu import button_handler
+from handlers.reports import reports_callback, show_reports_menu
+from handlers.search_share import search_command, share_category_callback
+from handlers.start import start
+from handlers.tag_suggestions import (
+    handle_tag_text,
+    install_tag_flow,
+    safe_assignment_confirm,
+)
+from handlers.task import (
+    add_task,
+    assignment_callback,
+    assignment_manage_callback,
+    cancel_task,
+    comment_callback,
+    comment_cancel_callback,
+    detail_page,
+    done_task,
+    download_csv,
+    list_tasks,
+    optional_field_callback,
+    pending_task,
+    priority_selected,
+    save_task,
+    sort_tasks_callback,
+    start_task,
+    take_assignment,
+    take_confirm,
+    task_details_callback,
+    unassigned_tasks,
+)
+from handlers.task_pagination import (
+    paginated_detail_page,
+    paginated_list_tasks,
+    paginated_sort_callback,
+    tasks_view_callback,
+)
+from handlers.team import team_callback, team_command
+from handlers.templates import show_templates_menu, templates_callback
+from handlers.voice import handle_voice_message
 from logging_config import setup_logging
+from services import (
+    calendar_report_legacy,
+    calendar_reports_v2,
+    calendar_runtime,
+    calendar_runtime_extensions,
+)
+from services.admin_service import daily_admin_report, error_handler, notify_new_user
+from services.database import init_db
+from services.reminders import (
+    habit_reminders,
+    midday_summary_and_weekly,
+    morning_today_tasks,
+    weekly_habit_reports,
+)
+from services.sync_scheduler import run_external_sync, run_jira_sync
+from services.task_capabilities import install_task_capabilities, task_option_enabled
+from services.user_service import record_user_async
+from webapp.runtime import start_webapp_server
 
 setup_logging()
 task_handler.format_task_card=calendar_runtime_extensions.format_task_card
@@ -95,6 +178,7 @@ async def _integration_sync_job(context):
     profile=context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config");await run_external_sync(bot_key=profile.key if profile else "default")
 async def _oauth_callback(request):
     from aiohttp import web
+
     from services.integration_service import complete_oauth
     provider=request.match_info.get("provider");error=request.query.get("error")
     if error:return web.Response(text=f"اتصال لغو شد: {error}",content_type="text/html",charset="utf-8")
@@ -112,7 +196,9 @@ async def _start_oauth_server(app):
 async def post_init(app:Application):
     await init_db();install_task_capabilities(app);profile=app.bot_data.get("bot_config")
     commands=[BotCommand("ai","دستیار هوشمند تحلیل تسک‌ها"),BotCommand("start","شروع ربات و منوی اصلی"),BotCommand("add","افزودن تسک جدید"),BotCommand("reports","گزارشات و آمار"),BotCommand("tasks","منوی تسک‌ها"),BotCommand("unassigned","وظایف بدون مسئول"),BotCommand("team","تیم و فضای مشترک"),BotCommand("search","جستجوی تسک"),BotCommand("templates","تمپلیت‌های آماده"),BotCommand("habit","مدیریت عادت‌ها"),BotCommand("donate","حمایت با Telegram Stars"),BotCommand("jira","اتصال به Jira"),BotCommand("jira_status","وضعیت اتصال Jira"),BotCommand("jira_disconnect","قطع اتصال Jira"),BotCommand("help","راهنمای کامل استفاده")]
-    feature_by_command={"add":"tasks","tasks":"tasks","unassigned":"unassigned","team":"teams","search":"search","templates":"templates","reports":"reports","habit":"habits","donate":"donate","ai":"ai","jira":"integrations","jira_status":"integrations","jira_disconnect":"integrations"}
+    if profile and profile.feature_enabled("healthcare"):
+        commands.append(BotCommand("clinic", "فضای کار کلینیک"))
+    feature_by_command={"clinic":"healthcare","add":"tasks","tasks":"tasks","unassigned":"unassigned","team":"teams","search":"search","templates":"templates","reports":"reports","habit":"habits","donate":"donate","ai":"ai","jira":"integrations","jira_status":"integrations","jira_disconnect":"integrations"}
     if profile is not None:
         filtered=[]
         for cmd in commands:
@@ -124,6 +210,9 @@ async def post_init(app:Application):
         commands=filtered
     await app.bot.delete_my_commands();await app.bot.set_my_commands(commands);logger.info("Telegram command menu updated bot=%s features=%s commands=%s",profile.key if profile else "default",profile.features if profile else {},", ".join(f"/{cmd.command}" for cmd in commands));await _start_oauth_server(app);start_webapp_server()
     if app.job_queue:
+        if profile and profile.feature_enabled("healthcare") and profile.feature_enabled("clinic_staff_reminders"):
+            from services.healthcare.notifications import staff_notification_job
+            app.job_queue.run_repeating(staff_notification_job, interval=60, first=15, name="clinic_staff_notifications")
         app.job_queue.run_repeating(morning_today_tasks,interval=60,first=10,name="morning_today_tasks");app.job_queue.run_repeating(midday_summary_and_weekly,interval=60,first=20,name="midday_summary_weekly");app.job_queue.run_repeating(habit_reminders,interval=60,first=10,name="habit_reminders");app.job_queue.run_repeating(weekly_habit_reports,interval=60,first=40,name="weekly_habit_reports");app.job_queue.run_daily(daily_admin_report,time=_parse_report_time(),name="daily_admin_report");bot_offset=sum(ord(ch) for ch in (profile.key if profile else "default"))%60;app.job_queue.run_repeating(_jira_sync_job,interval=60,first=30+bot_offset,name="jira_sync",data=profile);app.job_queue.run_repeating(_integration_sync_job,interval=300,first=60+bot_offset,name="external_task_sync",data=profile)
 def _feature(app,name):
     profile=app.bot_data.get("bot_config")
@@ -139,6 +228,10 @@ def build_application(profile):
     if _feature(app,"tasks"):app.add_handler(CommandHandler("add", add_task));app.add_handler(CommandHandler("tasks",paginated_list_tasks))
     if _feature(app,"unassigned"):app.add_handler(CommandHandler("unassigned",unassigned_tasks))
     if _feature(app,"teams"):app.add_handler(CommandHandler("team",team_command))
+    if _feature(app,"healthcare"):
+        from handlers.clinic import clinic_callback, clinic_menu
+        app.add_handler(CommandHandler("clinic", clinic_menu))
+        app.add_handler(CallbackQueryHandler(clinic_callback, pattern="^clinic:"))
     if _feature(app,"search"):app.add_handler(CommandHandler("search",search_command))
     if _feature(app,"templates"):app.add_handler(CommandHandler("templates",show_templates_menu))
     from handlers.help import help_command

@@ -2,6 +2,8 @@ import pytest
 
 from services import database
 
+pytest_plugins = ["healthcare_fixtures"]
+
 
 @pytest.fixture
 async def test_db(monkeypatch):
