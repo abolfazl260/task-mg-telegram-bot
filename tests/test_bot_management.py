@@ -147,3 +147,51 @@ def test_feature_normalization_requires_core_and_dependencies():
     assert normalize_features(["tasks"]) == ["core", "tasks"]
     with pytest.raises(ValueError, match="assignment requires teams"):
         normalize_features(["core", "tasks", "assignment"])
+
+
+
+@pytest.mark.asyncio
+async def test_configured_clinic_json_is_migrated_to_managed_store(monkeypatch):
+    monkeypatch.setenv("BOT_PROFILES", "clinic")
+    monkeypatch.setenv("BOT_CLINIC_TOKEN", "123456:abcdefghijklmnopqrstuvwxyzABCDE55555")
+    monkeypatch.setenv("BOT_CLINIC_USERNAME", "clinic_runtime_bot")
+
+    seeded = await seed_default_profiles()
+    assert "clinic" in seeded
+    clinic = await get_managed_bot("clinic", include_token=True)
+    assert clinic["status"] == "active"
+    assert clinic["source"] == "migrated_json"
+    assert clinic["bot_username"] == "clinic_runtime_bot"
+    assert clinic["bot_token"].endswith("55555")
+
+    public = await get_managed_bot("clinic")
+    assert "bot_token" not in public
+    assert public["token_masked"].endswith("5555")
+
+
+def test_legacy_json_profile_preserves_task_option_feature_semantics(tmp_path, monkeypatch):
+    from bot_platform import _load_json_profile
+
+    profile_path = tmp_path / "legacy.json"
+    profile_path.write_text(
+        """{
+          "key": "legacy",
+          "name": "Legacy",
+          "username": "legacy_bot",
+          "features": {"tasks": true, "teams": true, "ai": false},
+          "task_options": {
+            "allow_assignment": false,
+            "allow_tags": false,
+            "allow_comments": true,
+            "allow_categories": true
+          }
+        }""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BOT_LEGACY_TOKEN", "test-token")
+    profile = _load_json_profile(profile_path)
+    assert profile.features["assignment"] is False
+    assert profile.features["tags"] is False
+    assert profile.features["comments"] is True
+    assert profile.features["categories"] is True
+    assert profile.features["voice"] is False
