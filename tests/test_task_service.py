@@ -14,7 +14,7 @@ async def test_task_crud_status_assignment_and_delete(test_db, monkeypatch):
     assert task["title"] == "Write tests"
     assert task["status"] == "pending"
 
-    assert await task_service.update_task_status_async(task_id, "in_progress")
+    assert await task_service.update_task_status_async(task_id, "in_progress", 100)
     assert (await task_service.get_task_by_id_async(task_id))["status"] == "in_progress"
 
     assert await task_service.assign_task_async(
@@ -27,7 +27,7 @@ async def test_task_crud_status_assignment_and_delete(test_db, monkeypatch):
     history = await task_service.get_assignment_history_async(task_id)
     assert history[-1]["new_assignee_name"] == "Alice"
 
-    assert await task_service.update_task_status_async(task_id, "done")
+    assert await task_service.update_task_status_async(task_id, "done", 100)
     assert (await task_service.get_task_by_id_async(task_id))["completed_at"]
 
     # Deletion is exercised directly against the same isolated DB.
@@ -50,7 +50,7 @@ async def test_task_tag_search(test_db, monkeypatch):
 async def test_invalid_status_is_rejected(test_db, monkeypatch):
     monkeypatch.setattr(task_service, "_bot", lambda: "test")
     task_id = await task_service.create_task_async(100, "Task", "medium", "", "", "")
-    assert not await task_service.update_task_status_async(task_id, "unknown")
+    assert not await task_service.update_task_status_async(task_id, "unknown", 100)
 
 
 @pytest.mark.asyncio
@@ -90,7 +90,7 @@ async def test_visibility_filters_in_database_without_full_table_read(test_db, m
         team_id=other_team["team_id"],
     )
 
-    await task_service.update_task_status_async(shared_id, "done")
+    await task_service.update_task_status_async(shared_id, "done", 200)
 
     async def fail_full_table_read():
         raise AssertionError("visibility must not read the entire tasks table")
