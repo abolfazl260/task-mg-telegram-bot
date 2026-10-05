@@ -64,7 +64,32 @@ def _load_json_profile(path: Path) -> BotProfile:
     if not token: raise RuntimeError(f"Token env var {token_env} is required for bot profile {key}.")
     username = os.getenv(username_env, raw.get("username", "")).strip().lstrip("@")
     if not username: raise RuntimeError(f"Username env var {username_env} or username field is required for bot profile {key}.")
-    features = DEFAULT_FEATURES.copy(); features.update(raw.get("features", {})); raw_commands = raw.get("commands")
+    features = DEFAULT_FEATURES.copy(); features.update(raw.get("features", {}))
+    # Backward-compatible migration for legacy JSON profiles: derive newly
+    # granular Core features from the existing task_options contract.
+    task_options = {}
+    if isinstance(raw.get("settings"), dict) and isinstance(raw["settings"].get("task_options"), dict):
+        task_options.update(raw["settings"]["task_options"])
+    if isinstance(raw.get("task_options"), dict):
+        task_options.update(raw["task_options"])
+    option_features = {
+        "allow_assignment": "assignment",
+        "allow_tags": "tags",
+        "allow_comments": "comments",
+        "allow_categories": "categories",
+        "allow_search": "search",
+        "allow_templates": "templates",
+        "allow_bulk_import": "bulk_import",
+    }
+    for option, feature in option_features.items():
+        if option in task_options:
+            features[feature] = bool(task_options[option])
+    if not features.get("tasks", False):
+        for feature in ("assignment","comments","attachments","tags","categories","priority","deadline","reminders","unassigned"):
+            features[feature] = False
+    if not features.get("ai", False):
+        features["voice"] = False
+    raw_commands = raw.get("commands")
     commands = tuple(dict.fromkeys(str(c).strip().lstrip("/") for c in raw_commands if str(c).strip())) if isinstance(raw_commands, list) else None
     workflow = json.loads(json.dumps(DEFAULT_WORKFLOW))
     for section, values in raw.get("workflow", {}).items():
