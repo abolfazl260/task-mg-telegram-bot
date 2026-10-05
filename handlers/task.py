@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import logging
+import uuid
 import jdatetime
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -57,7 +58,12 @@ async def _ask_description(message, context):
 
 def _is_bare_task_id(text: str) -> bool:
     value = (text or '').strip()
-    return len(value) == 8 and value.isalnum()
+    if len(value) == 8 and value.isalnum():
+        return True
+    try:
+        return str(uuid.UUID(value)) == value.lower()
+    except (ValueError, AttributeError):
+        return False
 
 async def _can_view_task(user_id, task: dict) -> bool:
     return any((t.get('id') == task.get('id') for t in await get_active_tasks_async(user_id))) or await user_can_modify_task_async(user_id, task)
