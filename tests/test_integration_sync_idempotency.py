@@ -25,7 +25,7 @@ def _install_sync_fakes(monkeypatch, provider, external_tasks=None):
 
     monkeypatch.setattr(integration_service, "get_connection", lambda *_: row)
     monkeypatch.setattr(integration_service, "_refresh", lambda _row: "token")
-    monkeypatch.setattr(integration_service, "read_tasks", lambda: [task.copy()])
+    monkeypatch.setattr(integration_service, "_read_user_tasks", lambda _user_id: [task.copy()])
     monkeypatch.setattr(integration_service, "sync_execute", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         integration_service,
