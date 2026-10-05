@@ -9,7 +9,7 @@ import urllib.request
 import pytest
 
 from webapp import report_routes
-from webapp.server import WebAppHandler, ThreadingHTTPServer
+from webapp.server import ThreadingHTTPServer, WebAppHandler
 
 
 class _FakeHandler:
