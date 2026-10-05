@@ -13,7 +13,25 @@ from .auth import TelegramWebAppAuthError
 from .bot_profile import WebAppBotProfileError
 from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, create_task, update_task, change_status
 from .public_tasks import handle_public_task_get, handle_public_task_api
-from .admin_api import dashboard_stats, task_creation, task_status_distribution, list_users, get_user_profile, list_user_tasks, bot_management, system_health
+from .admin_api import (
+    activate_bot_management,
+    bot_feature_registry,
+    bot_management,
+    bot_management_audit,
+    create_bot_management,
+    dashboard_stats,
+    deactivate_bot_management,
+    get_bot_management_detail,
+    get_user_profile,
+    list_user_tasks,
+    list_users,
+    system_health,
+    task_creation,
+    task_status_distribution,
+    update_bot_management,
+    validate_bot_management_token,
+)
+from services.permission_service import is_admin
 
 logger = logging.getLogger(__name__)
 ADMIN_PATH = "/adminNhduwqh3409iwejewed"
@@ -46,24 +64,64 @@ class WebAppHandler(BaseHTTPRequestHandler):
         target=(STATIC_DIR/relative).resolve()
         if STATIC_DIR not in target.parents and target!=STATIC_DIR or not target.is_file(): return False
         body=target.read_bytes(); self.send_response(200); self.send_header("Content-Type",mimetypes.guess_type(target.name)[0] or "application/octet-stream"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body); return True
+    def _authenticate_admin(self):
+        user = self._authenticate("")
+        if not is_admin(user.id):
+            raise WebAppTaskAccessError("admin_required")
+        return user
+
     def _handle_admin(self,method):
         path=urlparse(self.path).path
-        if method != "GET": return self._json(405,{"error":"method_not_allowed"})
-        query=parse_qs(urlparse(self.path).query); bot_key=(query.get("bot_key") or [""])[0].strip()
-        if path=="/api/admin/dashboard": return self._json(200,self.server.webapp_runtime.submit(dashboard_stats(bot_key)))
-        if path=="/api/admin/tasks/status": return self._json(200,{"statuses":self.server.webapp_runtime.submit(task_status_distribution(bot_key))})
-        if path=="/api/admin/bots": return self._json(200,{"bots":self.server.webapp_runtime.submit(bot_management())})
-        if path=="/api/admin/system-health": return self._json(200,self.server.webapp_runtime.submit(system_health()))
-        if path=="/api/admin/tasks/creation":
+        query=parse_qs(urlparse(self.path).query)
+        bot_key=(query.get("bot_key") or [""])[0].strip()
+        admin=self._authenticate_admin()
+
+        if path=="/api/admin/dashboard" and method=="GET":
+            return self._json(200,self.server.webapp_runtime.submit(dashboard_stats(bot_key)))
+        if path=="/api/admin/tasks/status" and method=="GET":
+            return self._json(200,{"statuses":self.server.webapp_runtime.submit(task_status_distribution(bot_key))})
+        if path=="/api/admin/bots" and method=="GET":
+            return self._json(200,{"bots":self.server.webapp_runtime.submit(bot_management())})
+        if path=="/api/admin/bot-features" and method=="GET":
+            return self._json(200,self.server.webapp_runtime.submit(bot_feature_registry()))
+        if path=="/api/admin/bots/validate-token" and method=="POST":
+            return self._json(200,self.server.webapp_runtime.submit(validate_bot_management_token(_json_body(self))))
+        if path=="/api/admin/bots" and method=="POST":
+            return self._json(201,{"bot":self.server.webapp_runtime.submit(create_bot_management(_json_body(self),admin.id))})
+        if path.startswith("/api/admin/bots/"):
+            remainder=path[len("/api/admin/bots/"):].strip("/")
+            if remainder.endswith("/activate") and method=="POST":
+                key=remainder[:-9].rstrip("/")
+                if not key: return self._json(400,{"error":"invalid_bot_key"})
+                return self._json(200,{"bot":self.server.webapp_runtime.submit(activate_bot_management(key,admin.id))})
+            if remainder.endswith("/deactivate") and method=="POST":
+                key=remainder[:-11].rstrip("/")
+                if not key: return self._json(400,{"error":"invalid_bot_key"})
+                return self._json(200,{"bot":self.server.webapp_runtime.submit(deactivate_bot_management(key,admin.id))})
+            if remainder.endswith("/audit") and method=="GET":
+                key=remainder[:-6].rstrip("/")
+                if not key: return self._json(400,{"error":"invalid_bot_key"})
+                return self._json(200,{"events":self.server.webapp_runtime.submit(bot_management_audit(key))})
+            key=remainder
+            if not key: return self._json(400,{"error":"invalid_bot_key"})
+            if method=="GET":
+                bot=self.server.webapp_runtime.submit(get_bot_management_detail(key))
+                return self._json(200,{"bot":bot}) if bot else self._json(404,{"error":"bot_not_found"})
+            if method=="PATCH":
+                return self._json(200,{"bot":self.server.webapp_runtime.submit(update_bot_management(key,_json_body(self),admin.id))})
+            return self._json(405,{"error":"method_not_allowed"})
+        if path=="/api/admin/system-health" and method=="GET":
+            return self._json(200,self.server.webapp_runtime.submit(system_health()))
+        if path=="/api/admin/tasks/creation" and method=="GET":
             try: days=int((query.get("days") or ["7"])[0])
             except ValueError: return self._json(400,{"error":"invalid_days"})
             if days not in (7,30): return self._json(400,{"error":"days_must_be_7_or_30"})
             return self._json(200,self.server.webapp_runtime.submit(task_creation(days,bot_key)))
-        if path=="/api/admin/users":
+        if path=="/api/admin/users" and method=="GET":
             try: limit=int((query.get("limit") or ["50"])[0]); offset=int((query.get("offset") or ["0"])[0])
             except ValueError: return self._json(400,{"error":"invalid_pagination"})
-            return self._json(200,{"users":self.server.webapp_runtime.submit(list_users(bot_key,(query.get("search") or [""])[0],limit,offset))})
-        if path.startswith("/api/admin/users/"):
+            return self._json(200,self.server.webapp_runtime.submit(list_users(bot_key,(query.get("search") or [""])[0],limit,offset)))
+        if path.startswith("/api/admin/users/") and method=="GET":
             remainder=path[len("/api/admin/users/"):]
             if remainder.endswith("/tasks"):
                 user_id=remainder[:-6].rstrip("/")
@@ -73,7 +131,10 @@ class WebAppHandler(BaseHTTPRequestHandler):
             if not user_id: return self._json(400,{"error":"invalid_user_id"})
             profile=self.server.webapp_runtime.submit(get_user_profile(user_id,bot_key))
             return self._json(200,{"user":profile}) if profile else self._json(404,{"error":"user_not_found"})
+        if path.startswith("/api/admin/"):
+            return self._json(405,{"error":"method_not_allowed"}) if method not in {"GET","POST","PATCH"} else self._json(404,{"error":"not_found"})
         return self._json(404,{"error":"not_found"})
+
     def _handle_api(self,method):
         path=urlparse(self.path).path; bot_key=self._bot_key()
         known = path=="/api/me" or path=="/api/tasks" or path.startswith("/api/tasks/")
