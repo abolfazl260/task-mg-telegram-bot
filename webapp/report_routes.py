@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from urllib.parse import parse_qs, quote, urlparse
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -14,6 +15,8 @@ from .report_tokens import build_report_url, create_report_token
 from .reports import monthly_report, report_section
 from .report_dashboard_service import dashboard_report
 from .report_export import export_report
+
+logger = logging.getLogger(__name__)
 
 
 def _json(h,status,payload):
@@ -97,10 +100,14 @@ def handle_report_api(handler):
                 if report is None: _json(handler,404,{'error':'report_not_found'}); return True
                 payload,content_type,filename=export_report(report,fmt); handler.send_response(200); handler.send_header('Content-Type',content_type); handler.send_header('Content-Disposition',f'attachment; filename="{filename}"'); handler.send_header('Cache-Control','no-store'); handler.send_header('Content-Length',str(len(payload))); handler.end_headers(); handler.wfile.write(payload); return True
             except ValueError as exc: _json(handler,400,{'error':str(exc)}); return True
-            except Exception as exc: _json(handler,500,{'error':'report_export_failed','detail':str(exc)}); return True
+            except Exception:
+                logger.exception("report_http_failure operation=export_report format=%s", fmt)
+                _json(handler,500,{'error':'report_export_failed'}); return True
         q=parse_qs(parsed.query); page=int((q.get('page') or ['1'])[0]); period=(q.get('period') or ['month'])[0]; start_value=(q.get('start') or [None])[0]; end_value=(q.get('end') or [None])[0]; search=(q.get('search') or [''])[0]
         try: data=dashboard_report(token,section,page,25,period,start_value,end_value,search)
-        except Exception as exc: _json(handler,500,{'error':'report_generation_failed','detail':str(exc)}); return True
+        except Exception:
+            logger.exception("report_http_failure operation=generate_report section=%s", section or "summary")
+            _json(handler,500,{'error':'report_generation_failed'}); return True
         if data is None:_json(handler,404,{'error':'report_not_found'})
         else:_json(handler,200,data)
         return True
