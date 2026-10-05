@@ -18,6 +18,7 @@
       <label>Status<select id="botStatus"><option value="inactive">Inactive</option><option value="active">Active</option></select></label>
       <label>Telegram Bot API token<div class="token-row"><input id="botToken" type="password" autocomplete="new-password" placeholder="Enter or replace token"><button id="validateBotToken" type="button">Validate</button></div></label>
       <label class="wide">Description<textarea id="botDescription" maxlength="1000" placeholder="Operational purpose of this bot"></textarea></label>
+      <label class="wide">Settings (JSON)<textarea id="botSettings" spellcheck="false" placeholder="{&quot;ui&quot;:{&quot;language&quot;:&quot;fa&quot;}}"></textarea></label>
       <div class="wide"><div class="section-subtitle">Enabled Core capabilities</div><div id="botFeatureGrid" class="feature-grid"></div></div>
     </div>
     <div class="bot-editor-actions"><button id="cancelBotEdit" type="button" hidden>Cancel edit</button><button type="submit">Save Bot</button></div>
