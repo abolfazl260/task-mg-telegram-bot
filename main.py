@@ -124,7 +124,18 @@ async def post_init(app:Application):
         commands=filtered
     await app.bot.delete_my_commands();await app.bot.set_my_commands(commands);logger.info("Telegram command menu updated bot=%s features=%s commands=%s",profile.key if profile else "default",profile.features if profile else {},", ".join(f"/{cmd.command}" for cmd in commands));await _start_oauth_server(app);start_webapp_server()
     if app.job_queue:
-        app.job_queue.run_repeating(morning_today_tasks,interval=60,first=10,name="morning_today_tasks");app.job_queue.run_repeating(midday_summary_and_weekly,interval=60,first=20,name="midday_summary_weekly");app.job_queue.run_repeating(habit_reminders,interval=60,first=10,name="habit_reminders");app.job_queue.run_repeating(weekly_habit_reports,interval=60,first=40,name="weekly_habit_reports");app.job_queue.run_daily(daily_admin_report,time=_parse_report_time(),name="daily_admin_report");bot_offset=sum(ord(ch) for ch in (profile.key if profile else "default"))%60;app.job_queue.run_repeating(_jira_sync_job,interval=60,first=30+bot_offset,name="jira_sync",data=profile);app.job_queue.run_repeating(_integration_sync_job,interval=300,first=60+bot_offset,name="external_task_sync",data=profile)
+        if profile is None or profile.feature_enabled("tasks"):
+            app.job_queue.run_repeating(morning_today_tasks,interval=60,first=10,name="morning_today_tasks")
+            app.job_queue.run_repeating(midday_summary_and_weekly,interval=60,first=20,name="midday_summary_weekly")
+        if profile is None or profile.feature_enabled("habits"):
+            app.job_queue.run_repeating(habit_reminders,interval=60,first=10,name="habit_reminders")
+            app.job_queue.run_repeating(weekly_habit_reports,interval=60,first=40,name="weekly_habit_reports")
+        app.job_queue.run_daily(daily_admin_report,time=_parse_report_time(),name="daily_admin_report")
+        if profile is None or profile.feature_enabled("integrations"):
+            bot_offset=sum(ord(ch) for ch in (profile.key if profile else "default"))%60
+            app.job_queue.run_repeating(_jira_sync_job,interval=60,first=30+bot_offset,name="jira_sync",data=profile)
+            app.job_queue.run_repeating(_integration_sync_job,interval=300,first=60+bot_offset,name="external_task_sync",data=profile)
+
 def _feature(app,name):
     profile=app.bot_data.get("bot_config")
     if profile is None or not profile.feature_enabled(name):return False
@@ -149,11 +160,57 @@ def build_application(profile):
     if _feature(app,"integrations"):
         app.add_handler(ConversationHandler(entry_points=[CommandHandler("jira",jira_start)],states={JIRA_TYPE:[MessageHandler(filters.TEXT & ~filters.COMMAND,jira_type)],JIRA_URL:[MessageHandler(filters.TEXT & ~filters.COMMAND,jira_url)],JIRA_IDENTITY:[MessageHandler(filters.TEXT & ~filters.COMMAND,jira_identity)],JIRA_CREDENTIAL:[MessageHandler(filters.TEXT & ~filters.COMMAND,jira_credential)],JIRA_PROJECT:[MessageHandler(filters.TEXT & ~filters.COMMAND,jira_project)]},fallbacks=[CommandHandler("cancel",jira_cancel)],name="jira_connection",persistent=False));app.add_handler(CommandHandler("jira_disconnect",jira_disconnect_command));app.add_handler(CommandHandler("jira_status",jira_status_command))
     app.add_handler(CommandHandler("help",help_command))
-    app.add_handler(CallbackQueryHandler(start_task,pattern="^start_"));app.add_handler(CallbackQueryHandler(done_task,pattern="^done_"));app.add_handler(CallbackQueryHandler(cancel_task,pattern="^cancel_"));app.add_handler(CallbackQueryHandler(pending_task,pattern="^pending_"));app.add_handler(CallbackQueryHandler(take_confirm,pattern="^take_(confirm|cancel)$"));app.add_handler(CallbackQueryHandler(take_assignment,pattern="^take_[A-Za-z0-9]"));app.add_handler(CallbackQueryHandler(safe_assignment_confirm,pattern="^assign_confirm_create$"));app.add_handler(CallbackQueryHandler(assignment_callback,pattern="^assign_"));app.add_handler(CallbackQueryHandler(assignment_manage_callback,pattern="^(owner_|asg_|chg_)") );app.add_handler(CallbackQueryHandler(task_details_callback,pattern="^(task_details_|task_history_)") );app.add_handler(CallbackQueryHandler(comment_callback,pattern="^comment_add_"));app.add_handler(CallbackQueryHandler(comment_cancel_callback,pattern="^comment_cancel_"));app.add_handler(CallbackQueryHandler(paginated_detail_page,pattern="^detail_page_"));app.add_handler(CallbackQueryHandler(paginated_sort_callback,pattern="^sort_page_"));app.add_handler(CallbackQueryHandler(sort_tasks_callback,pattern="^sort_"));app.add_handler(CallbackQueryHandler(tasks_view_callback,pattern="^(?:view_tasks_|tasks_filter_)") )
-    app.add_handler(CallbackQueryHandler(priority_selected,pattern="^priority_(high|medium|low)$"));app.add_handler(CallbackQueryHandler(deadline_selected,pattern="^deadline_(?:0|1|2|3|4|5|6|7|custom|none)$"));app.add_handler(CallbackQueryHandler(optional_field_callback,pattern="^(?:category_skip|category_pick_[0-9]+|tags_skip|description_skip)$"))
-    app.add_handler(CallbackQueryHandler(handle_tag_callback,pattern="^(tag_|tags_|step_back_description|step_back_category)"));app.add_handler(CallbackQueryHandler(integration_callback,pattern="^integration_") );app.add_handler(CallbackQueryHandler(reports_callback,pattern="^report_") );app.add_handler(CallbackQueryHandler(templates_callback,pattern="^template_") );app.add_handler(CallbackQueryHandler(team_callback,pattern="^team_") );app.add_handler(CallbackQueryHandler(share_category_callback,pattern="^share_") );app.add_handler(CallbackQueryHandler(import_callback,pattern="^import_") );app.add_handler(CallbackQueryHandler(handle_habit_callback,pattern="^habit_") );app.add_handler(CallbackQueryHandler(donate_callback,pattern="^donate_") );app.add_handler(CallbackQueryHandler(precheckout_callback,pattern="^precheckout_") );app.add_handler(CallbackQueryHandler(calendar_pdf_callback,pattern="^report_calendar_pdf$"));app.add_handler(CallbackQueryHandler(button_handler,pattern="^(?:add_task(?:_manual)?|ai_menu|ai_start|ai_(?:task|habit)_.+|tasks(?:_list|_back)?|search|teams|templates|habit_menu|stats|help|settings(?:_(?:timezone|date_format|language))?|timezone_set_.+|date_format_(?:jalali|gregorian)|language_(?:fa|en)|integrations|custom_bot|import_bulk|download_csv|contact_us)$"))
-    app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.ALL | filters.LOCATION, save_task))
-    app.add_handler(MessageHandler(filters.VOICE,handle_voice_message));app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_tag_text));app.add_handler(PreCheckoutQueryHandler(precheckout_callback));app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT,successful_payment_callback));app.add_error_handler(error_handler);return app
+    if _feature(app,"tasks"):
+        app.add_handler(CallbackQueryHandler(start_task,pattern="^start_"))
+        app.add_handler(CallbackQueryHandler(done_task,pattern="^done_"))
+        app.add_handler(CallbackQueryHandler(cancel_task,pattern="^cancel_"))
+        app.add_handler(CallbackQueryHandler(pending_task,pattern="^pending_"))
+        app.add_handler(CallbackQueryHandler(task_details_callback,pattern="^(task_details_|task_history_)"))
+        app.add_handler(CallbackQueryHandler(paginated_detail_page,pattern="^detail_page_"))
+        app.add_handler(CallbackQueryHandler(paginated_sort_callback,pattern="^sort_page_"))
+        app.add_handler(CallbackQueryHandler(sort_tasks_callback,pattern="^sort_"))
+        app.add_handler(CallbackQueryHandler(tasks_view_callback,pattern="^(?:view_tasks_|tasks_filter_)"))
+        if _feature(app,"priority"):
+            app.add_handler(CallbackQueryHandler(priority_selected,pattern="^priority_(high|medium|low)$"))
+        if _feature(app,"deadline"):
+            app.add_handler(CallbackQueryHandler(deadline_selected,pattern="^deadline_(?:0|1|2|3|4|5|6|7|custom|none)$"))
+        app.add_handler(CallbackQueryHandler(optional_field_callback,pattern="^(?:category_skip|category_pick_[0-9]+|tags_skip|description_skip)$"))
+        if _feature(app,"tags"):
+            app.add_handler(CallbackQueryHandler(handle_tag_callback,pattern="^(tag_|tags_|step_back_description|step_back_category)"))
+        if _feature(app,"assignment"):
+            app.add_handler(CallbackQueryHandler(take_confirm,pattern="^take_(confirm|cancel)$"))
+            app.add_handler(CallbackQueryHandler(take_assignment,pattern="^take_[A-Za-z0-9]"))
+            app.add_handler(CallbackQueryHandler(safe_assignment_confirm,pattern="^assign_confirm_create$"))
+            app.add_handler(CallbackQueryHandler(assignment_callback,pattern="^assign_"))
+            app.add_handler(CallbackQueryHandler(assignment_manage_callback,pattern="^(owner_|asg_|chg_)"))
+        if _feature(app,"comments"):
+            app.add_handler(CallbackQueryHandler(comment_callback,pattern="^comment_add_"))
+            app.add_handler(CallbackQueryHandler(comment_cancel_callback,pattern="^comment_cancel_"))
+        app.add_handler(CallbackQueryHandler(share_category_callback,pattern="^share_"))
+        if _feature(app,"bulk_import"):
+            app.add_handler(CallbackQueryHandler(import_callback,pattern="^import_"))
+        app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.ALL | filters.LOCATION, save_task))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_tag_text))
+    if _feature(app,"integrations"):
+        app.add_handler(CallbackQueryHandler(integration_callback,pattern="^integration_"))
+    if _feature(app,"reports"):
+        app.add_handler(CallbackQueryHandler(reports_callback,pattern="^report_"))
+        app.add_handler(CallbackQueryHandler(calendar_pdf_callback,pattern="^report_calendar_pdf$"))
+    if _feature(app,"templates"):
+        app.add_handler(CallbackQueryHandler(templates_callback,pattern="^template_"))
+    if _feature(app,"teams"):
+        app.add_handler(CallbackQueryHandler(team_callback,pattern="^team_"))
+    if _feature(app,"habits"):
+        app.add_handler(CallbackQueryHandler(handle_habit_callback,pattern="^habit_"))
+    if _feature(app,"donate"):
+        app.add_handler(CallbackQueryHandler(donate_callback,pattern="^donate_"))
+        app.add_handler(CallbackQueryHandler(precheckout_callback,pattern="^precheckout_"))
+        app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
+        app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT,successful_payment_callback))
+    app.add_handler(CallbackQueryHandler(button_handler,pattern="^(?:add_task(?:_manual)?|ai_menu|ai_start|ai_(?:task|habit)_.+|tasks(?:_list|_back)?|search|teams|templates|habit_menu|stats|help|settings(?:_(?:timezone|date_format|language))?|timezone_set_.+|date_format_(?:jalali|gregorian)|language_(?:fa|en)|integrations|custom_bot|import_bulk|download_csv|contact_us)$"))
+    if _feature(app,"voice"):
+        app.add_handler(MessageHandler(filters.VOICE,handle_voice_message))
+    app.add_error_handler(error_handler);return app
 def main():
     apps=[build_application(profile) for profile in BOT_PROFILES];logger.info("Starting %s bot application(s): %s",len(apps),", ".join(p.key for p in BOT_PROFILES))
     if len(apps)==1:
