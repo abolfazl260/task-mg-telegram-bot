@@ -1,6 +1,7 @@
-import json,os,secrets,time,urllib.parse,urllib.request
+import json,logging,os,secrets,time,urllib.error,urllib.parse,urllib.request
 from datetime import datetime,timezone
 from services.database import sync_all as db_sync_all,sync_one,sync_execute
+logger=logging.getLogger(__name__)
 _pending_states={};_bots={}
 _PENDING_STATE_TTL=900
 _MAX_PENDING_STATES=1000
@@ -74,18 +75,33 @@ def _ensure_list(row,lists):
  x=lists[0];set_list(row['user_id'],row['provider'],x.get('id'),x.get('displayName') or x.get('title') or '',row['bot_key']);row['external_list_id']=x.get('id');return row['external_list_id']
 def _deadline_iso(value,google=False):
  try:dt=datetime.strptime(value.strip(),'%Y-%m-%d %H:%M')
- except Exception:
+ except (ValueError,TypeError,AttributeError):
   try:dt=datetime.strptime(value.strip(),'%Y-%m-%d')
-  except Exception:return value
+  except (ValueError,TypeError,AttributeError):return value
  return dt.strftime('%Y-%m-%dT%H:%M:%SZ') if google else dt.strftime('%Y-%m-%dT%H:%M:%S')
+def _task_marker(local_task_id):return f'[BOT_TASK:{local_task_id}]'
+def _notes_with_marker(text,local_task_id):
+ marker=_task_marker(local_task_id);text=(text or '').rstrip()
+ return text if marker in text else (f'{text}\n\n{marker}' if text else marker)
+def _load_task_links(user_id,bot_key,provider):return db_sync_all('external_task_links','user_id=? AND bot_key=? AND provider=?',(str(user_id),bot_key,provider))
+def _save_task_link(user_id,bot_key,provider,local_task_id,external_task_id,external_list_id):
+ now=datetime.now(timezone.utc).isoformat(timespec='seconds')
+ try:
+  sync_execute('INSERT INTO external_task_links(user_id,bot_key,provider,local_task_id,external_task_id,external_list_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id,bot_key,provider,local_task_id) DO UPDATE SET external_task_id=excluded.external_task_id,external_list_id=excluded.external_list_id,updated_at=excluded.updated_at',(str(user_id),bot_key,provider,str(local_task_id),str(external_task_id),str(external_list_id or ''),now,now))
+ except Exception as exc:
+  logger.exception('External task link persistence failed provider=%s bot_key=%s user_id=%s local_task_id=%s external_task_id=%s operation=save_link exception_type=%s',provider,bot_key,user_id,local_task_id,external_task_id,type(exc).__name__)
+  raise
+def _get_external(row,external_task_id,token,list_id):
+ eid=urllib.parse.quote(str(external_task_id),safe='');lid=urllib.parse.quote(str(list_id),safe='')
+ if row['provider']=='microsoft':return _request_json(f'{MICROSOFT_GRAPH}/me/todo/lists/{lid}/tasks/{eid}',token)
+ return _request_json(f'{GOOGLE_TASKS}/lists/{lid}/tasks/{eid}',token)
 def _create_external(row,task):
- token=_refresh(row);lists=_microsoft_lists(token) if row['provider']=='microsoft' else _google_lists(token);lid=_ensure_list(row,lists);d=task.get('description') or ''
+ token=_refresh(row);lists=_microsoft_lists(token) if row['provider']=='microsoft' else _google_lists(token);lid=_ensure_list(row,lists);d=_notes_with_marker(task.get('description') or '',task.get('id'))
  if row['provider']=='microsoft':
   p={'title':task.get('title') or 'بدون عنوان','body':{'content':d,'contentType':'text'}}
   if task.get('deadline'):p['dueDateTime']={'dateTime':_deadline_iso(task['deadline']),'timeZone':'UTC'}
   return _request_json(f"{MICROSOFT_GRAPH}/me/todo/lists/{urllib.parse.quote(lid,safe='')}/tasks",token,'POST',p)
- p={'title':task.get('title') or 'بدون عنوان'}
- if d:p['notes']=d
+ p={'title':task.get('title') or 'بدون عنوان','notes':d}
  if task.get('deadline'):p['due']=_deadline_iso(task['deadline'],True)
  return _request_json(f"{GOOGLE_TASKS}/lists/{urllib.parse.quote(lid,safe='')}/tasks",token,'POST',p)
 def sync_user(user_id,bot_key='default',provider=None):
@@ -95,24 +111,42 @@ def sync_user(user_id,bot_key='default',provider=None):
   if not row or int(row.get('enabled') or 0)!=1:continue
   try:
    token=_refresh(row);lists=_microsoft_lists(token) if name=='microsoft' else _google_lists(token);lid=_ensure_list(row,lists);ext=_request_json(f"{MICROSOFT_GRAPH}/me/todo/lists/{urllib.parse.quote(lid,safe='')}/tasks?$top=100",token).get('value',[]) if name=='microsoft' else _request_json(f"{GOOGLE_TASKS}/lists/{urllib.parse.quote(lid,safe='')}/tasks?maxResults=100",token).get('items',[])
-   markers={}
+   markers={};external_by_id={}
    for x in ext:
+    if x.get('id') is not None:external_by_id[str(x.get('id'))]=x
     notes=x.get('body',{}).get('content','') if name=='microsoft' else x.get('notes','')
     if '[BOT_TASK:' in notes:markers[notes.split('[BOT_TASK:',1)[1].split(']',1)[0]]=x
+   links={str(x.get('local_task_id')):x for x in _load_task_links(user_id,bot_key,name)}
    if tasks is None:tasks=_read_user_tasks(user_id)
    changed=0
    for t in tasks:
     if str(t.get('user_id'))!=str(user_id):continue
-    x=markers.get(t.get('id'))
-    if not x:
-     _create_external(row,t);changed+=1;continue
+    local_id=str(t.get('id') or '')
+    if not local_id:continue
+    link=links.get(local_id);x=None
+    if link and link.get('external_task_id'):
+     external_id=str(link.get('external_task_id'));x=external_by_id.get(external_id)
+     if x is None:
+      try:x=_get_external(row,external_id,token,lid)
+      except urllib.error.HTTPError as exc:
+       if exc.code not in (404,410):raise
+    if x is None:
+     legacy=markers.get(local_id)
+     if legacy and legacy.get('id') is not None:
+      external_id=str(legacy.get('id'));_save_task_link(user_id,bot_key,name,local_id,external_id,lid);links[local_id]={'local_task_id':local_id,'external_task_id':external_id};x=legacy
+     else:
+      created=_create_external(row,t);external_id=str(created.get('id') or '')
+      if not external_id:raise RuntimeError(f'{name} task creation returned no id')
+      _save_task_link(user_id,bot_key,name,local_id,external_id,lid);links[local_id]={'local_task_id':local_id,'external_task_id':external_id};x=created;changed+=1
     done=x.get('status')=='completed'
     if done and t.get('status')!='done':
      sync_execute('UPDATE tasks SET status=?,completed_at=? WHERE id=? AND bot_key=?',('done',datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M'),t.get('id'),bot_key));t['status']='done';changed+=1
     elif not done and t.get('status')=='done':
      sync_execute('UPDATE tasks SET status=?,completed_at=? WHERE id=? AND bot_key=?',('pending','',t.get('id'),bot_key));t['status']='pending';t['completed_at']='';changed+=1
    sync_execute('UPDATE external_connections SET last_sync=? WHERE user_id=? AND provider=? AND bot_key=?',(datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),str(user_id),name,bot_key));results.append((name,changed,None))
-  except Exception as exc:results.append((name,0,str(exc)))
+  except Exception as exc:
+   logger.exception('External sync failed provider=%s bot_key=%s user_id=%s operation=sync exception_type=%s',name,bot_key,user_id,type(exc).__name__)
+   results.append((name,0,str(exc)))
  return results
 def sync_all(bot_key='default'):
  users=sorted({x['user_id'] for x in _read_integrations() if x.get('bot_key')==bot_key and int(x.get('enabled') or 0)==1});return [(u,sync_user(u,bot_key)) for u in users]

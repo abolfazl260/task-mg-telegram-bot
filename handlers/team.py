@@ -6,11 +6,14 @@ Share flow (category-based):
   3) Bot sends ready-to-forward invite with correct deep link
 """
 import html
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from config import BOT_USERNAME
 from services.team_service import acreate_team, ajoin_team_by_code, afind_team_by_code, aget_user_teams, aget_team, aget_team_members, aleave_team, aregenerate_codes, role_label, member_display, ROLE_OWNER, ROLE_EDITOR, ROLE_VIEWER, acan_edit
 from services.task_service import get_team_tasks_async, get_all_user_tasks_async, link_user_category_to_team_async
+
+logger = logging.getLogger(__name__)
 
 def _e(value) -> str:
     """HTML-escape dynamic text for Telegram HTML parse_mode."""
@@ -24,7 +27,7 @@ async def _bot_username(context) -> str:
         if info and info.username:
             return info.username
     except Exception:
-        pass
+        logger.warning("team_bot_username_lookup_failed", exc_info=True)
     return BOT_USERNAME or 'TaskManagerpersian_Bot'
 
 def _deep_link(bot_username: str, code: str) -> str:

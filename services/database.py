@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import logging
 import sqlite3
 import threading
 import time
@@ -15,6 +16,7 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 SQLITE_TIMEOUT_SECONDS = 30
 SQLITE_BUSY_TIMEOUT_MS = 30000
 SQLITE_MAX_RETRIES = 6
+logger = logging.getLogger(__name__)
 SCHEMA = """
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
@@ -70,6 +72,19 @@ CREATE TABLE IF NOT EXISTS external_connections (
     access_token TEXT NOT NULL DEFAULT '', refresh_token TEXT NOT NULL DEFAULT '', expires_at TEXT NOT NULL DEFAULT '',
     external_list_id TEXT NOT NULL DEFAULT '', external_list_name TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 0,
     last_sync TEXT NOT NULL DEFAULT '', PRIMARY KEY(user_id,bot_key,provider)
+);
+CREATE TABLE IF NOT EXISTS external_task_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    bot_key TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    local_task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    external_task_id TEXT NOT NULL,
+    external_list_id TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    UNIQUE(user_id,bot_key,provider,local_task_id),
+    UNIQUE(user_id,bot_key,provider,external_task_id)
 );
 CREATE TABLE IF NOT EXISTS jira_connections (
     bot_key TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, base_url TEXT NOT NULL,
@@ -171,7 +186,7 @@ async def close_all_dbs():
         try:
             await db.close()
         except Exception:
-            pass
+            logger.exception("database_close_failed operation=close_all_dbs")
 
 def _start_sync_loop() -> asyncio.AbstractEventLoop:
     global _sync_loop, _sync_thread
@@ -191,7 +206,7 @@ def _start_sync_loop() -> asyncio.AbstractEventLoop:
                 try:
                     loop.run_until_complete(close_all_dbs())
                 except Exception:
-                    pass
+                    logger.exception("database_close_failed operation=sync_loop_finalizer")
                 loop.close()
         _sync_thread = threading.Thread(target=runner, name="db-sync-loop", daemon=True)
         _sync_thread.start()
@@ -337,6 +352,6 @@ def _atexit_cleanup():
     try:
         shutdown_sync_loop()
     except Exception:
-        pass
+        logger.exception("database_sync_loop_shutdown_failed operation=atexit_cleanup")
 
 atexit.register(_atexit_cleanup)

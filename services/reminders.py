@@ -59,8 +59,8 @@ async def morning_today_tasks(context):
                 lines.append(f"... و {len(overdue) - 8} مورد دیگر")
         try:
             await context.bot.send_message(chat_id=user_id, text="\n".join(lines))
-        except Exception as e:
-            logger.warning("Morning reminder failed for %s: %s", user_id, e)
+        except Exception:
+            logger.exception("reminder_delivery_failed operation=morning_today_tasks user_id=%s", user_id)
 
 
 async def midday_summary_and_weekly(context):
@@ -95,20 +95,20 @@ async def midday_summary_and_weekly(context):
             try:
                 if datetime.strptime(created_s, "%Y-%m-%d").date() >= week_start:
                     created_week += 1
-            except Exception:
-                pass
+            except (ValueError, TypeError):
+                logger.warning("reminder_date_parse_failed field=created_at task_id=%s user_id=%s", t.get("id"), user_id)
             if t.get("status") == "done":
                 completed_s = (t.get("completed_at") or t.get("created_at") or "")[:10]
                 try:
                     if datetime.strptime(completed_s, "%Y-%m-%d").date() >= week_start:
                         done_week += 1
-                except Exception:
-                    pass
+                except (ValueError, TypeError):
+                    logger.warning("reminder_date_parse_failed field=completed_at task_id=%s user_id=%s", t.get("id"), user_id)
         lines.extend(["\n📅 گزارش هفتگی (از دوشنبه):", f"• ایجادشده این هفته: {created_week}", f"• انجام‌شده این هفته: {done_week}"])
         try:
             await context.bot.send_message(chat_id=user_id, text="\n".join(lines))
-        except Exception as e:
-            logger.warning("Midday summary failed for %s: %s", user_id, e)
+        except Exception:
+            logger.exception("reminder_delivery_failed operation=midday_summary user_id=%s", user_id)
 
 
 async def check_deadline_reminders(context):
@@ -138,8 +138,8 @@ async def habit_reminders(context):
             ])
             try:
                 await context.bot.send_message(chat_id=user_id, text=f"⏰ یادآوری عادت\n\nزمان انجام:\n\n{habit.get('title', '—')}\n\nآیا انجام شد؟", reply_markup=keyboard)
-            except Exception as e:
-                logger.warning("Habit reminder failed for %s: %s", user_id, e)
+            except Exception:
+                logger.exception("reminder_delivery_failed operation=habit_reminder user_id=%s habit_id=%s", user_id, habit.get("id"))
 
 
 async def weekly_habit_reports(context):
@@ -186,5 +186,5 @@ async def weekly_habit_reports(context):
         )
         try:
             await context.bot.send_message(chat_id=user_id, text=text)
-        except Exception as e:
-            logger.warning("Weekly habit report failed for %s: %s", user_id, e)
+        except Exception:
+            logger.exception("reminder_delivery_failed operation=weekly_habit_report user_id=%s", user_id)

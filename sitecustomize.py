@@ -66,7 +66,7 @@ def _install_safe_category_flow(task_handler):
         query = update.callback_query
         data = query.data or ""
         if not data.startswith("category_pick_"):
-            return await _taskmg_original_optional_field_callback(update, context)
+            return await _taskmg_original_optional_field_callback(update, context)  # noqa: F821
         task = context.user_data.get("new_task")
         if not isinstance(task, dict):
             await query.answer("فرایند ایجاد تسک فعال نیست.", show_alert=True)
@@ -76,13 +76,13 @@ def _install_safe_category_flow(task_handler):
         except (TypeError, ValueError):
             await query.answer("دسته‌بندی انتخاب‌شده معتبر نیست.", show_alert=True)
             return
-        categories = await _taskmg_category_options(update.effective_user.id)
+        categories = await _taskmg_category_options(update.effective_user.id)  # noqa: F821
         if index < 0 or index >= len(categories):
             await query.answer("این دسته‌بندی دیگر در دسترس نیست.", show_alert=True)
             return
         await query.answer()
         task["category"] = categories[index]
-        await _taskmg_task_handler._ask_tags(query.message, context)
+        await _taskmg_task_handler._ask_tags(query.message, context)  # noqa: F821
 
     # Install the generated keyboard into the module global actually used by
     # handlers.task._ask_category(). Setting only task_handler._category_keyboard

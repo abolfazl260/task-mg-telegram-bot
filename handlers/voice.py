@@ -122,6 +122,10 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
             try:
                 draft = await asyncio.to_thread(parse_task_request_smart, update.effective_user.id, text)
             except Exception:
+                logger.exception(
+                    "voice_ai_parse_failed user_id=%s operation=parse_task_request",
+                    update.effective_user.id if update.effective_user else None,
+                )
                 draft = None
             if isinstance(draft, dict) and draft.get("action") in {"CREATE_TASK", "CREATE_HABIT"}:
                 user_data = getattr(context, "user_data", None)
@@ -172,4 +176,4 @@ async def _replace_status(message, text: str) -> None:
         if edit_text is not None:
             await edit_text(text)
     except Exception:
-        pass
+        logger.debug("voice_status_replace_failed", exc_info=True)

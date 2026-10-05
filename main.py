@@ -101,7 +101,9 @@ async def _oauth_callback(request):
     code=request.query.get("code");state=request.query.get("state")
     if not code or not state:return web.Response(text="اطلاعات اتصال ناقص است.",status=400,content_type="text/html",charset="utf-8")
     try:complete_oauth(provider,code,state);return web.Response(text="<h2>اتصال با موفقیت انجام شد.</h2><p>می‌توانید به تلگرام برگردید و همگام‌سازی را اجرا کنید.</p>",content_type="text/html",charset="utf-8")
-    except Exception as exc:logger.exception("OAuth callback failed");return web.Response(text=f"<h2>اتصال ناموفق بود.</h2><p>{str(exc)}</p>",status=500,content_type="text/html",charset="utf-8")
+    except Exception:
+        logger.exception("OAuth callback failed provider=%s operation=complete_oauth", provider)
+        return web.Response(text="<h2>اتصال ناموفق بود.</h2><p>جزئیات خطا ثبت شد. لطفاً دوباره تلاش کنید.</p>",status=500,content_type="text/html",charset="utf-8")
 async def _start_oauth_server(app):
     base=os.getenv("INTEGRATION_REDIRECT_BASE_URL","").strip()
     if not base:logger.info("External task OAuth server disabled: INTEGRATION_REDIRECT_BASE_URL is not set");return

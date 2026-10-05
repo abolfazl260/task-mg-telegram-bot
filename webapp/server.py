@@ -1,5 +1,7 @@
 """HTTP server for the Telegram Web App and admin dashboard."""
 from __future__ import annotations
+
+import logging
 import asyncio, json, mimetypes, os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -12,6 +14,8 @@ from .bot_profile import WebAppBotProfileError
 from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, create_task, update_task, change_status
 from .public_tasks import handle_public_task_get, handle_public_task_api
 from .admin_api import dashboard_stats, task_creation, task_status_distribution, list_users, get_user_profile, list_user_tasks, bot_management, system_health
+
+logger = logging.getLogger(__name__)
 ADMIN_PATH = "/adminNhduwqh3409iwejewed"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 class WebAppAsyncRuntime:
@@ -107,7 +111,9 @@ class WebAppHandler(BaseHTTPRequestHandler):
         except WebAppBotProfileError: return self._json(400,{"error":"invalid_bot_profile"})
         except WebAppTaskAccessError: return self._json(403,{"error":"forbidden"})
         except ValueError as e: return self._json(400,{"error":str(e)})
-        except Exception as e: return self._json(500,{"error":"internal_server_error","detail":str(e)})
+        except Exception:
+            logger.exception("webapp_task_request_failed method=%s path=%s operation=task_api", method, self.path)
+            return self._json(500,{"error":"internal_server_error"})
     def do_GET(self):
         path=urlparse(self.path).path
         if path.startswith("/tasks/") or path.startswith("/task/"):

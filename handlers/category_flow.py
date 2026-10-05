@@ -1,11 +1,11 @@
 """Safe category callbacks for manual task creation."""
-from hashlib import sha1
+from hashlib import sha256
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from services.task_service import get_active_tasks_async
 
 
 def category_key(category: str) -> str:
-    return sha1(category.strip().encode("utf-8")).hexdigest()[:12]
+    return sha256(category.strip().encode("utf-8")).hexdigest()[:12]
 
 async def category_keyboard(user_id) -> InlineKeyboardMarkup:
     categories = []
