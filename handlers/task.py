@@ -415,7 +415,7 @@ async def _handle_status_change(update, context, new_status: str):
     query=update.callback_query; await query.answer(); prefix=query.data.split('_')[0]; task_id=query.data.replace(f'{prefix}_','',1); task=await get_task_by_id_async(task_id)
     if not task: await query.edit_message_text('⚠️ این تسک پیدا نشد.'); return
     if not await user_can_modify_task_async(update.effective_user.id, task): await query.answer('شما مجاز به تغییر این تسک نیستید (مشاهده\u200cکننده یا غیرعضو).', show_alert=True); return
-    success=await change_task_status_async(task_id,new_status)
+    success=await change_task_status_async(task_id,new_status,update.effective_user.id)
     if not success: await query.edit_message_text('❌ خطا در تغییر وضعیت تسک.'); return
     task['status']=new_status
     if new_status=='done': task['completed_at']=datetime.now().strftime('%Y-%m-%d %H:%M')
