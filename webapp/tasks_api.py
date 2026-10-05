@@ -41,4 +41,4 @@ async def change_status(user_id: int, task_id: str, new_status: str, bot_key: st
     task = await task_service.get_task_by_id_async(task_id)
     if not task or not await task_service.user_can_modify_task_async(user_id, task):
         raise WebAppTaskAccessError("Task cannot be modified by this user")
-    return await task_service.change_task_status_async(task_id, new_status)
+    return await task_service.change_task_status_async(task_id, new_status, user_id)

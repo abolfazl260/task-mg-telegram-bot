@@ -49,9 +49,10 @@ async def save_task_async(data):
     await execute("""INSERT INTO tasks(id,bot_key,user_id,title,priority,status,deadline,category,tags,description,created_at,completed_at,team_id,assignee_id,assignee_name,assignee_username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(task_id,_bot(),user_id,v[2] or "",v[3] or "medium",v[4] or "pending",v[5] or "",v[6] or "",v[7] or "",v[8] or "",v[9] or "",v[10] or "",v[11] or None,v[12] or None,v[13] or "",v[14] or ""))
     return task_id
 
-async def update_task_status_async(task_id,new_status):
+async def update_task_status_async(task_id,new_status,actor_id):
     if new_status not in VALID_STATUSES: return False
-    if not await fetch_one("tasks","id=?",(task_id,)): return False
+    task=await get_task_by_id_async(task_id)
+    if not task or not await user_can_modify_task_async(actor_id,task): return False
     await execute("UPDATE tasks SET status=?,completed_at=? WHERE id=?",(new_status,_now() if new_status=="done" else "",task_id)); return True
 
 async def create_task_async(user_id,title,priority,deadline,category,tags,description="",team_id="",assignee=None):
@@ -101,10 +102,12 @@ async def _visible_async(user_id,team_id=None,active=False):
 
 async def get_active_tasks_async(user_id,team_id=None): return await _visible_async(user_id,team_id,True)
 async def get_all_user_tasks_async(user_id,team_id=None): return await _visible_async(user_id,team_id,False)
-async def get_team_tasks_async(team_id,active_only=True): return await fetch_all("tasks","team_id=?"+(" AND status IN ('pending','in_progress')" if active_only else ""),(team_id,))
+async def get_team_tasks_async(team_id,user_id,active_only=True):
+    if not await ais_member(team_id,user_id): return []
+    return await fetch_all("tasks","team_id=?"+(" AND status IN ('pending','in_progress')" if active_only else ""),(team_id,))
 async def get_task_by_id_async(task_id): return await fetch_one("tasks","id=?",(task_id,))
 async def user_can_modify_task_async(user_id,task): return bool(task and (await acan_edit(task.get("team_id"),user_id) if task.get("team_id") else str(task.get("user_id"))==str(user_id)))
-async def change_task_status_async(task_id,new_status): return await update_task_status_async(task_id,new_status)
+async def change_task_status_async(task_id,new_status,actor_id): return await update_task_status_async(task_id,new_status,actor_id)
 async def search_tasks_async(user_id,query):
     q=(query or "").strip().lower()
     if not q: return []
@@ -144,7 +147,7 @@ async def get_assignment_history_async(task_id): return await fetch_all("task_as
 def _run(coro): return db_run(coro)
 def read_tasks(): return _run(read_tasks_async())
 def save_task(data): return _run(save_task_async(data))
-def update_task_status(task_id,new_status): return _run(update_task_status_async(task_id,new_status))
+def update_task_status(task_id,new_status,actor_id): return _run(update_task_status_async(task_id,new_status,actor_id))
 def create_task(*a,**k): return _run(create_task_async(*a,**k))
 def update_task(*a,**k): return _run(update_task_async(*a,**k))
 def get_active_tasks(*a,**k): return _run(get_active_tasks_async(*a,**k))

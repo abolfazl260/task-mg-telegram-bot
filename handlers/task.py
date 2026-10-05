@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from services.task_service import create_task_async, get_active_tasks_async, get_task_by_id_async, change_task_status_async, user_can_modify_task_async, assign_task_async, get_unassigned_tasks_async, add_task_comment_async, get_task_comments_async
-from services.csv_export import build_csv_bytes
+from services.csv_export import build_csv_bytes_async
 from services.team_service import aget_user_teams, aget_team_members, member_display
 from utils.keyboard import priority_keyboard, deadline_keyboard, task_action_keyboard
 from utils.date_parse import parse_deadline_input
@@ -363,7 +363,7 @@ async def sort_tasks_callback(update, context):
     query = update.callback_query; await query.answer(); key = query.data.replace('sort_', ''); key = key if key in ('deadline','priority','created') else 'deadline'; await _render_task_list(update, context, sort_key=key)
 
 async def download_csv(update, context):
-    query = update.callback_query; await query.answer(); buffer, count = build_csv_bytes(update.effective_user.id)
+    query = update.callback_query; await query.answer(); buffer, count = await build_csv_bytes_async(update.effective_user.id)
     if count == 0: await query.message.reply_text('🎉 تسک فعالی برای دانلود ندارید'); return
     await query.message.reply_document(document=buffer, filename='tasks.csv', caption=f'📥 {count} تسک فعال (فرمت CSV)')
 
@@ -415,7 +415,7 @@ async def _handle_status_change(update, context, new_status: str):
     query=update.callback_query; await query.answer(); prefix=query.data.split('_')[0]; task_id=query.data.replace(f'{prefix}_','',1); task=await get_task_by_id_async(task_id)
     if not task: await query.edit_message_text('⚠️ این تسک پیدا نشد.'); return
     if not await user_can_modify_task_async(update.effective_user.id, task): await query.answer('شما مجاز به تغییر این تسک نیستید (مشاهده\u200cکننده یا غیرعضو).', show_alert=True); return
-    success=await change_task_status_async(task_id,new_status)
+    success=await change_task_status_async(task_id,new_status,update.effective_user.id)
     if not success: await query.edit_message_text('❌ خطا در تغییر وضعیت تسک.'); return
     task['status']=new_status
     if new_status=='done': task['completed_at']=datetime.now().strftime('%Y-%m-%d %H:%M')

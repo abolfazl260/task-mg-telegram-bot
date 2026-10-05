@@ -3,9 +3,9 @@ from handlers.reports import show_reports_menu
 from handlers.donate import DONATION_AMOUNTS
 from handlers.templates import show_templates_menu
 from handlers.integrations import show_integrations
-from services.habit_service import get_user_habits
-from services.task_service import get_all_user_tasks
-from services.team_service import get_user_teams
+from services.habit_service import get_user_habits_async
+from services.task_service import get_all_user_tasks_async
+from services.team_service import aget_user_teams
 from services.timezone_service import build_timezone_keyboard, build_timezone_text
 from services.user_service import get_user_date_format, set_user_date_format, validate_timezone, set_user_timezone
 
@@ -22,13 +22,13 @@ def main_menu(context=None):
         return InlineKeyboardMarkup([row for row in rows if row])
     return InlineKeyboardMarkup([[InlineKeyboardButton(item["label"],callback_data=item["callback_data"])] for item in menu_items if _feature_enabled(profile,item.get("feature"))])
 
-def main_menu_summary(user_id):
-    try: active_habits=len(get_user_habits(user_id,active_only=True))
+async def main_menu_summary(user_id):
+    try: active_habits=len(await get_user_habits_async(user_id,active_only=True))
     except Exception: active_habits=0
     try:
-        tasks=get_all_user_tasks(user_id);in_progress=sum(1 for task in tasks if str(task.get("status") or "").lower() in {"in_progress","in progress","در حال انجام"})
+        tasks=await get_all_user_tasks_async(user_id);in_progress=sum(1 for task in tasks if str(task.get("status") or "").lower() in {"in_progress","in progress","در حال انجام"})
     except Exception: in_progress=0
-    try: shared_teams=len(get_user_teams(user_id))
+    try: shared_teams=len(await aget_user_teams(user_id))
     except Exception: shared_teams=0
     return f"📊 **خلاصه وضعیت**\n\n🔄 عادت‌های فعال: **{active_habits}**\n⚡ فعالیت‌های در حال انجام: **{in_progress}**\n👥 تیم‌های مشترک: **{shared_teams}**"
 

@@ -25,7 +25,7 @@ from handlers.business import (
     handle_edited_business_message,
 )
 from services.groq_service import GroqConfigurationError, GroqRequestError, parse_task_request
-from services.task_service import create_task, get_all_user_tasks
+from services.task_service import create_task_async, get_all_user_tasks_async
 from utils.date_parse import parse_deadline_input
 
 logger = logging.getLogger(__name__)
@@ -136,8 +136,8 @@ def _is_report_request(text: str) -> bool:
     return any(word in lowered for word in ("report", "گزارش", "status", "وضعیت"))
 
 
-def _build_guest_report(user_id: int) -> str:
-    tasks = get_all_user_tasks(user_id)
+async def _build_guest_report(user_id: int) -> str:
+    tasks = await get_all_user_tasks_async(user_id)
     if not tasks:
         return "📊 گزارش مهم\n\nهنوز هیچ تسکی برای شما ثبت نشده است."
 
@@ -273,7 +273,7 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     bot_username = (getattr(context.bot, "username", None) or "").strip()
     if _is_report_request(raw_text):
-        await _answer_guest_query(context, guest_query_id, _build_guest_report(user_id), title="گزارش مهم")
+        await _answer_guest_query(context, guest_query_id, await _build_guest_report(user_id), title="گزارش مهم")
         return
 
     title_text = _extract_title(raw_text, bot_username)
@@ -320,7 +320,7 @@ async def handle_guest_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     tags = _limit_tags(draft.get("tags")) or _extract_fallback_tags(ai_request)
     description = reply_text[:2000] if reply_text else ""
 
-    task_id = create_task(
+    task_id = await create_task_async(
         user_id=user_id,
         title=title,
         priority=priority,

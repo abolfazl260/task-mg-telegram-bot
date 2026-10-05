@@ -1,14 +1,12 @@
 import io
 import jdatetime
 
-from services.task_service import get_active_tasks
+from services.task_service import get_active_tasks, get_active_tasks_async
 
 import pandas as pd
 
 
-def build_excel_bytes(user_id):
-
-    tasks = get_active_tasks(user_id)
+def _build_excel_bytes(tasks):
 
     rows = []
     for index, task in enumerate(tasks, start=1):
@@ -78,3 +76,12 @@ def build_excel_bytes(user_id):
     buffer.seek(0)
 
     return buffer, len(tasks)
+
+
+async def build_excel_bytes_async(user_id):
+    return _build_excel_bytes(await get_active_tasks_async(user_id))
+
+
+def build_excel_bytes(user_id):
+    """Backward-compatible synchronous export API."""
+    return _build_excel_bytes(get_active_tasks(user_id))
