@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import atexit
 import sqlite3
 import threading
@@ -15,6 +16,7 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 SQLITE_TIMEOUT_SECONDS = 30
 SQLITE_BUSY_TIMEOUT_MS = 30000
 SQLITE_MAX_RETRIES = 6
+logger = logging.getLogger(__name__)
 SCHEMA = """
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
@@ -184,7 +186,7 @@ async def close_all_dbs():
         try:
             await db.close()
         except Exception:
-            pass
+            logger.exception("database_close_failed operation=close_all_dbs")
 
 def _start_sync_loop() -> asyncio.AbstractEventLoop:
     global _sync_loop, _sync_thread
@@ -204,7 +206,7 @@ def _start_sync_loop() -> asyncio.AbstractEventLoop:
                 try:
                     loop.run_until_complete(close_all_dbs())
                 except Exception:
-                    pass
+                    logger.exception("database_close_failed operation=sync_loop_finalizer")
                 loop.close()
         _sync_thread = threading.Thread(target=runner, name="db-sync-loop", daemon=True)
         _sync_thread.start()
@@ -350,6 +352,6 @@ def _atexit_cleanup():
     try:
         shutdown_sync_loop()
     except Exception:
-        pass
+        logger.exception("database_sync_loop_shutdown_failed operation=atexit_cleanup")
 
 atexit.register(_atexit_cleanup)
