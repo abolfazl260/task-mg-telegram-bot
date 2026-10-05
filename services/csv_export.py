@@ -3,16 +3,11 @@ import csv
 import jdatetime
 from datetime import datetime
 
-from services.task_service import get_active_tasks
+from services.task_service import get_active_tasks, get_active_tasks_async
 
 
-def build_csv_bytes(user_id):
-    """Build a CSV file of active tasks and return (BytesIO, count).
-
-    Headers are kept in English as required.
-    """
-
-    tasks = get_active_tasks(user_id)
+def _build_csv_bytes(tasks):
+    """Build a CSV file from a task collection and return (BytesIO, count)."""
 
     priority_map = {
         "high": "high",
@@ -76,3 +71,12 @@ def build_csv_bytes(user_id):
     buffer.seek(0)
 
     return buffer, len(tasks)
+
+
+async def build_csv_bytes_async(user_id):
+    return _build_csv_bytes(await get_active_tasks_async(user_id))
+
+
+def build_csv_bytes(user_id):
+    """Backward-compatible synchronous export API."""
+    return _build_csv_bytes(get_active_tasks(user_id))

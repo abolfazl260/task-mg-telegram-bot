@@ -7,7 +7,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 import handlers.reports as reports_handler
 from bot_context import get_current_bot_key
-from services.task_service import get_all_user_tasks
+from services.task_service import get_all_user_tasks_async
 from webapp.config import WEBAPP_BASE_URL
 from webapp.report_tokens import build_report_url, create_report_token
 
@@ -95,7 +95,7 @@ def _parse_created_at(value):
     return None
 
 
-def _monthly_report_summary(user_id):
+async def _monthly_report_summary(user_id):
     now = jdatetime.datetime.now()
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).togregorian()
     if now.month == 12:
@@ -105,7 +105,7 @@ def _monthly_report_summary(user_id):
     month_end = next_month.togregorian()
 
     monthly = []
-    for task in get_all_user_tasks(user_id):
+    for task in await get_all_user_tasks_async(user_id):
         created = _parse_created_at(task.get("created_at"))
         if created and month_start <= created < month_end:
             monthly.append(task)
@@ -119,9 +119,9 @@ def _monthly_report_summary(user_id):
     return len(monthly), counts
 
 
-def _root_text(user_id):
+async def _root_text(user_id):
     try:
-        total, priorities = _monthly_report_summary(user_id)
+        total, priorities = await _monthly_report_summary(user_id)
         summary = (
             f"📌 تعداد تسک‌های این ماه: **{total}**\n"
             f"🔴 اولویت بالا: **{priorities['high']}**\n"
@@ -153,7 +153,7 @@ async def show_root_menu(update, context):
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
-    await query.message.edit_text(_root_text(user_id), reply_markup=_root_keyboard(user_id), parse_mode="Markdown")
+    await query.message.edit_text(await _root_text(user_id), reply_markup=_root_keyboard(user_id), parse_mode="Markdown")
 
 
 async def show_task_menu(update, context):
@@ -187,7 +187,7 @@ async def show_reports_menu(update, context):
             [InlineKeyboardButton("📈 تحلیل و عملکرد", callback_data="report_menu_analytics")],
             [InlineKeyboardButton("🔙 بازگشت", callback_data="report_back")],
         ])
-    await update.message.reply_text(_root_text(user_id), reply_markup=keyboard, parse_mode="Markdown")
+    await update.message.reply_text(await _root_text(user_id), reply_markup=keyboard, parse_mode="Markdown")
 
 
 _original_reports_callback = reports_handler.reports_callback

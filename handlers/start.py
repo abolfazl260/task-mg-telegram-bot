@@ -1,11 +1,8 @@
-import asyncio
-from functools import partial
-
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from handlers.menu import main_menu, main_menu_summary
-from services.team_service import join_team_by_code, find_team_by_code
+from services.team_service import ajoin_team_by_code, afind_team_by_code
 
 # main.py imports `start` before it imports the legacy `add_task` symbol.
 # Install the canonical task-creation flow at this point so that the later
@@ -15,10 +12,6 @@ from handlers.tag_suggestions import install_tag_flow
 
 if not getattr(task_handler, "_tag_flow_installed", False):
     install_tag_flow(task_handler)
-
-
-async def _team_call(fn, *args, **kwargs):
-    return await asyncio.to_thread(partial(fn, *args, **kwargs))
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -34,14 +27,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         code = code.strip()
 
         if code:
-            team_preview, role_preview = await _team_call(find_team_by_code, code)
+            team_preview, role_preview = await afind_team_by_code(code)
             if team_preview:
                 role_fa = (
                     "ویرایشگر (می‌تواند تسک بسازد و تغییر دهد)"
                     if role_preview == "editor"
                     else "مشاهده‌کننده (فقط مشاهده)"
                 )
-                ok, msg, team = await _team_call(join_team_by_code, user.id, code, user=user)
+                ok, msg, team = await ajoin_team_by_code(user.id, code, user=user)
                 if ok and team:
                     await update.message.reply_text(
                         f"✅ عضویت موفق\n\n"
@@ -88,7 +81,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await update.message.reply_text(
-        main_menu_summary(user.id) + "\n\nمنوی اصلی:",
+        await main_menu_summary(user.id) + "\n\nمنوی اصلی:",
         reply_markup=main_menu(context),
         parse_mode="Markdown",
     )

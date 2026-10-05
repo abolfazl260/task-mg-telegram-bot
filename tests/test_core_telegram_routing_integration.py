@@ -67,7 +67,7 @@ async def test_start_handler_executes_real_start_flow(monkeypatch):
     update = fake_update()
     context = FakeContext()
 
-    monkeypatch.setattr(start_handler, "main_menu_summary", lambda user_id: "summary")
+    monkeypatch.setattr(start_handler, "main_menu_summary", AsyncMock(return_value="summary"))
     monkeypatch.setattr(start_handler, "main_menu", lambda context: "menu-markup")
 
     await start_handler.start(update, context)

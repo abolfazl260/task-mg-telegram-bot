@@ -6,7 +6,7 @@ from collections import defaultdict
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from services.task_service import get_all_user_tasks, get_active_tasks
+from services.task_service import get_all_user_tasks_async
 
 
 def _priority_emoji(p):
@@ -114,7 +114,7 @@ async def _send_rich(context, chat_id, markdown_text):
 async def report_all_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = get_all_user_tasks(update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     if not tasks:
         await query.message.reply_text("هنوز هیچ تسکی ثبت نکرده‌اید.")
         return
@@ -129,7 +129,7 @@ async def report_all_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def report_by_priority(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = get_all_user_tasks(update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     if not tasks:
         await query.message.reply_text("هنوز هیچ تسکی ثبت نکرده‌اید.")
         return
@@ -163,7 +163,7 @@ async def report_by_priority(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def report_by_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = get_all_user_tasks(update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     if not tasks:
         await query.message.reply_text("هنوز هیچ تسکی ثبت نکرده‌اید.")
         return
@@ -187,7 +187,7 @@ async def report_by_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def report_stuck(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = get_all_user_tasks(update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     now = datetime.now()
     stuck = []
     for task in tasks:
@@ -213,7 +213,7 @@ async def report_stuck(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def report_by_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = get_all_user_tasks(update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     if not tasks:
         await query.message.reply_text("هنوز هیچ تسکی ثبت نکرده‌اید.")
         return
@@ -234,7 +234,7 @@ async def report_by_category(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def report_by_assignee(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = get_all_user_tasks(update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     if not tasks:
         await query.message.reply_text("هنوز هیچ تسکی ثبت نکرده‌اید.")
         return
@@ -279,7 +279,7 @@ async def report_by_assignee(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def report_kanban_by_assignee(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = get_all_user_tasks(update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     if not tasks:
         await query.message.reply_text("هنوز هیچ تسکی ثبت نکرده‌اید.")
         return
@@ -315,7 +315,7 @@ async def report_kanban_by_assignee(update: Update, context: ContextTypes.DEFAUL
 async def report_by_tags(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = get_all_user_tasks(update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     if not tasks:
         await query.message.reply_text("هنوز هیچ تسکی ثبت نکرده‌اید.")
         return
@@ -344,7 +344,7 @@ async def report_by_tags(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def report_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = get_all_user_tasks(update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     today = date.today()
     year, month = today.year, today.month
     day_tasks = defaultdict(list)
@@ -393,7 +393,7 @@ async def report_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def report_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = get_all_user_tasks(update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     today = date.today()
     day_names_fa = ["دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه", "یکشنبه"]
     day_tasks = defaultdict(list)
@@ -430,7 +430,7 @@ async def report_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def report_heatmap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = get_all_user_tasks(update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     today = date.today()
     year, month = today.year, today.month
     counts = defaultdict(int)
@@ -488,7 +488,7 @@ async def report_heatmap_week(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     query = update.callback_query
     await query.answer()
-    tasks = get_all_user_tasks(update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     today = date.today()
 
     # counts for today .. today+6
@@ -576,7 +576,7 @@ async def report_heatmap_week(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def report_trend(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = get_all_user_tasks(update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     today = date.today()
     created_counts = defaultdict(int)
     done_counts = defaultdict(int)
@@ -613,7 +613,7 @@ async def report_trend(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def report_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tasks = get_all_user_tasks(update.effective_user.id)
+    tasks = await get_all_user_tasks_async(update.effective_user.id)
     today_str = date.today().isoformat()
     today_tasks = [t for t in tasks if (t.get("deadline") or "") == today_str and t.get("status") in ("pending", "in_progress")]
     today_tasks = sorted(today_tasks, key=lambda t: {"high": 0, "medium": 1, "low": 2}.get(t.get("priority"), 3))
