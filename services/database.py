@@ -71,6 +71,19 @@ CREATE TABLE IF NOT EXISTS external_connections (
     external_list_id TEXT NOT NULL DEFAULT '', external_list_name TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 0,
     last_sync TEXT NOT NULL DEFAULT '', PRIMARY KEY(user_id,bot_key,provider)
 );
+CREATE TABLE IF NOT EXISTS external_task_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    bot_key TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    local_task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    external_task_id TEXT NOT NULL,
+    external_list_id TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    UNIQUE(user_id,bot_key,provider,local_task_id),
+    UNIQUE(user_id,bot_key,provider,external_task_id)
+);
 CREATE TABLE IF NOT EXISTS jira_connections (
     bot_key TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, base_url TEXT NOT NULL,
     identity TEXT NOT NULL DEFAULT '', credential TEXT NOT NULL DEFAULT '', project_key TEXT NOT NULL, deployment TEXT NOT NULL DEFAULT 'cloud',
