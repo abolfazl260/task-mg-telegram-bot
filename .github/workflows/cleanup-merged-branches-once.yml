@@ -36,3 +36,5 @@ jobs:
               echo "Already absent: $branch"
             fi
           done
+
+# trigger cleanup after workflow registration
