@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 from .config import WEBAPP_HOST, WEBAPP_PORT
 from .api import authenticate_telegram_request
 from .auth import TelegramWebAppAuthError
-from .bot_profile import WebAppBotProfileError
+from .bot_profile import WebAppBotProfileError, get_webapp_bot_profile
 from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, create_task, update_task, change_status
 from .public_tasks import handle_public_task_get, handle_public_task_api
 from .admin_api import (
@@ -140,12 +140,19 @@ class WebAppHandler(BaseHTTPRequestHandler):
         known = path=="/api/me" or path=="/api/tasks" or path.startswith("/api/tasks/")
         if not known:
             return self._json(404,{"error":"not_found"})
+        profile=get_webapp_bot_profile(bot_key)
+        if (path=="/api/tasks" or path.startswith("/api/tasks/")) and not profile.feature_enabled("tasks"):
+            raise WebAppTaskAccessError("tasks_feature_disabled")
         user=self._authenticate(bot_key)
         if path=="/api/me" and method=="GET": return self._json(200,{"user":user.__dict__,"bot_key":bot_key})
         if path=="/api/tasks" and method=="GET": return self._json(200,{"tasks":self.server.webapp_runtime.submit(list_tasks(user.id,bot_key))})
         if path=="/api/tasks" and method=="POST":
             data=_json_body(self); title=str(data.get("title") or "").strip()
             if not title or len(title)>500: return self._json(400,{"error":"invalid_title"})
+            feature_fields={"priority":"priority","deadline":"deadline","category":"categories","tags":"tags"}
+            for field,feature in feature_fields.items():
+                if field in data and data.get(field) not in (None,"",[]) and not profile.feature_enabled(feature):
+                    raise WebAppTaskAccessError(f"{feature}_feature_disabled")
             tid=self.server.webapp_runtime.submit(create_task(user.id,bot_key,title=title,priority=str(data.get("priority") or "medium"),deadline=str(data.get("deadline") or ""),category=str(data.get("category") or ""),tags=data.get("tags") if isinstance(data.get("tags"),str) else ", ".join(map(str,data.get("tags") or [])),description=str(data.get("description") or ""),team_id=str(data.get("team_id") or "")))
             return self._json(201,{"task":self.server.webapp_runtime.submit(get_task(user.id,tid,bot_key))})
         if path.startswith("/api/tasks/"):
@@ -157,6 +164,10 @@ class WebAppHandler(BaseHTTPRequestHandler):
                 data=_json_body(self); task=self.server.webapp_runtime.submit(get_task(user.id,task_id,bot_key))
                 if not task: return self._json(404,{"error":"task_not_found"})
                 if "status" in data: self.server.webapp_runtime.submit(change_status(user.id,task_id,str(data["status"]),bot_key))
+                feature_fields={"priority":"priority","deadline":"deadline","category":"categories","tags":"tags"}
+                for field,feature in feature_fields.items():
+                    if field in data and not profile.feature_enabled(feature):
+                        raise WebAppTaskAccessError(f"{feature}_feature_disabled")
                 allowed={k:data[k] for k in ("title","description","priority","deadline","category","tags") if k in data}
                 if "tags" in allowed and isinstance(allowed["tags"],list): allowed["tags"]=", ".join(map(str,allowed["tags"]))
                 if allowed: self.server.webapp_runtime.submit(update_task(user.id,task_id,bot_key,**allowed))
