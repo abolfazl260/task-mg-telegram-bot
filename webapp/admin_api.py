@@ -4,6 +4,7 @@ import os, platform, resource, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from services.database import get_db
+from services.bot_feature_registry import DEFAULT_PROFILE_TEMPLATES
 from services.bot_management_service import (
     create_managed_bot,
     feature_registry_payload,
@@ -87,14 +88,12 @@ async def bot_management()->list[dict]:
 
 async def bot_feature_registry()->dict:
     await seed_default_profiles()
-    return {
-        "features": feature_registry_payload(),
-        "profiles": [
-            {"key":"simple","label":"Simple / Minimal TaskMG"},
-            {"key":"clinic","label":"Clinic / Healthcare"},
-            {"key":"custom","label":"Custom"},
-        ],
-    }
+    profiles=[
+        {"key":key,"label":template["name"],"features":list(template["features"])}
+        for key,template in DEFAULT_PROFILE_TEMPLATES.items()
+    ]
+    profiles.append({"key":"custom","label":"Custom","features":["core","tasks"]})
+    return {"features":feature_registry_payload(),"profiles":profiles}
 
 
 async def get_bot_management_detail(bot_key:str)->dict|None:
