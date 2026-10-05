@@ -50,7 +50,8 @@ def _run_sync(kind: str, bot_key: str):
     except Exception:
         _release(bot_key, kind, False)
         raise
-    _release(bot_key, kind, True)
+    success = not (kind == "jira" and isinstance(result, dict) and not result.get("success", False))
+    _release(bot_key, kind, success)
     return result
 
 
