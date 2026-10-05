@@ -74,24 +74,29 @@ def contact_keyboard():
     rows=[[InlineKeyboardButton(f"⭐️ دونیت {amount} استارز",callback_data=f"donate_{amount}")] for amount in DONATION_AMOUNTS];rows.append([InlineKeyboardButton("🔙 بازگشت به منوی اصلی",callback_data="tasks_back")]);return InlineKeyboardMarkup(rows)
 
 async def button_handler(update,context):
-    query=update.callback_query;data=query.data
+    query=update.callback_query;data=query.data;profile=_bot_profile(context)
     if data=="report_calendar_pdf":
+        if not _feature_enabled(profile,"reports"):await query.answer("گزارش‌ها برای این ربات فعال نیست.",show_alert=True);return
         from handlers.calendar_pdf import calendar_pdf_callback;return await calendar_pdf_callback(update,context)
     if data.startswith("report_"):
+        if not _feature_enabled(profile,"reports"):await query.answer("گزارش‌ها برای این ربات فعال نیست.",show_alert=True);return
         from handlers.reports import reports_callback;return await reports_callback(update,context)
     if data.startswith(("ai_task_","ai_habit_")):
+        required="tasks" if data.startswith("ai_task_") else "habits"
+        if not _feature_enabled(profile,"ai") or not _feature_enabled(profile,required):await query.answer("این قابلیت AI برای این ربات فعال نیست.",show_alert=True);return
         from handlers.ai import ai_habit_callback,ai_task_callback
         return await (ai_habit_callback(update,context) if data.startswith("ai_habit_") else ai_task_callback(update,context))
-    if data=="ai_menu":
-        profile=_bot_profile(context)
+    if data in {"ai_menu","ai_start"}:
         if not _feature_enabled(profile,"ai"):
             await query.answer("هوش مصنوعی برای این ربات فعال نیست.",show_alert=True);return
-        from handlers.ai import _ai_examples_text,_ai_examples_keyboard
-        await query.answer()
-        return await query.message.reply_text(_ai_examples_text(),reply_markup=_ai_examples_keyboard(),parse_mode="Markdown")
+        if data=="ai_menu":
+            from handlers.ai import _ai_examples_text,_ai_examples_keyboard
+            await query.answer()
+            return await query.message.reply_text(_ai_examples_text(),reply_markup=_ai_examples_keyboard(),parse_mode="Markdown")
     if data.startswith("habit_"):
+        if not _feature_enabled(profile,"habits"):await query.answer("مدیریت عادت برای این ربات فعال نیست.",show_alert=True);return
         from handlers.habits import handle_habit_callback;return await handle_habit_callback(update,context)
-    profile=_bot_profile(context);feature_by_callback={"add_task":"tasks","tasks":"tasks","teams":"teams","templates":"templates","habit_menu":"habits","stats":"reports","import_bulk":"bulk_import","custom_bot":"custom_bots","search":"search"};feature=feature_by_callback.get(data)
+    feature_by_callback={"add_task":"tasks","add_task_manual":"tasks","tasks":"tasks","tasks_list":"tasks","teams":"teams","templates":"templates","habit_menu":"habits","stats":"reports","import_bulk":"bulk_import","custom_bot":"custom_bots","search":"search","integrations":"integrations","download_csv":"tasks"};feature=feature_by_callback.get(data)
     if feature and not _feature_enabled(profile,feature):await query.answer("این قابلیت برای این ربات فعال نیست.",show_alert=True);return
     await query.answer()
     if data=="add_task":return await show_add_task_menu(update,context)
