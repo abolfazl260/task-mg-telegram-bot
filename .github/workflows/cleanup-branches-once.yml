@@ -1,0 +1,47 @@
+name: Cleanup merged branches once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/cleanup-branches-once.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  delete-merged-branches:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Delete merged branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          branches=(
+            "docs/healthcare-clinics-market-scaffold"
+            "docs/healthcare-market-core-analysis"
+            "docs/healthcare-market-jtbd-buyer-competition"
+            "docs-main"
+            "fix/issue-75-jira-sync-observability"
+            "fix/issue-77-full-task-uuid"
+            "fix/issue-78-task-visibility-sql"
+            "fix/issue-79-integration-task-query"
+            "fix/issue-79-stage"
+            "fix/issue-80-observability"
+            "fix/stage-ci-ruff"
+            "merge/stage-into-main-resolved"
+          )
+          for branch in "${branches[@]}"; do
+            if git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null 2>&1; then
+              echo "Deleting $branch"
+              git push origin --delete "$branch"
+            else
+              echo "Already absent: $branch"
+            fi
+          done
