@@ -47,6 +47,7 @@
     q("#botUsername").value = "";
     q("#botToken").value = "";
     q("#botDescription").value = "";
+    q("#botSettings").value = "{}";
     q("#botStatus").value = "inactive";
     q("#botProfileType").value = "custom";
     renderFeatureGrid(["core","tasks"]);
@@ -66,6 +67,7 @@
     q("#botToken").value = "";
     q("#botToken").placeholder = bot.token_masked || "Leave blank to keep current token";
     q("#botDescription").value = bot.description || "";
+    q("#botSettings").value = JSON.stringify(bot.settings || {}, null, 2);
     q("#botStatus").value = bot.status || "inactive";
     q("#botProfileType").value = bot.profile_type || "custom";
     renderFeatureGrid(bot.features || []);
@@ -119,12 +121,21 @@
   async function saveBot(event) {
     event.preventDefault();
     message("");
+    let settings;
+    try {
+      settings = JSON.parse(q("#botSettings").value.trim() || "{}");
+      if (!settings || Array.isArray(settings) || typeof settings !== "object") throw new Error("Settings must be a JSON object");
+    } catch (error) {
+      message("Invalid settings JSON: " + error.message, true);
+      return;
+    }
     const payload = {
       bot_key: q("#botKey").value.trim(),
       display_name: q("#botDisplayName").value.trim(),
       bot_username: q("#botUsername").value.trim(),
       bot_token: q("#botToken").value.trim(),
       description: q("#botDescription").value.trim(),
+      settings,
       status: q("#botStatus").value,
       profile_type: q("#botProfileType").value,
       base_profile: q("#botProfileType").value === "custom" ? "" : q("#botProfileType").value,
