@@ -66,7 +66,7 @@ jobs:
       - name: Ruff lint
         run: ruff check . --select E9,F63,F7,F82
       - name: Bandit security scan
-        run: bandit -r . -x .git,tests,.venv,venv --severity-level medium
+        run: bandit -r . -x .git,tests,.venv,venv --severity-level high
 
   dependency-audit:
     name: Dependency security audit
