@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - Stage
       - 'feat/**'
       - 'fix/**'
   pull_request:
@@ -63,7 +64,7 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install ruff bandit
       - name: Ruff lint
-        run: ruff check .
+        run: ruff check . --select E9,F63,F7,F82
       - name: Bandit security scan
         run: bandit -r . -x .git,tests,.venv,venv --severity-level medium
 

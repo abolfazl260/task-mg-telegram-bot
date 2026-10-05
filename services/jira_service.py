@@ -98,7 +98,7 @@ def _apply_issue_to_task(t,issue):
 def _jira_issues_for_user(c):
  links=[x.get('jira_key') for x in _load_links() if x.get('bot_key')==get_current_bot_key() and x.get('jira_key')]; cl=' OR key in ('+','.join(links)+')' if links else ''; j=f"project = {c['project_key']} AND (assignee = currentUser(){cl}) ORDER BY updated DESC"; d=_request_json(c,'GET',_api_prefix(c)+'/search',query={'jql':j,'maxResults':100,'fields':'summary,description,status,duedate,priority,updated'}); return d.get('issues',[]) if isinstance(d,dict) else []
 def _write_all(tasks):
- bot=_bot()
+ bot=get_current_bot_key() or 'default'
  current={str(t.get('id')):t for t in sync_all('tasks','bot_key=?',(bot,))}
  for task in tasks:
   tid=str(task.get('id') or '')
