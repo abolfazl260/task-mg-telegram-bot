@@ -155,7 +155,7 @@ def test_habit_reminder_times_handles_none_and_whitespace():
 async def test_task_service_invalid_status_returns_false(test_db):
     from services import task_service
 
-    assert await task_service.update_task_status_async("missing", "not-a-status") is False
+    assert await task_service.update_task_status_async("missing", "not-a-status", "100") is False
 
 
 @pytest.mark.asyncio
