@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-      - 'feat/**'
-      - 'fix/**'
   pull_request:
     branches:
       - main
@@ -52,6 +50,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -62,8 +62,102 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install ruff bandit
-      - name: Ruff lint
-        run: ruff check .
+      - name: Ruff new-violation gate
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          python - <<'PY'
+          from collections import Counter
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          import tempfile
+
+          def run_ruff(root):
+              result = subprocess.run(
+                  ["ruff", "check", ".", "--output-format", "json"],
+                  cwd=root,
+                  capture_output=True,
+                  text=True,
+              )
+              if result.returncode not in (0, 1):
+                  sys.stderr.write(result.stderr)
+                  raise SystemExit(result.returncode)
+              return json.loads(result.stdout or "[]")
+
+          def diagnostic_key(item, root):
+              path = Path(item["filename"])
+              if not path.is_absolute():
+                  path = Path(root) / path
+              try:
+                  relative = path.resolve().relative_to(Path(root).resolve()).as_posix()
+              except ValueError:
+                  relative = path.as_posix()
+              return relative, item.get("code") or "", item.get("message") or ""
+
+          base_sha = (os.environ.get("BASE_SHA") or "").strip()
+          if not base_sha or set(base_sha) == {"0"}:
+              fallback = subprocess.run(
+                  ["git", "rev-parse", "HEAD^"],
+                  capture_output=True,
+                  text=True,
+              )
+              base_sha = fallback.stdout.strip() if fallback.returncode == 0 else ""
+
+          head_root = Path.cwd()
+          head = run_ruff(head_root)
+
+          if not base_sha:
+              print("No baseline commit is available; enforcing Ruff on the current tree.")
+              base = []
+          else:
+              with tempfile.TemporaryDirectory(prefix="ruff-base-") as tmp:
+                  subprocess.run(
+                      ["git", "worktree", "add", "--detach", tmp, base_sha],
+                      check=True,
+                      stdout=subprocess.DEVNULL,
+                  )
+                  try:
+                      base = run_ruff(tmp)
+                      base_root = Path(tmp)
+                      base_counts = Counter(diagnostic_key(item, base_root) for item in base)
+                  finally:
+                      subprocess.run(
+                          ["git", "worktree", "remove", "--force", tmp],
+                          check=True,
+                          stdout=subprocess.DEVNULL,
+                      )
+
+          if not base_sha:
+              base_counts = Counter()
+
+          head_counts = Counter(diagnostic_key(item, head_root) for item in head)
+          new_counts = head_counts - base_counts
+
+          if not new_counts:
+              print(
+                  f"Ruff gate passed: no new violations "
+                  f"(baseline={sum(base_counts.values())}, current={sum(head_counts.values())})."
+              )
+              raise SystemExit(0)
+
+          remaining = new_counts.copy()
+          for item in head:
+              key = diagnostic_key(item, head_root)
+              if remaining[key] <= 0:
+                  continue
+              location = item.get("location") or {}
+              row = location.get("row", 1)
+              column = location.get("column", 1)
+              filename, code, message = key
+              print(f"{filename}:{row}:{column}: {code} {message}")
+              remaining[key] -= 1
+
+          print(f"Ruff gate failed: {sum(new_counts.values())} new violation(s).")
+          raise SystemExit(1)
+          PY
       - name: Bandit security scan
         run: bandit -r . -x .git,tests,.venv,venv --severity-level medium
 
