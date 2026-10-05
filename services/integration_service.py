@@ -1,18 +1,23 @@
 import json,logging,os,secrets,time,urllib.error,urllib.parse,urllib.request
 from datetime import datetime,timezone
-from services.database import sync_all as db_sync_all,sync_one,sync_execute
+from services.database import sync_all as db_sync_all,sync_one,sync_execute,sync_execute_returning_one
 logger=logging.getLogger(__name__)
-_pending_states={};_bots={}
+_bots={}
 _PENDING_STATE_TTL=900
 _MAX_PENDING_STATES=1000
 MICROSOFT_AUTH='https://login.microsoftonline.com/common/oauth2/v2.0/authorize';MICROSOFT_TOKEN='https://login.microsoftonline.com/common/oauth2/v2.0/token';MICROSOFT_GRAPH='https://graph.microsoft.com/v1.0';GOOGLE_AUTH='https://accounts.google.com/o/oauth2/v2/auth';GOOGLE_TOKEN='https://oauth2.googleapis.com/token';GOOGLE_TASKS='https://tasks.googleapis.com/tasks/v1'
 def _cleanup_pending_states(now=None):
- now=now if now is not None else time.time()
- expired=[state for state,pending in _pending_states.items() if now-pending.get('created',0)>_PENDING_STATE_TTL]
- for state in expired:del _pending_states[state]
- if len(_pending_states)>_MAX_PENDING_STATES:
-  oldest=sorted(_pending_states.items(),key=lambda item:item[1].get('created',0))[:len(_pending_states)-_MAX_PENDING_STATES]
-  for state,_ in oldest:del _pending_states[state]
+ now=float(now if now is not None else time.time())
+ sync_execute('DELETE FROM oauth_pending_states WHERE created_at<?',(now-_PENDING_STATE_TTL,))
+ rows=db_sync_all('oauth_pending_states')
+ excess=len(rows)-_MAX_PENDING_STATES
+ if excess>0:
+  for pending in sorted(rows,key=lambda item:float(item.get('created_at') or 0))[:excess]:
+   sync_execute('DELETE FROM oauth_pending_states WHERE state=?',(pending['state'],))
+def _store_pending_state(state,provider,user_id,bot_key,created):
+ sync_execute('INSERT INTO oauth_pending_states(state,provider,user_id,bot_key,created_at) VALUES(?,?,?,?,?)',(state,provider,str(user_id),bot_key,float(created)))
+def _consume_pending_state(state):
+ return sync_execute_returning_one('DELETE FROM oauth_pending_states WHERE state=? RETURNING state,provider,user_id,bot_key,created_at',(state,))
 def init_integrations():
  from services.database import sync_all as _sync_all
  _sync_all('external_connections')
@@ -34,16 +39,15 @@ def _redirect_uri(provider):
  return f'{base}/integrations/oauth/{provider}'
 def start_oauth(provider,user_id,bot_key='default'):
  if provider not in ('microsoft','google'):raise ValueError('ارائه‌دهنده نامعتبر است')
- now=time.time();_cleanup_pending_states(now)
- state=secrets.token_urlsafe(32);_pending_states[state]={'provider':provider,'user_id':str(user_id),'bot_key':bot_key,'created':now}
+ now=time.time();state=secrets.token_urlsafe(32);_store_pending_state(state,provider,user_id,bot_key,now);_cleanup_pending_states(now)
  if provider=='microsoft':params={'client_id':os.getenv('MICROSOFT_CLIENT_ID',''),'response_type':'code','redirect_uri':_redirect_uri(provider),'response_mode':'query','scope':'offline_access User.Read Tasks.ReadWrite','state':state};return MICROSOFT_AUTH+'?'+urllib.parse.urlencode(params)
  params={'client_id':os.getenv('GOOGLE_TASKS_CLIENT_ID',''),'response_type':'code','redirect_uri':_redirect_uri(provider),'scope':'https://www.googleapis.com/auth/tasks','access_type':'offline','prompt':'consent','state':state};return GOOGLE_AUTH+'?'+urllib.parse.urlencode(params)
 def _post_form(url,data):
  req=urllib.request.Request(url,data=urllib.parse.urlencode(data).encode(),headers={'Content-Type':'application/x-www-form-urlencoded'})
  with urllib.request.urlopen(req,timeout=20) as r:return json.loads(r.read().decode())
 def complete_oauth(provider,code,state):
- p=_pending_states.pop(state,None)
- if not p or p['provider']!=provider or time.time()-p['created']>600:raise ValueError('درخواست اتصال منقضی یا نامعتبر است')
+ p=_consume_pending_state(state)
+ if not p or p['provider']!=provider or time.time()-float(p['created_at'])>600:raise ValueError('درخواست اتصال منقضی یا نامعتبر است')
  if provider=='microsoft':data=_post_form(MICROSOFT_TOKEN,{'client_id':os.getenv('MICROSOFT_CLIENT_ID',''),'client_secret':os.getenv('MICROSOFT_CLIENT_SECRET',''),'grant_type':'authorization_code','code':code,'redirect_uri':_redirect_uri(provider),'scope':'offline_access User.Read Tasks.ReadWrite'})
  else:data=_post_form(GOOGLE_TOKEN,{'client_id':os.getenv('GOOGLE_TASKS_CLIENT_ID',''),'client_secret':os.getenv('GOOGLE_TASKS_CLIENT_SECRET',''),'grant_type':'authorization_code','code':code,'redirect_uri':_redirect_uri(provider)})
  if 'access_token' not in data:raise RuntimeError(data.get('error_description') or data.get('error') or 'دریافت دسترسی ناموفق بود')
