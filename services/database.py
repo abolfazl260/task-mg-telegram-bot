@@ -73,6 +73,13 @@ CREATE TABLE IF NOT EXISTS external_connections (
     external_list_id TEXT NOT NULL DEFAULT '', external_list_name TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 0,
     last_sync TEXT NOT NULL DEFAULT '', PRIMARY KEY(user_id,bot_key,provider)
 );
+CREATE TABLE IF NOT EXISTS oauth_pending_states (
+    state TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    bot_key TEXT NOT NULL DEFAULT 'default',
+    created_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS external_task_links (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
@@ -124,6 +131,7 @@ CREATE INDEX IF NOT EXISTS idx_members_user_id ON team_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_habits_user_id ON habits(user_id);
 CREATE INDEX IF NOT EXISTS idx_habit_logs_user_date ON habit_logs(user_id,done_date);
 CREATE INDEX IF NOT EXISTS idx_jira_links_key ON jira_task_links(jira_key);
+CREATE INDEX IF NOT EXISTS idx_oauth_pending_created_at ON oauth_pending_states(created_at);
 CREATE INDEX IF NOT EXISTS idx_business_messages_connection ON business_messages(business_connection_id);
 """
 
@@ -264,6 +272,14 @@ async def execute(sql, params=()):
         await db.conn.commit()
         return cur.lastrowid
 
+async def execute_returning_one(sql, params=()):
+    db = await get_db()
+    async with db.lock:
+        cur = await db.conn.execute(sql, tuple(params))
+        row = await cur.fetchone()
+        await db.conn.commit()
+        return dict(row) if row else None
+
 async def execute_many(sql, rows):
     db = await get_db()
     async with db.lock:
@@ -323,6 +339,9 @@ def sync_one(table, where, params=()):
 
 def sync_execute(sql, params=()):
     return _run(execute(sql, params))
+
+def sync_execute_returning_one(sql, params=()):
+    return _run(execute_returning_one(sql, params))
 
 async def transaction(statements):
     db = await get_db()
