@@ -1,7 +1,6 @@
 import json,os,secrets,time,urllib.parse,urllib.request
 from datetime import datetime,timezone
 from services.database import sync_all as db_sync_all,sync_one,sync_execute
-from services.task_service import read_tasks
 _pending_states={};_bots={}
 _PENDING_STATE_TTL=900
 _MAX_PENDING_STATES=1000
@@ -17,6 +16,7 @@ def init_integrations():
  from services.database import sync_all as _sync_all
  _sync_all('external_connections')
 def _read_integrations():return db_sync_all('external_connections')
+def _read_user_tasks(user_id):return db_sync_all('tasks','user_id=?',(str(user_id),))
 def _write_integrations(rows):
  for r in rows:
   sync_execute('UPDATE external_connections SET access_token=?,refresh_token=?,expires_at=?,external_list_id=?,external_list_name=?,enabled=?,last_sync=? WHERE user_id=? AND bot_key=? AND provider=?',(r.get('access_token',''),r.get('refresh_token',''),r.get('expires_at',''),r.get('external_list_id',''),r.get('external_list_name',''),int(r.get('enabled') or 0),r.get('last_sync',''),str(r.get('user_id')),r.get('bot_key') or 'default',r.get('provider')))
@@ -89,7 +89,7 @@ def _create_external(row,task):
  if task.get('deadline'):p['due']=_deadline_iso(task['deadline'],True)
  return _request_json(f"{GOOGLE_TASKS}/lists/{urllib.parse.quote(lid,safe='')}/tasks",token,'POST',p)
 def sync_user(user_id,bot_key='default',provider=None):
- results=[]
+ results=[];tasks=None
  for name in ([provider] if provider else ['microsoft','google']):
   row=get_connection(user_id,name,bot_key)
   if not row or int(row.get('enabled') or 0)!=1:continue
@@ -99,7 +99,8 @@ def sync_user(user_id,bot_key='default',provider=None):
    for x in ext:
     notes=x.get('body',{}).get('content','') if name=='microsoft' else x.get('notes','')
     if '[BOT_TASK:' in notes:markers[notes.split('[BOT_TASK:',1)[1].split(']',1)[0]]=x
-   tasks=read_tasks();changed=0
+   if tasks is None:tasks=_read_user_tasks(user_id)
+   changed=0
    for t in tasks:
     if str(t.get('user_id'))!=str(user_id):continue
     x=markers.get(t.get('id'))
