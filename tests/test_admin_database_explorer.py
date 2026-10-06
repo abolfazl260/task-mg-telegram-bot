@@ -79,6 +79,7 @@ async def test_database_explorer_core_tasks_do_not_leak_healthcare_scoped_rows(c
         "INSERT INTO tasks(id, user_id, title, created_at) VALUES(?,?,?,?)",
         ("core-task", "1", "Core task", "2026-10-01T00:00:00Z"),
     )
+    await test_db.conn.commit()
     scoped = await service.create_action(
         clinic["owner"],
         clinic["ca"]["id"],
