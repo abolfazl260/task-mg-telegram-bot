@@ -14,7 +14,7 @@
 2. مسئله محوری: «کارهای بین واحدی و follow-upهایی که صاحب مشخص، deadline مشخص و وضعیت قابل مشاهده ندارند».
 3. Positioning اولیه: **Clinic Operations & Patient Record Platform**؛ نه صرفاً Task Manager عمومی.
 4. Telegram باید کانال اجرای سریع کار برای تیم باشد و Web Dashboard کانال کنترل، گزارش، تنظیم workflow و مدیریت.
-5. داده درمانی حساس باید حداقلی و purpose-limited باشد؛ در MVP تمرکز روی عملیات و coordination باشد، نه تصمیم‌گیری بالینی.
+5. Patient Record و Clinical Data بخشی از محصول هستند و باید به‌اندازه نیاز هر Clinic قابل نگهداری باشند؛ دسترسی، نمایش و پردازش آنها باید purpose-based و permission-aware باشد. تصمیم‌گیری بالینی خودکار AI یک capability جداگانه است.
 6. پس از اثبات Product-Market Fit در دندان‌پزشکی، همان هسته به مطب پزشک، زیبایی و فیزیوتراپی توسعه یابد.
 
 ---
