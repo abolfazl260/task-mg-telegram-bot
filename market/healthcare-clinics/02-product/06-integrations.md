@@ -300,11 +300,11 @@ Microsoft Graph change notifications می‌تواند برای resource changes
 - branch
 - selected operational status/event
 
-## Data We Avoid
+## Clinical Data Integration Rule
 
-- full clinical chart
-- unnecessary diagnosis data
-- entire treatment history without JTBD
+Clinical data بخشی از Patient Record در TaskMG است و می‌تواند از PMS/EMR وارد یا با آن sync شود. Integration باید field mapping، source metadata، permission، audit، conflict policy و idempotency مشخص داشته باشد.
+
+از sync بدون قاعده یا انتقال داده بدون purpose/permission جلوگیری شود؛ نه از خود Clinical Data.
 
 ---
 
