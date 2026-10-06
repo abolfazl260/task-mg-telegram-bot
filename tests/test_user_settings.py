@@ -19,5 +19,16 @@ async def test_date_format_switching_and_timezone_updates(test_db):
 
 
 @pytest.mark.asyncio
+async def test_new_user_date_format_keeps_default_timezone(test_db):
+    assert await user_service.set_user_date_format_async("new-user", "gregorian")
+
+    assert await user_service.get_user_date_format_async("new-user") == "gregorian"
+    assert (
+        await user_service.get_user_timezone_async("new-user")
+        == user_service.DEFAULT_TIMEZONE
+    )
+
+
+@pytest.mark.asyncio
 async def test_invalid_date_format_is_rejected(test_db):
     assert not await user_service.set_user_date_format_async("123", "lunar")
