@@ -63,14 +63,16 @@ async def clinic_menu(update, context):
                 ],
             )
         labels = profile.settings.get("terminology", {})
-        branch_memberships = [m for m in memberships if m.get("branch_id")]
-        if not branch_memberships:
-            org_id = next(iter(orgs), None)
+        scope = await _scope(update, context)
+        branches = await service.list_entities(scope, "patients", limit=1)
+        branch_rows = await __import__("services.database", fromlist=["fetch_all_sql"]).fetch_all_sql("SELECT id,name FROM workspace_units WHERE workspace_id=? AND status='active' ORDER BY name", (scope.organization_id,))
+        selected_branch = context.user_data.get("clinic_branch_id")
+        if not branch_rows:
             can_manage = any(m.get("role") in {"owner", "manager", "admin"} for m in memberships)
             rows = [[InlineKeyboardButton("➕ تعریف شعبه کلینیک", callback_data="clinic:new_branch")]] if can_manage else []
-            rows.append([InlineKeyboardButton("راهنما", callback_data="clinic:menu")])
             return await _render(update, "برای ثبت بیمار ابتدا یک شعبه کلینیک تعریف کنید.", rows)
-        scope = await _scope(update, context)
+        if not selected_branch or not any(str(b["id"]) == str(selected_branch) for b in branch_rows):
+            return await _render(update, "شعبه کلینیک را انتخاب کنید:", [[InlineKeyboardButton(b["name"], callback_data=f"clinic:branch:{b['id']}")] for b in branch_rows])
         rows = [
             [
                 InlineKeyboardButton(
@@ -119,7 +121,8 @@ async def handle_clinic_input(update, context):
         if not memberships: raise ClinicAccessError("forbidden")
         if step == "branch_name":
             scope = Scope(memberships[0]["organization_id"], str(update.effective_user.id))
-            await service.create_branch(scope, value)
+            branch_id = await service.create_branch(scope, value)
+            context.user_data["clinic_branch_id"] = branch_id
             context.user_data.pop("clinic_input", None)
             await update.effective_message.reply_text("✅ شعبه کلینیک تعریف شد.")
             await clinic_menu(update, context)
@@ -128,7 +131,7 @@ async def handle_clinic_input(update, context):
             context.user_data["clinic_input"] = "patient_phone"
             await update.effective_message.reply_text("شماره تماس بیمار را ارسال کنید یا - بفرستید:")
         else:
-            unit_id = next((m.get("branch_id") for m in memberships if m.get("branch_id")), None)
+            unit_id = context.user_data.get("clinic_branch_id") or next((m.get("branch_id") for m in memberships if m.get("branch_id")), None)
             if not unit_id: raise ValueError("branch_required")
             item = await service.create_patient(Scope(memberships[0]["organization_id"], str(update.effective_user.id)), unit_id, context.user_data.pop("clinic_patient_name"), phone="" if value == "-" else value)
             context.user_data.pop("clinic_input", None)
@@ -151,6 +154,11 @@ async def clinic_callback(update, context):
         if query.data == "clinic:new_patient":
             context.user_data["clinic_input"] = "patient_name"
             return await query.message.reply_text("نام و نام خانوادگی بیمار را ارسال کنید:")
+        if parts[1] == "branch":
+            scope = await _scope(update, context)
+            await scope.branch(parts[2], "patients.view")
+            context.user_data["clinic_branch_id"] = parts[2]
+            return await clinic_menu(update, context)
         if parts[1] == "org":
             profile = context.application.bot_data.get("bot_config")
             if not profile or not profile.feature_enabled("healthcare"):
