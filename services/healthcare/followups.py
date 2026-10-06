@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from services.database import fetch_all_sql, fetch_one_sql, get_db, transaction
 from services.healthcare.access import Scope
+from services.healthcare.terminology import to_healthcare_record
 from services.healthcare.service import (
     DOCTOR_CONTEXT,
     audit,
@@ -241,4 +242,9 @@ async def queue(
         f"SELECT e.*,o.key AS outcome_key,c.primary_owner_user_id {joins} WHERE {pred} ORDER BY e.due_at,e.id LIMIT ? OFFSET ?",
         tuple(params) + (limit, offset),
     )
-    return {"items": rows, "total": total["n"], "limit": limit, "offset": offset}
+    return {
+        "items": [to_healthcare_record(row) for row in rows],
+        "total": total["n"],
+        "limit": limit,
+        "offset": offset,
+    }
