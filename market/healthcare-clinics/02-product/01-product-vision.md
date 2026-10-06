@@ -119,12 +119,13 @@ TaskMG برای این مسائل ساخته می‌شود:
 
 # 7. Non-Goals
 
-TaskMG در این Vertical، حداقل در مراحل اولیه، برای این اهداف ساخته نمی‌شود:
+TaskMG در این Vertical باید **Patient Record کامل و قابل توسعه** داشته باشد و بتواند اطلاعات بالینی بیمار را نگهداری کند.
 
-- EMR/EHR کامل؛
-- clinical documentation جامع؛
-- diagnosis support؛
-- prescription؛
+مواردی که همچنان capability جداگانه محسوب می‌شوند:
+- clinical decision support خودکار؛
+- diagnosis خودکار توسط AI؛
+- prescription خودکار؛
+- treatment recommendation خودکار؛
 - PACS/imaging؛
 - accounting suite؛
 - insurance claims؛
@@ -135,7 +136,7 @@ TaskMG در این Vertical، حداقل در مراحل اولیه، برای �
 
 اصل:
 
-**Do not rebuild systems of record unless the action layer requires a narrow capability.**
+**Patient Record is part of TaskMG Healthcare; external systems may integrate with it, but they do not define whether TaskMG can store the patient's record.**
 
 ---
 
@@ -316,10 +317,9 @@ AI در فاز اولیه نباید:
 
 # 14. Product Principles
 
-## Principle 1 — Action over Record
+## Principle 1 — Record + Action
 
-هر feature باید بپرسد:
-«این به انجام کار کمک می‌کند یا فقط اطلاعات بیشتری ذخیره می‌کند؟»
+TaskMG Healthcare هم Patient Record را نگهداری می‌کند و هم اجرای کار را مدیریت می‌کند. هر داده بیمار باید purpose، permission، lifecycle و audit مشخص داشته باشد و هر action باید به context درست بیمار/پرونده متصل شود.
 
 ---
 
@@ -397,8 +397,8 @@ Clinic.
 ## Role
 سطح دسترسی و مسئولیت.
 
-## Patient / Client Reference
-شناسه عملیاتی بیمار؛ نه لزوماً پرونده بالینی کامل.
+## Patient / Patient Record
+موجودیت اصلی بیمار و پرونده کامل قابل نگهداری او؛ شامل اطلاعات هویتی، ارتباطی، پزشکی/بالینی، اسناد، ارتباط با پزشک/شعبه، history و context عملیاتی. دسترسی به بخش‌های حساس باید permission-aware و auditable باشد.
 
 ## Case
 یک موضوع یا جریان کاری مربوط به بیمار.
@@ -698,9 +698,8 @@ MVP باید یک سؤال را جواب دهد:
 - online booking marketplace؛
 - billing؛
 - insurance؛
-- prescription؛
-- clinical charting؛
-- treatment planning engine؛
+- autonomous prescription engine؛
+- autonomous clinical decision/treatment recommendation engine؛
 - patient mobile app؛
 - full CRM suite؛
 - complex inventory.
@@ -753,7 +752,8 @@ Vertical customization نباید هسته را fork کند.
 +
 
 **Healthcare Domain Layer**
-- Patient reference
+- Patient
+- Patient Record / Clinical Record
 - Case
 - Next Action
 - Clinic roles
@@ -896,7 +896,7 @@ Configuration + permissions.
 - همه چیز را customizable کنیم؛
 - پزشک را admin کنیم؛
 - هر event را notification کنیم؛
-- patient data بی‌دلیل ذخیره کنیم؛
+- patient data را بدون purpose، permission، retention و audit مشخص ذخیره کنیم؛
 - customer-specific fork بسازیم؛
 - AI را قبل از workflow تثبیت کنیم؛
 - featureهای PMS را یکی‌یکی copy کنیم.
