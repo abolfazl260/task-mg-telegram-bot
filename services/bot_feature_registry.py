@@ -32,7 +32,7 @@ FEATURE_REGISTRY: dict[str, FeatureDefinition] = {
     "search": FeatureDefinition("search", "Search", ("core",)),
     "reports": FeatureDefinition("reports", "Reports", ("core",)),
     "ai": FeatureDefinition("ai", "AI", ("core",)),
-    "voice": FeatureDefinition("voice", "Voice", ("core",)),
+    "voice": FeatureDefinition("voice", "Voice", ("core", "ai")),
     "templates": FeatureDefinition("templates", "Templates", ("core",)),
     "bulk_import": FeatureDefinition("bulk_import", "Bulk Import", ("core",)),
     "integrations": FeatureDefinition("integrations", "Integrations", ("core",)),
