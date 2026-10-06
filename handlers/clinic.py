@@ -128,12 +128,21 @@ async def handle_clinic_input(update, context):
             await clinic_menu(update, context)
         elif step == "patient_name":
             context.user_data["clinic_patient_name"] = value
+            context.user_data["clinic_input"] = "patient_family"
+            await update.effective_message.reply_text("نام خانوادگی بیمار را ارسال کنید:")
+        elif step == "patient_family":
+            context.user_data["clinic_patient_family"] = value
             context.user_data["clinic_input"] = "patient_phone"
             await update.effective_message.reply_text("شماره تماس بیمار را ارسال کنید یا - بفرستید:")
+        elif step == "patient_phone":
+            context.user_data["clinic_patient_phone"] = "" if value == "-" else value
+            context.user_data["clinic_input"] = "patient_reference"
+            await update.effective_message.reply_text("کد پرونده/شناسه بیمار را ارسال کنید یا - بفرستید:")
         else:
             unit_id = context.user_data.get("clinic_branch_id") or next((m.get("branch_id") for m in memberships if m.get("branch_id")), None)
             if not unit_id: raise ValueError("branch_required")
-            item = await service.create_patient(Scope(memberships[0]["organization_id"], str(update.effective_user.id)), unit_id, context.user_data.pop("clinic_patient_name"), phone="" if value == "-" else value)
+            full_name = f"{context.user_data.pop('clinic_patient_name')} {context.user_data.pop('clinic_patient_family')}".strip()
+            item = await service.create_patient(Scope(memberships[0]["organization_id"], str(update.effective_user.id)), unit_id, full_name, phone=context.user_data.pop("clinic_patient_phone", ""), external_reference=None if value == "-" else value)
             context.user_data.pop("clinic_input", None)
             await update.effective_message.reply_text(f"✅ بیمار ثبت شد.\nشناسه: {item['id']}")
         return True
