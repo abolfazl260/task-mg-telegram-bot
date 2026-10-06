@@ -479,8 +479,14 @@
   });
   modalForm?.addEventListener('submit', handleModalSubmit);
 
-  // Initial state
-  initTheme();
-  switchView(currentView);
-  load();
+  // Initial state: protected content stays hidden until the shared auth guard
+  // confirms Telegram authentication (public report-token routes are exempt).
+  async function start() {
+    initTheme();
+    switchView(currentView);
+    const allowed = window.WebAppAuthGuard ? await window.WebAppAuthGuard.ready : true;
+    if (allowed) await load();
+  }
+
+  start();
 })();
