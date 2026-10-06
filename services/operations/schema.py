@@ -232,7 +232,8 @@ BEGIN
   NOT EXISTS (
     SELECT 1 FROM workspace_memberships m
     WHERE m.workspace_id=NEW.workspace_id AND m.user_id=NEW.user_id
-      AND m.status='active' AND (m.unit_id IS NULL OR m.unit_id=NEW.unit_id)
+      AND (m.status='active' OR {unchanged_creator})
+      AND (m.unit_id IS NULL OR m.unit_id=NEW.unit_id)
   ) OR
   (NEW.assignee_id IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM workspace_memberships m
@@ -260,6 +261,7 @@ END;
 for _operation in ("INSERT", "UPDATE"):
     SCHEMA += (
         _TASK_TRIGGER_TEMPLATE
+        .replace("{unchanged_creator}", "NEW.user_id IS OLD.user_id" if _operation == "UPDATE" else "0")
         .replace("{unchanged_assignee}", "NEW.assignee_id IS OLD.assignee_id" if _operation == "UPDATE" else "0")
         .replace("{operation_lower}", _operation.lower())
         .replace("{operation}", _operation)
