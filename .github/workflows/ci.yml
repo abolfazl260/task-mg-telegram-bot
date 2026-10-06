@@ -20,6 +20,8 @@ concurrency:
 
 env:
   TESTING: "true"
+  # Initial baseline measured by #96: 42.1%. Keep a small regression margin.
+  COVERAGE_MIN: "41"
 
 jobs:
   tests:
@@ -58,7 +60,8 @@ jobs:
             --cov=. \
             --cov-config=.coveragerc \
             --cov-append \
-            --cov-report=term-missing:skip-covered
+            --cov-report=term-missing:skip-covered \
+            --cov-fail-under=${COVERAGE_MIN}
 
   quality:
     name: Code quality
