@@ -76,7 +76,7 @@ class _FakeBot:
     async def delete_my_commands(self) -> None:
         self.delete_calls += 1
 
-    async def set_my_commands(self, commands) -> None:
+    async def set_my_commands(self, commands, *, scope=None) -> None:
         self.command_sets.append([command.command for command in commands])
 
 

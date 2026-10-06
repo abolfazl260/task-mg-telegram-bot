@@ -27,16 +27,6 @@ from services.bot_permission_registry import (
     registry_payload as permission_registry_payload,
 )
 from services.database import get_db
-from services.secret_store import (
-    SecretStoreError,
-    decrypt_secret,
-    encrypt_secret,
-    is_encrypted_secret,
-    keyring_configured,
-    rewrap_secret,
-    secret_storage_status,
-)
-
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent.parent
 TOKEN_RE = re.compile(r"^\d{6,12}:[A-Za-z0-9_-]{30,}$")
@@ -109,8 +99,6 @@ async def ensure_bot_management_schema() -> None:
             if name not in existing:
                 await db.conn.execute(f"ALTER TABLE custom_bots ADD COLUMN {name} {definition}")
         await db.conn.commit()
-    if keyring_configured():
-        await migrate_bot_token_storage()
     await migrate_bot_permission_policies()
 
 
@@ -146,50 +134,6 @@ async def migrate_bot_permission_policies() -> int:
         if migrated:
             await db.conn.commit()
     return migrated
-
-
-async def migrate_bot_token_storage(*, require_key: bool = False) -> dict[str, int]:
-    """Encrypt legacy plaintext tokens and rewrap old-key ciphertexts."""
-    db = await get_db()
-    configured = keyring_configured()
-    async with db.conn.execute(
-        "SELECT bot_key,bot_token FROM custom_bots WHERE bot_token IS NOT NULL AND bot_token != ''"
-    ) as cur:
-        rows = [dict(row) for row in await cur.fetchall()]
-    if not configured:
-        if require_key and rows:
-            raise SecretStoreError("bot_token_encryption_key_required")
-        return {
-            "encrypted": 0,
-            "rotated": 0,
-            "unchanged": 0,
-            "legacy_plaintext": sum(1 for row in rows if not is_encrypted_secret(row["bot_token"])),
-        }
-
-    encrypted = rotated = unchanged = 0
-    async with db.lock:
-        for row in rows:
-            value = str(row["bot_token"] or "")
-            was_encrypted = is_encrypted_secret(value)
-            replacement, changed = rewrap_secret(value)
-            if not changed:
-                unchanged += 1
-                continue
-            await db.conn.execute(
-                "UPDATE custom_bots SET bot_token=?,updated_at=? WHERE bot_key=?",
-                (replacement, _now(), row["bot_key"]),
-            )
-            if was_encrypted:
-                rotated += 1
-            else:
-                encrypted += 1
-        await db.conn.commit()
-    return {
-        "encrypted": encrypted,
-        "rotated": rotated,
-        "unchanged": unchanged,
-        "legacy_plaintext": 0,
-    }
 
 
 async def _audit(bot_key: str, actor_user_id: object, action: str, details: dict | None = None) -> None:
@@ -231,12 +175,8 @@ def _public_row(row: dict) -> dict:
     data = dict(row)
     stored_token = str(data.pop("bot_token", "") or "")
     data["token_configured"] = bool(stored_token)
-    data["token_storage_status"] = secret_storage_status(stored_token)
-    try:
-        token = decrypt_secret(stored_token)
-        data["token_masked"] = mask_token(token)
-    except SecretStoreError:
-        data["token_masked"] = "••••••••" if stored_token else ""
+    data["token_storage_status"] = "plaintext" if stored_token else "none"
+    data["token_masked"] = mask_token(stored_token)
     features = [item for item in str(data.get("features") or "").split(",") if item]
     data["features"] = features
     data["enabled_feature_count"] = len(features)
@@ -256,8 +196,6 @@ async def list_managed_bots(*, include_tokens: bool = False) -> list[dict]:
     async with db.conn.execute("SELECT * FROM custom_bots ORDER BY created_at, bot_key") as cur:
         rows = [dict(row) for row in await cur.fetchall()]
     if include_tokens:
-        for row in rows:
-            row["bot_token"] = decrypt_secret(str(row.get("bot_token") or ""))
         return rows
     return [_public_row(row) for row in rows]
 
@@ -271,7 +209,6 @@ async def get_managed_bot(bot_key: str, *, include_token: bool = False) -> dict 
         return None
     data = dict(row)
     if include_token:
-        data["bot_token"] = decrypt_secret(str(data.get("bot_token") or ""))
         return data
     return _public_row(data)
 
@@ -312,7 +249,7 @@ async def create_managed_bot(
         if username and username.lower() != actual_username.lower():
             raise ValueError("telegram_username_mismatch")
         username = actual_username
-    stored_token = encrypt_secret(token) if token else ""
+    stored_token = token
     now = _now()
     db = await get_db()
     async with db.lock:
@@ -385,10 +322,7 @@ async def update_managed_bot(
         if username and username.lower() != actual_username.lower():
             raise ValueError("telegram_username_mismatch")
         username = actual_username
-    if replacement or (token and keyring_configured()):
-        stored_token = encrypt_secret(token)
-    else:
-        stored_token = token
+    stored_token = token
     db = await get_db()
     async with db.lock:
         await db.conn.execute(
@@ -507,13 +441,6 @@ async def seed_default_profiles() -> list[str]:
                 token = os.getenv(token_env, "").strip()
                 username = os.getenv(username_env, username).strip().lstrip("@")
                 if token:
-                    if not keyring_configured():
-                        logger.warning(
-                            "clinic_profile_token_migration_deferred: configure %s before managed migration",
-                            "BOT_TOKEN_ENCRYPTION_KEYS_JSON",
-                        )
-                        continue
-                    token = encrypt_secret(token)
                     status = "active"
                     source = "migrated_json"
         seeded_features = normalize_features(template["features"])

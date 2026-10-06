@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import json
 from types import SimpleNamespace
 
 import pytest
@@ -11,17 +9,11 @@ from services import database
 from services.custom_bot_service import create_custom_bot_request, read_custom_bots
 
 
-def _key() -> str:
-    return base64.urlsafe_b64encode(bytes([9]) * 32).decode("ascii")
-
-
 @pytest_asyncio.fixture
 async def isolated_custom_bot_db(tmp_path, monkeypatch):
     database.shutdown_sync_loop()
     await database.close_all_dbs()
-    monkeypatch.setattr(database, "DB_PATH", tmp_path / "custom_bot_encryption.db")
-    monkeypatch.setenv("BOT_TOKEN_ENCRYPTION_KEYS_JSON", json.dumps({"test": _key()}))
-    monkeypatch.setenv("BOT_TOKEN_ACTIVE_KEY_ID", "test")
+    monkeypatch.setattr(database, "DB_PATH", tmp_path / "custom_bot_storage.db")
     await database.init_db()
     db = await database.get_db()
     await db.conn.execute(
@@ -35,7 +27,7 @@ async def isolated_custom_bot_db(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_user_custom_bot_token_is_encrypted_at_rest(isolated_custom_bot_db):
+async def test_user_custom_bot_token_is_stored_plaintext(isolated_custom_bot_db):
     secret = "123456:abcdefghijklmnopqrstuvwxyzABCDE99999"
     user = SimpleNamespace(id=123, full_name="Test User", username="tester")
 
@@ -48,8 +40,7 @@ async def test_user_custom_bot_token_is_encrypted_at_rest(isolated_custom_bot_db
     ) as cur:
         stored = (await cur.fetchone())[0]
 
-    assert stored.startswith("enc:v1:test:")
-    assert secret not in stored
+    assert stored == secret
 
     runtime_rows = read_custom_bots(include_tokens=True)
     runtime = next(row for row in runtime_rows if row["bot_key"] == created["bot_key"])
