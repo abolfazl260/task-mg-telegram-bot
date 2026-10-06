@@ -12,7 +12,7 @@ from .config import WEBAPP_HOST, WEBAPP_PORT
 from .api import authenticate_telegram_request
 from .auth import TelegramWebAppAuthError
 from .bot_profile import WebAppBotProfileError, get_webapp_bot_profile
-from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, create_task, update_task, change_status
+from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, list_work_item_types, create_task, update_task, change_status
 from .public_tasks import handle_public_task_get, handle_public_task_api
 from .database_explorer import database_explorer_rows, database_explorer_tables
 from .admin_api import (
@@ -192,11 +192,13 @@ class WebAppHandler(BaseHTTPRequestHandler):
             data=_json_body(self) if method in {"POST","PATCH"} else {}
             status,payload=self.server.webapp_runtime.submit(clinic_dispatch(user.id,bot_key,method,path,parse_qs(urlparse(self.path).query),data))
             return self._json(status,payload)
-        if path=="/api/me" and method=="GET": return self._json(200,{"user":user.__dict__,"bot_key":bot_key})
+        if path=="/api/me" and method=="GET":
+            return self._json(200,{"user":user.__dict__,"bot_key":bot_key,"work_item_types":self.server.webapp_runtime.submit(list_work_item_types(bot_key))})
         if path=="/api/tasks" and method=="GET":
             if not profile.permission_enabled("tasks.view"):
                 raise WebAppTaskAccessError("tasks_view_permission_denied")
-            return self._json(200,{"tasks":self.server.webapp_runtime.submit(list_tasks(user.id,bot_key))})
+            work_item_type=(parse_qs(urlparse(self.path).query).get("work_item_type") or [None])[0]
+            return self._json(200,{"tasks":self.server.webapp_runtime.submit(list_tasks(user.id,bot_key,work_item_type=work_item_type))})
         if path=="/api/tasks" and method=="POST":
             if not profile.permission_enabled("tasks.create"):
                 raise WebAppTaskAccessError("tasks_create_permission_denied")
@@ -212,7 +214,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
                         raise WebAppTaskAccessError(f"{field_permissions[field].replace('.','_')}_permission_denied")
             if data.get("team_id") and not profile.permission_enabled("assignment.manage"):
                 raise WebAppTaskAccessError("assignment_manage_permission_denied")
-            tid=self.server.webapp_runtime.submit(create_task(user.id,bot_key,title=title,priority=str(data.get("priority") or "medium"),deadline=str(data.get("deadline") or ""),category=str(data.get("category") or ""),tags=data.get("tags") if isinstance(data.get("tags"),str) else ", ".join(map(str,data.get("tags") or [])),description=str(data.get("description") or ""),team_id=str(data.get("team_id") or "")))
+            tid=self.server.webapp_runtime.submit(create_task(user.id,bot_key,title=title,priority=str(data.get("priority") or "medium"),deadline=str(data.get("deadline") or ""),category=str(data.get("category") or ""),tags=data.get("tags") if isinstance(data.get("tags"),str) else ", ".join(map(str,data.get("tags") or [])),description=str(data.get("description") or ""),team_id=str(data.get("team_id") or ""),work_item_type=data.get("work_item_type")))
             return self._json(201,{"task":self.server.webapp_runtime.submit(get_task(user.id,tid,bot_key))})
         if path.startswith("/api/tasks/"):
             task_id=path.rsplit("/",1)[-1]
