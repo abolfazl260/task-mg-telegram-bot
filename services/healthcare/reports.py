@@ -10,7 +10,10 @@ from services.healthcare.access import Scope
 from services.healthcare.service import audit, now
 
 
-async def metrics(scope: Scope, *, unit_id=None):
+async def metrics(scope: Scope, *, unit_id=None, branch_id=None):
+    if unit_id and branch_id and unit_id != branch_id:
+        raise ValueError("conflicting_branch")
+    unit_id = unit_id or branch_id
     pred, params = await scope.predicate("reports.view")
     if unit_id:
         pred += " AND e.unit_id=?"
