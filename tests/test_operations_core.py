@@ -113,6 +113,6 @@ async def test_core_operations_support_non_healthcare_vertical(test_db):
         assert (await cur.fetchone())[0] == "sales_rep"
 
     async with db.conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'clinic_%'"
+        "SELECT name FROM sqlite_master WHERE type='table' AND name GLOB 'clinic_*'"
     ) as cur:
         assert await cur.fetchall() == []
