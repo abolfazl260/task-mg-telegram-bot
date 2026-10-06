@@ -2,7 +2,7 @@
 
 > وضعیت سند: Integration Strategy v1  
 > اصل: **Integrate where it removes duplicate work, creates reliable triggers, or closes the outcome loop.**  
-> هدف: اتصال TaskMG به System of Recordها و Communication Channelها بدون تبدیل‌شدن به یک monolith.
+> هدف: اتصال optional TaskMG Clinic به سیستم‌های خارجی و Communication Channelها، بدون ایجاد وابستگی محصول به آنها.
 
 ---
 
@@ -273,7 +273,7 @@ Microsoft Graph change notifications می‌تواند برای resource changes
 
 # 9. Existing Clinic Software / PMS
 
-این Integration از نظر Product مهم‌تر از ساخت full PMS جدید است.
+این Integration می‌تواند duplicate entry را کم کند، اما پیش‌نیاز Clinic نیست. Patient Record و Session management باید داخل TaskMG مستقل کار کنند.
 
 ## Strategy
 
@@ -577,7 +577,7 @@ Events:
 
 CSV.
 
-### Patient Reference
+### Patient Record / Patient Work Item
 - external_id
 - name
 - phone optional
@@ -632,7 +632,7 @@ Bidirectional sync complexity را زود وارد نکنیم.
 مثال:
 
 Appointment time:
-**PMS/Calendar = source of truth**
+**Source of truth is configurable. TaskMG Clinic can be the primary patient/session record; PMS/Calendar may be an integrated external source when enabled.**
 
 Task outcome:
 **TaskMG = source of truth**
