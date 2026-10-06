@@ -5,7 +5,7 @@ import jdatetime
 from telegram import Update
 from telegram.ext import ContextTypes
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from services.task_service import create_task_async, get_active_tasks_async, get_task_by_id_async, change_task_status_async, user_can_modify_task_async, assign_task_async, get_unassigned_tasks_async, add_task_comment_async, get_task_comments_async
+from services.task_service import create_task_async, get_active_tasks_async, get_task_by_id_async, get_assignment_history_async, change_task_status_async, user_can_modify_task_async, assign_task_async, get_unassigned_tasks_async, add_task_comment_async, get_task_comments_async
 from services.csv_export import build_csv_bytes_async
 from services.team_service import aget_user_teams, aget_team_members, member_display
 from utils.keyboard import priority_keyboard, deadline_keyboard, task_action_keyboard
@@ -387,6 +387,7 @@ def _task_details_keyboard(task_id: str) -> InlineKeyboardMarkup:
 async def task_details_callback(update, context):
     query=update.callback_query; await query.answer(); data=query.data; task_id=data.replace('task_details_','',1).replace('task_history_','',1); task=await get_task_by_id_async(task_id)
     if not task or not await _can_view_task(update.effective_user.id, task): await query.message.reply_text('تسک پیدا نشد یا دسترسی ندارید.'); return
+    task['assignment_history'] = await get_assignment_history_async(task_id)
     text=f'{await format_task_card(task)}\n\n{_history_text(task)}\n\n{await _comments_markdown(task_id)}'
     try: await context.bot._post('sendRichMessage', data={'chat_id': query.message.chat_id, 'rich_message': {'markdown': text}})
     except Exception:
@@ -506,10 +507,11 @@ async def take_confirm(update, context):
 
 def _history_text(task):
     lines=['📜 تاریخچه','','وظیفه ایجاد شد']
-    for raw in (task.get('assignment_history') or '').splitlines():
-        parts=raw.split('|',4)
-        if len(parts)!=5: continue
-        when,_actor,action,old,new=parts; lines += ['',when]
+    history = task.get('assignment_history') or []
+    if isinstance(history, str):
+        history = [dict(zip(('created_at','actor_id','action','old_assignee_name','new_assignee_name'), raw.split('|',4))) for raw in history.splitlines() if len(raw.split('|',4)) == 5]
+    for item in history:
+        when=item.get('created_at') or '—'; action=item.get('action',''); old=item.get('old_assignee_name',''); new=item.get('new_assignee_name',''); lines += ['',when]
         if action=='changed': lines += ['مسئول تغییر کرد:',f'از: {old}',f'به: {new}']
         elif action=='removed': lines += ['مسئول حذف شد:',old]
         elif action=='taken': lines += ['مسئول تعیین شد:',new]
@@ -525,6 +527,7 @@ async def assignment_manage_callback(update, context):
     if data.startswith('asg_history_'):
         task_id=data.replace('asg_history_','',1); task=await get_task_by_id_async(task_id)
         if not task or not await _can_view_task(uid, task): await query.message.reply_text('تسک پیدا نشد یا دسترسی ندارید.'); return
+        task['assignment_history'] = await get_assignment_history_async(task_id)
         await query.message.reply_text(_history_text(task)); return
     if data.startswith('asg_remove_'):
         task_id=data.replace('asg_remove_',''); task=await get_task_by_id_async(task_id)
