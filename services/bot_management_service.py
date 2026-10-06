@@ -27,6 +27,7 @@ from services.bot_permission_registry import (
     registry_payload as permission_registry_payload,
 )
 from services.database import get_db
+from services.work_item_type_service import validate_work_item_type_settings
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent.parent
 TOKEN_RE = re.compile(r"^\d{6,12}:[A-Za-z0-9_-]{30,}$")
@@ -76,6 +77,39 @@ def _json(value, fallback):
         except json.JSONDecodeError:
             raise ValueError("invalid_json")
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _profile_file_settings(profile_key: str) -> dict:
+    profile_key = str(profile_key or "").strip().lower()
+    if not profile_key:
+        return {}
+    path = BASE_DIR / "bots" / f"{profile_key}.json"
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    settings = payload.get("settings")
+    return settings if isinstance(settings, dict) else {}
+
+
+def _resolved_settings(payload: dict, base_profile: str, fallback=None) -> dict:
+    if "settings" in payload:
+        settings = payload.get("settings")
+    elif fallback is not None:
+        settings = fallback
+    else:
+        settings = _profile_file_settings(base_profile)
+    if isinstance(settings, str):
+        try:
+            settings = json.loads(settings or "{}")
+        except json.JSONDecodeError as exc:
+            raise ValueError("invalid_settings_json") from exc
+    if not isinstance(settings, dict):
+        raise ValueError("invalid_settings_json")  # noqa: TRY004
+    validate_work_item_type_settings(settings)
+    return settings
 
 
 def mask_token(token: str) -> str:
@@ -235,6 +269,7 @@ async def create_managed_bot(
     if status == "active" and not token:
         raise ValueError("active_bot_requires_token")
     base_profile = str(payload.get("base_profile") or "").strip()
+    settings = _resolved_settings(payload, base_profile)
     requested_features = payload.get("features")
     if requested_features is None and base_profile in DEFAULT_PROFILE_TEMPLATES:
         requested_features = DEFAULT_PROFILE_TEMPLATES[base_profile]["features"]
@@ -267,7 +302,7 @@ async def create_managed_bot(
                 str(payload.get("description") or "").strip(),
                 str(payload.get("profile_type") or "custom").strip() or "custom",
                 base_profile,
-                _json(payload.get("settings"), {}),
+                _json(settings, {}),
                 _json(permissions, {}),
                 _json(payload.get("commands"), []),
                 _json(payload.get("workflow"), {}),
@@ -323,6 +358,11 @@ async def update_managed_bot(
             raise ValueError("telegram_username_mismatch")
         username = actual_username
     stored_token = token
+    settings = _resolved_settings(
+        payload,
+        str(payload.get("base_profile", existing.get("base_profile") or "")).strip(),
+        existing.get("settings_json") or "{}",
+    )
     db = await get_db()
     async with db.lock:
         await db.conn.execute(
@@ -338,7 +378,7 @@ async def update_managed_bot(
                 str(payload.get("description", existing.get("description") or "")).strip(),
                 str(payload.get("profile_type", existing.get("profile_type") or "custom")).strip(),
                 str(payload.get("base_profile", existing.get("base_profile") or "")).strip(),
-                _json(payload.get("settings", existing.get("settings_json") or "{}"), {}),
+                _json(settings, {}),
                 _json(permissions, {}),
                 _json(payload.get("commands", existing.get("commands_json") or "[]"), []),
                 _json(payload.get("workflow", existing.get("workflow_json") or "{}"), {}),

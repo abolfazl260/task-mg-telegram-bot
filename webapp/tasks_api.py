@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from services import task_service
+from services.work_item_type_service import list_work_item_types_async
 from webapp.bot_profile import set_webapp_bot_context
 
 class WebAppTaskAccessError(PermissionError):
@@ -15,9 +16,16 @@ def _set_context(bot_key: str) -> str:
         # zero-argument context setter.
         return set_webapp_bot_context()
 
-async def list_tasks(user_id: int, bot_key: str = "default", *, team_id: str | None = None, active_only: bool = False):
+async def list_tasks(user_id: int, bot_key: str = "default", *, team_id: str | None = None, active_only: bool = False, work_item_type: str | None = None):
     _set_context(bot_key)
-    return await (task_service.get_active_tasks_async(user_id, team_id) if active_only else task_service.get_all_user_tasks_async(user_id, team_id))
+    getter = task_service.get_active_tasks_async if active_only else task_service.get_all_user_tasks_async
+    if work_item_type:
+        return await getter(user_id, team_id, work_item_type=work_item_type)
+    return await getter(user_id, team_id)
+
+async def list_work_item_types(bot_key: str = "default"):
+    _set_context(bot_key)
+    return await list_work_item_types_async(bot_key)
 
 async def get_task(user_id: int, task_id: str, bot_key: str = "default"):
     _set_context(bot_key)
@@ -28,9 +36,9 @@ async def get_task(user_id: int, task_id: str, bot_key: str = "default"):
         raise WebAppTaskAccessError("Task is not visible to this user")
     return task
 
-async def create_task(user_id: int, bot_key: str = "default", *, title: str, priority: str = "medium", deadline: str = "", category: str = "", tags: str = "", description: str = "", team_id: str = ""):
+async def create_task(user_id: int, bot_key: str = "default", *, title: str, priority: str = "medium", deadline: str = "", category: str = "", tags: str = "", description: str = "", team_id: str = "", work_item_type: str | None = None):
     _set_context(bot_key)
-    return await task_service.create_task_async(user_id=user_id,title=title,priority=priority,deadline=deadline,category=category,tags=tags,description=description,team_id=team_id)
+    return await task_service.create_task_async(user_id=user_id,title=title,priority=priority,deadline=deadline,category=category,tags=tags,description=description,team_id=team_id,work_item_type=work_item_type)
 
 async def update_task(user_id: int, task_id: str, bot_key: str = "default", **changes):
     _set_context(bot_key)

@@ -40,6 +40,67 @@
       "next_action": "اقدام بعدی",
       "team": "کادر کلینیک",
       "workspace": "فضای کار کلینیک"
+    },
+    "work_item_types": {
+      "default_type": "patient",
+      "types": [
+        {
+          "key": "patient",
+          "label_singular": "بیمار",
+          "label_plural": "بیماران",
+          "icon": "👤",
+          "allowed_parent_types": [],
+          "allowed_child_types": [
+            "session"
+          ],
+          "status_profile": "default",
+          "default_field_schema": "clinic.patient",
+          "default_views": [
+            "list",
+            "detail",
+            "timeline"
+          ],
+          "default_actions": [
+            "create",
+            "update",
+            "create_child",
+            "comment",
+            "attach"
+          ],
+          "feature_flags": [
+            "tasks",
+            "healthcare"
+          ]
+        },
+        {
+          "key": "session",
+          "label_singular": "جلسه",
+          "label_plural": "جلسات",
+          "icon": "🗓️",
+          "allowed_parent_types": [
+            "patient"
+          ],
+          "allowed_child_types": [],
+          "status_profile": "default",
+          "default_field_schema": "clinic.session",
+          "default_views": [
+            "list",
+            "detail",
+            "calendar"
+          ],
+          "default_actions": [
+            "create",
+            "update",
+            "status",
+            "comment",
+            "attach"
+          ],
+          "feature_flags": [
+            "tasks",
+            "healthcare"
+          ]
+        }
+      ]
     }
   },
   "features": {

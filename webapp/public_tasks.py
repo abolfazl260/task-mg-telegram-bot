@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from .report_tokens import resolve_report_token
 from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, create_task, update_task, change_status
@@ -138,7 +138,8 @@ def handle_public_task_api(handler):
         parts = [token]
 
     if len(parts) == 1 and handler.command == "GET":
-        _json(handler, 200, {"tasks": handler.server.webapp_runtime.submit(list_tasks(user_id, bot_key))})
+        work_item_type = (parse_qs(urlparse(handler.path).query).get("work_item_type") or [None])[0]
+        _json(handler, 200, {"tasks": handler.server.webapp_runtime.submit(list_tasks(user_id, bot_key, work_item_type=work_item_type))})
         return True
     if len(parts) == 1 and handler.command == "POST":
         data = _body(handler)
@@ -146,7 +147,7 @@ def handle_public_task_api(handler):
         if not title or len(title) > 500:
             _json(handler, 400, {"error": "invalid_title"})
             return True
-        tid = handler.server.webapp_runtime.submit(create_task(user_id, bot_key, title=title, priority=str(data.get("priority") or "medium"), deadline=str(data.get("deadline") or ""), category=str(data.get("category") or ""), tags=data.get("tags") if isinstance(data.get("tags"), str) else ", ".join(map(str, data.get("tags") or [])), description=str(data.get("description") or ""), team_id=str(data.get("team_id") or "")))
+        tid = handler.server.webapp_runtime.submit(create_task(user_id, bot_key, title=title, priority=str(data.get("priority") or "medium"), deadline=str(data.get("deadline") or ""), category=str(data.get("category") or ""), tags=data.get("tags") if isinstance(data.get("tags"), str) else ", ".join(map(str, data.get("tags") or [])), description=str(data.get("description") or ""), team_id=str(data.get("team_id") or ""), work_item_type=data.get("work_item_type")))
         task = handler.server.webapp_runtime.submit(_full_task(user_id, tid, bot_key, handler.server.webapp_runtime))
         _json(handler, 201, {"task": task})
         return True
