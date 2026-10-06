@@ -25,7 +25,7 @@ class FakeUpdater:
 
 
 class FakeApplication:
-    def __init__(self, profile: BotProfile) -> None:
+    def __init__(self, profile: BotProfile, *, fail_initialize: bool = False) -> None:
         self.profile = profile
         self.bot_data = {"bot_config": profile}
         self.updater = FakeUpdater()
@@ -34,8 +34,11 @@ class FakeApplication:
         self.shutdown_calls = 0
         self.stop_calls = 0
         self.post_init = None
+        self.fail_initialize = fail_initialize
 
     async def initialize(self) -> None:
+        if self.fail_initialize:
+            raise RuntimeError("telegram_invalid_token")
         self.initialized = True
 
     async def start(self) -> None:
@@ -53,11 +56,15 @@ class FakeFactory:
     def __init__(self) -> None:
         self.created: list[FakeApplication] = []
         self.fail_tokens: set[str] = set()
+        self.fail_initialize_tokens: set[str] = set()
 
     def __call__(self, profile: BotProfile) -> FakeApplication:
         if profile.token in self.fail_tokens:
             raise RuntimeError("factory_failed")
-        app = FakeApplication(profile)
+        app = FakeApplication(
+            profile,
+            fail_initialize=profile.token in self.fail_initialize_tokens,
+        )
         self.created.append(app)
         return app
 
@@ -273,3 +280,30 @@ def test_profile_fingerprint_tracks_runtime_configuration_without_token_output()
     assert first != second
     assert "secret-token" not in first
     assert len(first) == 64
+
+
+
+@pytest.mark.asyncio
+async def test_invalid_token_initialization_failure_is_isolated(runtime):
+    manager, factory, recorder = runtime
+    alpha = profile("alpha", "token-alpha")
+    invalid = profile("invalid", "token-revoked")
+
+    await manager.reconcile([alpha])
+    alpha_app = manager.handles["alpha"].app
+    factory.fail_initialize_tokens.add("token-revoked")
+
+    await manager.reconcile([alpha, invalid])
+
+    assert manager.handles["alpha"].app is alpha_app
+    assert "invalid" not in manager.handles
+    failed_app = next(
+        app for app in factory.created if app.profile.key == "invalid"
+    )
+    assert failed_app.shutdown_calls == 1
+    assert any(
+        event["bot_key"] == "invalid"
+        and event["runtime_status"] == "error"
+        and event["error"] == "start_failed:RuntimeError"
+        for event in recorder.events
+    )
