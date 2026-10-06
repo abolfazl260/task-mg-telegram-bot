@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from telegram.error import NetworkError, RetryAfter
+from telegram.error import NetworkError, RetryAfter, TelegramError
 
 from config import ADMIN_IDS
 from services import database
@@ -198,6 +198,7 @@ async def _send_part_with_retry(
     caption: str,
     part_index: int,
 ) -> None:
+    last_error: BaseException | None = None
     for attempt in range(1, SEND_RETRY_ATTEMPTS + 1):
         try:
             with part_path.open("rb") as document:
@@ -209,12 +210,14 @@ async def _send_part_with_retry(
                 )
             return
         except RetryAfter as exc:
+            last_error = exc
             delay = _retry_after_seconds(exc, attempt)
             error_type = type(exc).__name__
         except NetworkError as exc:
+            last_error = exc
             delay = SEND_RETRY_BASE_SECONDS * (2 ** (attempt - 1))
             error_type = type(exc).__name__
-        except Exception as exc:
+        except TelegramError as exc:
             logger.error(
                 "database_backup send_failed admin_id=%s part=%s attempt=%s "
                 "error_type=%s",
@@ -236,7 +239,7 @@ async def _send_part_with_retry(
         if attempt >= SEND_RETRY_ATTEMPTS:
             raise RuntimeError(
                 f"Backup delivery failed for part {part_index}"
-            ) from exc
+            ) from last_error
         await asyncio.sleep(delay)
 
 
@@ -244,7 +247,7 @@ async def _send_status_best_effort(bot, admin_ids: tuple[int, ...], text: str) -
     for admin_id in admin_ids:
         try:
             await bot.send_message(chat_id=admin_id, text=text)
-        except Exception:
+        except TelegramError:
             logger.warning(
                 "database_backup status_message_failed admin_id=%s",
                 admin_id,
