@@ -32,12 +32,12 @@ async def _ensure_user_async(uid):
 
 # Tasks are shared user data. bot_key is retained only as provenance/configuration metadata;
 # it must never be used to isolate a user's tasks between bots.
-async def read_tasks_async(): return await fetch_all("tasks")
+async def read_tasks_async(): return await fetch_all("tasks", "organization_id IS NULL")
 
 async def get_task_dashboard_counts_async(user_id: int) -> dict[str, int]:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     db = await get_db()
-    query = """SELECT SUM(CASE WHEN status IN ('pending', 'in_progress') THEN 1 ELSE 0 END), SUM(CASE WHEN substr(COALESCE(deadline, ''), 1, 10) = ? AND status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END), SUM(CASE WHEN substr(COALESCE(deadline, ''), 1, 10) < ? AND status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END) FROM tasks WHERE user_id = ?"""
+    query = """SELECT SUM(CASE WHEN status IN ('pending', 'in_progress') THEN 1 ELSE 0 END), SUM(CASE WHEN substr(COALESCE(deadline, ''), 1, 10) = ? AND status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END), SUM(CASE WHEN substr(COALESCE(deadline, ''), 1, 10) < ? AND status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END) FROM tasks WHERE organization_id IS NULL AND user_id = ?"""
     async with db.conn.execute(query, (today, today, str(user_id))) as cursor: row = await cursor.fetchone()
     return {"count_active": int((row[0] if row else 0) or 0), "count_today": int((row[1] if row else 0) or 0), "count_overdue": int((row[2] if row else 0) or 0)}
 
@@ -80,7 +80,7 @@ async def update_task_async(task_id,user_id,**changes):
 async def _visible_async(user_id,team_id=None,active=False):
     if team_id:
         if not await ais_member(team_id,user_id): return []
-        where="team_id=?"+((" AND status IN ('pending','in_progress')") if active else "")
+        where="organization_id IS NULL AND team_id=?"+((" AND status IN ('pending','in_progress')") if active else "")
         return await fetch_all("tasks",where,(team_id,))
 
     uid = str(user_id)
@@ -88,14 +88,14 @@ async def _visible_async(user_id,team_id=None,active=False):
     return await fetch_all_sql(
         """SELECT t.*
             FROM tasks AS t
-            WHERE (t.team_id IS NULL OR t.team_id='')
+            WHERE t.organization_id IS NULL AND (t.team_id IS NULL OR t.team_id='')
               AND t.user_id=?
               AND (?=0 OR t.status IN ('pending','in_progress'))
             UNION ALL
             SELECT t.*
             FROM tasks AS t
             JOIN team_members AS tm ON tm.team_id=t.team_id
-            WHERE tm.user_id=?
+            WHERE t.organization_id IS NULL AND tm.user_id=?
               AND (?=0 OR t.status IN ('pending','in_progress'))""",
         (uid, active_only, uid, active_only),
     )
@@ -104,9 +104,9 @@ async def get_active_tasks_async(user_id,team_id=None): return await _visible_as
 async def get_all_user_tasks_async(user_id,team_id=None): return await _visible_async(user_id,team_id,False)
 async def get_team_tasks_async(team_id,user_id,active_only=True):
     if not await ais_member(team_id,user_id): return []
-    return await fetch_all("tasks","team_id=?"+(" AND status IN ('pending','in_progress')" if active_only else ""),(team_id,))
-async def get_task_by_id_async(task_id): return await fetch_one("tasks","id=?",(task_id,))
-async def user_can_modify_task_async(user_id,task): return bool(task and (await acan_edit(task.get("team_id"),user_id) if task.get("team_id") else str(task.get("user_id"))==str(user_id)))
+    return await fetch_all("tasks","organization_id IS NULL AND team_id=?"+(" AND status IN ('pending','in_progress')" if active_only else ""),(team_id,))
+async def get_task_by_id_async(task_id): return await fetch_one("tasks","organization_id IS NULL AND id=?",(task_id,))
+async def user_can_modify_task_async(user_id,task): return bool(task and not task.get("organization_id") and (await acan_edit(task.get("team_id"),user_id) if task.get("team_id") else str(task.get("user_id"))==str(user_id)))
 async def change_task_status_async(task_id,new_status,actor_id): return await update_task_status_async(task_id,new_status,actor_id)
 async def search_tasks_async(user_id,query):
     q=(query or "").strip().lower()

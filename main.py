@@ -95,8 +95,8 @@ async def _integration_sync_job(context):
     profile=context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config");await run_external_sync(bot_key=profile.key if profile else "default")
 async def post_init(app:Application):
     await init_db();install_task_capabilities(app);profile=app.bot_data.get("bot_config")
-    commands=[BotCommand("ai","دستیار هوشمند تحلیل تسک‌ها"),BotCommand("start","شروع ربات و منوی اصلی"),BotCommand("add","افزودن تسک جدید"),BotCommand("reports","گزارشات و آمار"),BotCommand("tasks","منوی تسک‌ها"),BotCommand("unassigned","وظایف بدون مسئول"),BotCommand("team","تیم و فضای مشترک"),BotCommand("search","جستجوی تسک"),BotCommand("templates","تمپلیت‌های آماده"),BotCommand("habit","مدیریت عادت‌ها"),BotCommand("donate","حمایت با Telegram Stars"),BotCommand("jira","اتصال به Jira"),BotCommand("jira_status","وضعیت اتصال Jira"),BotCommand("jira_disconnect","قطع اتصال Jira"),BotCommand("help","راهنمای کامل استفاده")]
-    feature_by_command={"add":"tasks","tasks":"tasks","unassigned":"unassigned","team":"teams","search":"search","templates":"templates","reports":"reports","habit":"habits","donate":"donate","ai":"ai","jira":"integrations","jira_status":"integrations","jira_disconnect":"integrations"}
+    commands=[BotCommand("ai","دستیار هوشمند تحلیل تسک‌ها"),BotCommand("clinic","فضای کار کلینیک"),BotCommand("start","شروع ربات و منوی اصلی"),BotCommand("add","افزودن تسک جدید"),BotCommand("reports","گزارشات و آمار"),BotCommand("tasks","منوی تسک‌ها"),BotCommand("unassigned","وظایف بدون مسئول"),BotCommand("team","تیم و فضای مشترک"),BotCommand("search","جستجوی تسک"),BotCommand("templates","تمپلیت‌های آماده"),BotCommand("habit","مدیریت عادت‌ها"),BotCommand("donate","حمایت با Telegram Stars"),BotCommand("jira","اتصال به Jira"),BotCommand("jira_status","وضعیت اتصال Jira"),BotCommand("jira_disconnect","قطع اتصال Jira"),BotCommand("help","راهنمای کامل استفاده")]
+    feature_by_command={"clinic":"healthcare","add":"tasks","tasks":"tasks","unassigned":"unassigned","team":"teams","search":"search","templates":"templates","reports":"reports","habit":"habits","donate":"donate","ai":"ai","jira":"integrations","jira_status":"integrations","jira_disconnect":"integrations"}
     permission_by_command={"add":"tasks.create","tasks":"tasks.view","unassigned":"unassigned.view","team":"teams.view","search":"search.use","templates":"templates.use","reports":"reports.view","habit":"habits.manage","donate":"donate.use","ai":"ai.use","jira":"integrations.manage","jira_status":"integrations.manage","jira_disconnect":"integrations.manage"}
     if profile is not None:
         filtered=[]
@@ -110,6 +110,9 @@ async def post_init(app:Application):
         commands=filtered
     await app.bot.delete_my_commands();await app.bot.set_my_commands(commands);logger.info("Telegram command menu updated bot=%s features=%s commands=%s",profile.key if profile else "default",profile.features if profile else {},", ".join(f"/{cmd.command}" for cmd in commands))
     if app.job_queue:
+        if profile is not None and profile.feature_enabled("healthcare") and profile.feature_enabled("clinic_staff_reminders"):
+            from services.healthcare.notifications import staff_notification_job
+            app.job_queue.run_repeating(staff_notification_job,interval=60,first=15,name="clinic_staff_notifications")
         if profile is None or (profile.feature_enabled("reminders") and profile.permission_enabled("reminders.run")):
             app.job_queue.run_repeating(morning_today_tasks,interval=60,first=10,name="morning_today_tasks")
             app.job_queue.run_repeating(midday_summary_and_weekly,interval=60,first=20,name="midday_summary_weekly")
@@ -141,6 +144,10 @@ def build_application(profile):
     if _feature(app,"tasks") and _permission(app,"tasks.view"):app.add_handler(CommandHandler("tasks",paginated_list_tasks))
     if _feature(app,"unassigned") and _permission(app,"unassigned.view"):app.add_handler(CommandHandler("unassigned",unassigned_tasks))
     if _feature(app,"teams") and _permission(app,"teams.view"):app.add_handler(CommandHandler("team",team_command))
+    if _feature(app,"healthcare"):
+        from handlers.clinic import clinic_callback, clinic_menu
+        app.add_handler(CommandHandler("clinic",clinic_menu))
+        app.add_handler(CallbackQueryHandler(clinic_callback,pattern="^clinic:"))
     if _feature(app,"search") and _permission(app,"search.use"):app.add_handler(CommandHandler("search",search_command))
     if _feature(app,"templates") and _permission(app,"templates.use"):app.add_handler(CommandHandler("templates",show_templates_menu))
     from handlers.help import help_command

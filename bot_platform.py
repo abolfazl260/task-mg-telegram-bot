@@ -25,8 +25,8 @@ from services.task_capabilities import install_task_capabilities
 
 BASE_DIR = Path(__file__).resolve().parent
 BOTS_DIR = BASE_DIR / "bots"
-DEFAULT_FEATURES = {name: True for name in FEATURE_REGISTRY}
-COMMAND_TO_FEATURE = {"add": "tasks", "tasks": "tasks", "unassigned": "unassigned", "team": "teams", "search": "search", "templates": "templates", "reports": "reports", "habit": "habits", "donate": "donate", "ai": "ai", "jira": "integrations", "jira_status": "integrations", "jira_disconnect": "integrations"}
+DEFAULT_FEATURES = {name: name not in {"healthcare", "clinic_staff_reminders"} for name in FEATURE_REGISTRY}
+COMMAND_TO_FEATURE = {"clinic": "healthcare", "add": "tasks", "tasks": "tasks", "unassigned": "unassigned", "team": "teams", "search": "search", "templates": "templates", "reports": "reports", "habit": "habits", "donate": "donate", "ai": "ai", "jira": "integrations", "jira_status": "integrations", "jira_disconnect": "integrations"}
 DEFAULT_MENU = [{"label": "➕ افزودن تسک", "callback_data": "add_task", "feature": "tasks"}, {"label": "📋 تسک‌ها", "callback_data": "tasks", "feature": "tasks"}, {"label": "🌱 عادت من", "callback_data": "habit_menu", "feature": "habits"}, {"label": "📊 گزارش", "callback_data": "stats", "feature": "reports"}, {"label": "📖 راهنما", "callback_data": "help"}, {"label": "⚙️ تنظیمات", "callback_data": "settings"}, {"label": "📞 ارتباط با ما", "callback_data": "contact_us", "feature": None}]
 DEFAULT_WORKFLOW = {"statuses": {"pending": "⏳ در انتظار", "in_progress": "🚀 در حال انجام", "done": "✅ انجام شده", "cancelled": "❌ لغو شده"}, "actions": {"start": "🚀 شروع", "done": "✅ انجام شد", "cancel": "❌ لغو", "pending": "⏸ بازگشت به انتظار", "owner": "👤 مسئول", "take": "🙋 برعهده گرفتن"}}
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 import asyncio, json, mimetypes, os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -32,6 +33,8 @@ from .admin_api import (
     validate_bot_management_token,
 )
 from services.permission_service import is_admin
+from services.healthcare.access import ClinicAccessError
+from .clinic_api import dispatch as clinic_dispatch
 
 logger = logging.getLogger(__name__)
 ADMIN_PATH = "/adminNhduwqh3409iwejewed"
@@ -137,13 +140,19 @@ class WebAppHandler(BaseHTTPRequestHandler):
 
     def _handle_api(self,method):
         path=urlparse(self.path).path; bot_key=self._bot_key()
-        known = path=="/api/me" or path=="/api/tasks" or path.startswith("/api/tasks/")
+        known = path.startswith(("/api/clinic/", "/api/tasks/")) or path in {"/api/me", "/api/tasks"}
         if not known:
             return self._json(404,{"error":"not_found"})
         profile=get_webapp_bot_profile(bot_key)
         if (path=="/api/tasks" or path.startswith("/api/tasks/")) and not profile.feature_enabled("tasks"):
             raise WebAppTaskAccessError("tasks_feature_disabled")
+        if path.startswith("/api/clinic/") and not profile.feature_enabled("healthcare"):
+            raise WebAppTaskAccessError("healthcare_feature_disabled")
         user=self._authenticate(bot_key)
+        if path.startswith("/api/clinic/"):
+            data=_json_body(self) if method in {"POST","PATCH"} else {}
+            status,payload=self.server.webapp_runtime.submit(clinic_dispatch(user.id,bot_key,method,path,parse_qs(urlparse(self.path).query),data))
+            return self._json(status,payload)
         if path=="/api/me" and method=="GET": return self._json(200,{"user":user.__dict__,"bot_key":bot_key})
         if path=="/api/tasks" and method=="GET":
             if not profile.permission_enabled("tasks.view"):
@@ -204,10 +213,14 @@ class WebAppHandler(BaseHTTPRequestHandler):
             return self._handle_admin(method) if path.startswith("/api/admin/") else self._handle_api(method)
         except TelegramWebAppAuthError: return self._json(401,{"error":"unauthorized"})
         except WebAppBotProfileError: return self._json(400,{"error":"invalid_bot_profile"})
-        except WebAppTaskAccessError: return self._json(403,{"error":"forbidden"})
-        except ValueError as e: return self._json(400,{"error":str(e)})
+        except (WebAppTaskAccessError,ClinicAccessError): return self._json(403,{"error":"forbidden"})
+        except sqlite3.IntegrityError: return self._json(409,{"error":"conflict"})
+        except ValueError as e: return self._json(400,{"error":"invalid_request" if urlparse(self.path).path.startswith("/api/clinic/") else str(e)})
         except Exception:
-            logger.exception("webapp_task_request_failed method=%s path=%s operation=task_api", method, self.path)
+            if urlparse(self.path).path.startswith("/api/clinic/"):
+                logger.error("clinic_request_failed method=%s",method)
+            else:
+                logger.exception("webapp_task_request_failed method=%s path=%s operation=task_api", method, self.path)
             return self._json(500,{"error":"internal_server_error"})
     def do_GET(self):
         path=urlparse(self.path).path

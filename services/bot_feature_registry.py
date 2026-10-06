@@ -31,6 +31,8 @@ FEATURE_REGISTRY: dict[str, FeatureDefinition] = {
     "reminders": FeatureDefinition("reminders", "Reminders", ("tasks",)),
     "search": FeatureDefinition("search", "Search", ("core",)),
     "reports": FeatureDefinition("reports", "Reports", ("core",)),
+    "healthcare": FeatureDefinition("healthcare", "Healthcare Operations", ("core",)),
+    "clinic_staff_reminders": FeatureDefinition("clinic_staff_reminders", "Clinic Staff Reminders", ("healthcare",)),
     "ai": FeatureDefinition("ai", "AI", ("core",)),
     "voice": FeatureDefinition("voice", "Voice", ("core", "ai")),
     "templates": FeatureDefinition("templates", "Templates", ("core",)),
@@ -49,7 +51,7 @@ SIMPLE_FEATURES = ("core", "tasks", "deadline", "priority", "contact")
 CLINIC_FEATURES = (
     "core", "tasks", "teams", "assignment", "comments", "attachments",
     "tags", "categories", "priority", "deadline", "reminders", "search",
-    "reports", "contact", "unassigned",
+    "reports", "contact", "unassigned", "healthcare", "clinic_staff_reminders",
 )
 
 DEFAULT_PROFILE_TEMPLATES = {
