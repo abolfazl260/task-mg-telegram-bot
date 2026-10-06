@@ -451,6 +451,10 @@ async def migrate(conn) -> None:
             await conn.execute(f"DROP TRIGGER IF EXISTS {trigger}")  # nosec B608
 
         tables = await _table_names(conn)
+        migrated_legacy_memberships = (
+            "clinic_memberships" in tables
+            and "workspace_memberships" not in tables
+        )
         for old, new in LEGACY_TABLE_RENAMES:
             if old in tables and new not in tables:
                 await conn.execute(f"ALTER TABLE {old} RENAME TO {new}")  # nosec B608
@@ -480,6 +484,35 @@ async def migrate(conn) -> None:
                         f"ALTER TABLE {table} ADD COLUMN {name} {definition}"  # nosec B608
                     )
                     columns.add(name)
+
+        if migrated_legacy_memberships:
+            await conn.execute(
+                """CREATE TABLE workspace_memberships_core (
+                    id TEXT PRIMARY KEY,
+                    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+                    user_id TEXT NOT NULL REFERENCES users(user_id),
+                    unit_id TEXT,
+                    role TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active'
+                        CHECK(status IN ('active','inactive')),
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    FOREIGN KEY(workspace_id,unit_id)
+                        REFERENCES workspace_units(workspace_id,id)
+                )"""
+            )
+            await conn.execute(
+                """INSERT INTO workspace_memberships_core(
+                    id,workspace_id,user_id,unit_id,role,status,metadata_json
+                )
+                SELECT id,workspace_id,user_id,unit_id,role,status,
+                       COALESCE(metadata_json,'{}')
+                FROM workspace_memberships"""
+            )
+            await conn.execute("DROP TABLE workspace_memberships")
+            await conn.execute(
+                "ALTER TABLE workspace_memberships_core "
+                "RENAME TO workspace_memberships"
+            )
 
         if "tasks" in tables:
             columns = await _column_names(conn, "tasks")
