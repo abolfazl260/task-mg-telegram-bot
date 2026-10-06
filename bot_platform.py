@@ -15,6 +15,10 @@ from telegram.ext import Application
 
 from services.bot_feature_registry import FEATURE_REGISTRY
 from services.bot_management_service import seed_default_profiles
+from services.bot_permission_registry import (
+    normalize_permission_policy,
+    permission_enabled as profile_permission_enabled,
+)
 from services.custom_bot_service import read_custom_bots
 from services.database import _run
 from services.task_capabilities import install_task_capabilities
@@ -35,6 +39,7 @@ class BotProfile:
     active: bool = True
     description: str = ""
     features: dict[str, bool] = field(default_factory=lambda: DEFAULT_FEATURES.copy())
+    permissions: dict[str, bool] = field(default_factory=dict)
     commands: tuple[str, ...] | None = None
     settings: dict[str, Any] = field(default_factory=dict)
     access: dict[str, Any] = field(default_factory=dict)
@@ -52,6 +57,13 @@ class BotProfile:
             commands_for_feature = [c for c, feature in COMMAND_TO_FEATURE.items() if feature == name]
             if commands_for_feature and not any(c in self.commands for c in commands_for_feature): return False
         return True
+    def permission_enabled(self, permission_key: str) -> bool:
+        enabled_features = [name for name, enabled in self.features.items() if enabled]
+        return profile_permission_enabled(
+            self.permissions,
+            permission_key,
+            enabled_features,
+        )
 
 def _env_name(profile_key: str, field_name: str) -> str:
     safe_key = "".join(ch if ch.isalnum() else "_" for ch in profile_key).upper()
@@ -95,7 +107,9 @@ def _load_json_profile(path: Path) -> BotProfile:
     for section, values in raw.get("workflow", {}).items():
         if isinstance(values, dict) and isinstance(workflow.get(section), dict): workflow[section].update(values)
         else: workflow[section] = values
-    return BotProfile(key=key, name=raw.get("name") or username, username=username, token=token, active=bool(raw.get("active", True)), description=raw.get("description", ""), features=features, commands=commands, settings=raw.get("settings", {}), access=raw.get("access", {}), workflow=workflow, menu=raw.get("menu", DEFAULT_MENU))
+    enabled_features = [name for name, enabled in features.items() if enabled]
+    permissions = normalize_permission_policy(raw.get("permissions"), enabled_features)
+    return BotProfile(key=key, name=raw.get("name") or username, username=username, token=token, active=bool(raw.get("active", True)), description=raw.get("description", ""), features=features, permissions=permissions, commands=commands, settings=raw.get("settings", {}), access=raw.get("access", {}), workflow=workflow, menu=raw.get("menu", DEFAULT_MENU))
 
 def _legacy_default_profile() -> BotProfile | None:
     token = os.getenv("BOT_TOKEN", "").strip()
@@ -142,10 +156,10 @@ def _custom_bot_profiles() -> list[BotProfile]:
         if not isinstance(menu, list) or not menu:
             menu = list(DEFAULT_MENU)
         settings = _json_field(row, "settings_json", {})
-        permissions = _json_field(row, "permissions_json", {})
-        if isinstance(settings, dict) and isinstance(permissions, dict) and permissions:
-            settings = dict(settings)
-            settings.setdefault("permissions", permissions)
+        permissions = normalize_permission_policy(
+            _json_field(row, "permissions_json", {}),
+            selected,
+        )
         profiles.append(
             BotProfile(
                 key=row.get("bot_key") or f"custom_{row.get('owner_user_id', 'user')}",
@@ -154,6 +168,7 @@ def _custom_bot_profiles() -> list[BotProfile]:
                 token=row.get("bot_token", ""),
                 description=row.get("description") or "Managed TaskMG Bot Profile.",
                 features=features,
+                permissions=permissions,
                 commands=commands,
                 settings=settings if isinstance(settings, dict) else {},
                 access={"managed": True, "profile_type": row.get("profile_type") or "custom"},
