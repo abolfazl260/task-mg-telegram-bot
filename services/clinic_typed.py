@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from services.database import execute, fetch_all_sql, fetch_one_sql, transaction
@@ -73,7 +72,10 @@ async def create_child_async(scope: Scope, parent_task_id: str, item_type: str, 
     if branch_id and branch_id != parent.get("unit_id"):
         raise ValueError("branch_scope_mismatch")
     await _validate_branch(scope, parent["unit_id"], "tasks.manage")
-    item_type = await validate_work_item_type_async(item_type, (await fetch_one_sql("SELECT bot_key FROM workspaces WHERE id=?", (scope.workspace_id,)))["bot_key"])
+    item_type = str(item_type).strip().lower()
+    # Follow-up and action are internal Clinic children, not profile creation types.
+    if item_type not in {"followup", "action"}:
+        item_type = await validate_work_item_type_async(item_type, parent["bot_key"])
     if item_type not in {"session", "followup", "action"}:
         raise ValueError("invalid_clinic_child_type")
     item_id = uuid.uuid4().hex
@@ -100,7 +102,7 @@ async def create_child_async(scope: Scope, parent_task_id: str, item_type: str, 
 
 
 async def list_children_async(parent_task_id: str, actor_id: str, *, item_type: str | None = None, status: str | None = None, limit: int = 50, offset: int = 0) -> dict:
-    parent = await authorized_task(parent_task_id, actor_id)
+    await authorized_task(parent_task_id, actor_id)
     clauses = ["t.parent_task_id=?", "t.archived_at IS NULL"]
     params: list[Any] = [str(parent_task_id)]
     if item_type: clauses.append("t.work_item_type=?"); params.append(str(item_type))
