@@ -200,6 +200,15 @@ CREATE INDEX IF NOT EXISTS idx_attribute_values_task ON task_attribute_values(ta
 CREATE INDEX IF NOT EXISTS idx_attribute_values_text ON task_attribute_values(definition_id, value_text);
 CREATE INDEX IF NOT EXISTS idx_attribute_values_number ON task_attribute_values(definition_id, value_number);
 CREATE INDEX IF NOT EXISTS idx_attribute_values_date ON task_attribute_values(definition_id, value_date);
+CREATE TABLE IF NOT EXISTS task_view_schemas (
+    id TEXT PRIMARY KEY, bot_key TEXT NOT NULL DEFAULT 'default', workspace_id TEXT,
+    work_item_type TEXT NOT NULL,
+    schema_kind TEXT NOT NULL CHECK(schema_kind IN ('create','edit','detail','list')),
+    schema_json TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)), created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '',
+    UNIQUE(bot_key,workspace_id,work_item_type,schema_kind,version)
+);
+CREATE INDEX IF NOT EXISTS idx_task_view_schemas_lookup ON task_view_schemas(bot_key,workspace_id,work_item_type,schema_kind,active,version);
 CREATE INDEX IF NOT EXISTS idx_contact_points_task ON task_contact_points(task_id, type, status);
 CREATE INDEX IF NOT EXISTS idx_contact_points_normalized ON task_contact_points(normalized_value, type);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_points_primary ON task_contact_points(task_id, type) WHERE is_primary=1 AND status='active';
@@ -299,6 +308,15 @@ async def migrate_core_schema(conn) -> None:
         CREATE INDEX IF NOT EXISTS idx_attribute_values_text ON task_attribute_values(definition_id, value_text);
         CREATE INDEX IF NOT EXISTS idx_attribute_values_number ON task_attribute_values(definition_id, value_number);
         CREATE INDEX IF NOT EXISTS idx_attribute_values_date ON task_attribute_values(definition_id, value_date);
+        CREATE TABLE IF NOT EXISTS task_view_schemas (
+            id TEXT PRIMARY KEY, bot_key TEXT NOT NULL DEFAULT 'default', workspace_id TEXT,
+            work_item_type TEXT NOT NULL,
+            schema_kind TEXT NOT NULL CHECK(schema_kind IN ('create','edit','detail','list')),
+            schema_json TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)), created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '',
+            UNIQUE(bot_key,workspace_id,work_item_type,schema_kind,version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_task_view_schemas_lookup ON task_view_schemas(bot_key,workspace_id,work_item_type,schema_kind,active,version);
         CREATE INDEX IF NOT EXISTS idx_contact_points_task ON task_contact_points(task_id, type, status);
         CREATE INDEX IF NOT EXISTS idx_contact_points_normalized ON task_contact_points(normalized_value, type);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_points_primary ON task_contact_points(task_id, type) WHERE is_primary=1 AND status='active';
