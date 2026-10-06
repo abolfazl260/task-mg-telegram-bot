@@ -103,7 +103,7 @@ def handle_report_api(handler):
             fmt=parts[2]
             q=parse_qs(parsed.query)
             try:
-                report=dashboard_report(token,period=(q.get('period') or ['month'])[0],start_value=(q.get('start') or [None])[0],end_value=(q.get('end') or [None])[0],search=(q.get('search') or [''])[0])
+                report=dashboard_report(token,section='tasks',page=1,page_size=0,period=(q.get('period') or ['month'])[0],start_value=(q.get('start') or [None])[0],end_value=(q.get('end') or [None])[0],search=(q.get('search') or [''])[0])
                 if report is None: _json(handler,404,{'error':'report_not_found'}); return True
                 payload,content_type,filename=export_report(report,fmt); handler.send_response(200); handler.send_header('Content-Type',content_type); handler.send_header('Content-Disposition',f'attachment; filename="{filename}"'); handler.send_header('Cache-Control','no-store'); handler.send_header('Content-Length',str(len(payload))); handler.end_headers(); handler.wfile.write(payload); return True
             except ValueError as exc: _json(handler,400,{'error':str(exc)}); return True
