@@ -70,7 +70,14 @@ class WebAppHandler(BaseHTTPRequestHandler):
     def _authenticate_admin(self):
         from services.admin_access import resolve_admin_token
         cookies = parse_qs(self.headers.get("Cookie", "").replace(";", "&"))
-        admin_id = resolve_admin_token(unquote(cookies.get("admin_session", [""])[0]))
+        token = unquote(cookies.get("admin_session", [""])[0])
+        if not token:
+            # Keep the token-bearing backoffice URL usable when a browser or
+            # embedded webview blocks third-party/session cookies.
+            referer = urlparse(self.headers.get("Referer", "")).path
+            if referer.startswith(ADMIN_PATH + "/"):
+                token = unquote(referer[len(ADMIN_PATH) + 1:].strip("/"))
+        admin_id = resolve_admin_token(token)
         # The token was issued by /backoffice only after an admin check. The
         # short-lived, hashed token is the session credential for API calls;
         # re-checking a separately loaded ADMIN_IDS list here can reject a
@@ -259,10 +266,15 @@ class WebAppHandler(BaseHTTPRequestHandler):
             from services.admin_access import resolve_admin_token
             token = unquote(path[len(ADMIN_PATH)+1:].strip("/"))
             if resolve_admin_token(token):
-                self.send_response(302)
-                self.send_header("Location", ADMIN_PATH + "/")
+                # Keep the expiring token in the address bar. This avoids a
+                # redirect to a cookie-only URL, which breaks in strict or
+                # embedded browsers.
+                self.send_response(200)
+                body = (STATIC_DIR / "admin/index.html").read_bytes()
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
                 self.send_header("Set-Cookie", f"admin_session={token}; Max-Age=600; HttpOnly; SameSite=Lax; Path=/")
-                self.end_headers()
+                self.end_headers(); self.wfile.write(body)
             else:
                 self._json(404,{"error":"expired_or_invalid_admin_link"})
             return
