@@ -10,7 +10,7 @@ from services.database import fetch_all_sql, fetch_one_sql, get_db, transaction
 from services.healthcare.access import ClinicAccessError, Scope
 from services.healthcare.service import audit, new_id, now, require_staff, text
 
-COLUMNS = {"external_id", "display_name", "phone", "doctor_id", "branch_id"}
+COLUMNS = {"external_id", "display_name", "phone", "doctor_id", "unit_id"}
 MAX_ROWS = 500
 
 
@@ -20,7 +20,7 @@ async def preview_patients(scope: Scope, content: str):
     reader = csv.DictReader(io.StringIO(content.lstrip("\ufeff")))
     if (
         not reader.fieldnames
-        or not {"external_id", "display_name", "branch_id"}.issubset(reader.fieldnames)
+        or not {"external_id", "display_name", "unit_id"}.issubset(reader.fieldnames)
         or set(reader.fieldnames) - COLUMNS
         or len(reader.fieldnames) != len(set(reader.fieldnames))
     ):
@@ -36,16 +36,16 @@ async def preview_patients(scope: Scope, content: str):
             item = {
                 "external_id": text(row["external_id"], max_length=100),
                 "display_name": text(row["display_name"], max_length=200),
-                "branch_id": text(row["branch_id"], max_length=100),
+                "unit_id": text(row["unit_id"], max_length=100),
                 "phone": text(row.get("phone", ""), max_length=50, required=False),
                 "doctor_id": text(
                     row.get("doctor_id", ""), max_length=100, required=False
                 ),
             }
-            await scope.branch(item["branch_id"], "patients.manage")
+            await scope.branch(item["unit_id"], "patients.manage")
             if item["doctor_id"]:
                 await require_staff(
-                    scope, item["branch_id"], item["doctor_id"], doctor=True
+                    scope, item["unit_id"], item["doctor_id"], doctor=True
                 )
             if item["external_id"] in seen:
                 raise ValueError("duplicate_in_file")
@@ -54,11 +54,11 @@ async def preview_patients(scope: Scope, content: str):
             # a duplicate error that reveals another branch's patient reference.
             pred, args = await scope.predicate("patients.view")
             duplicate = await fetch_one_sql(
-                f"SELECT e.id,e.branch_id FROM patient_references e WHERE {pred} AND e.external_reference=?",  # nosec B608
+                f"SELECT e.id,e.unit_id FROM reference_entities e WHERE {pred} AND e.external_reference=?",  # nosec B608
                 args + (item["external_id"],),
             )  # nosec B608
             if duplicate:
-                if duplicate["branch_id"] != item["branch_id"]:
+                if duplicate["unit_id"] != item["unit_id"]:
                     raise ValueError("conflicting_branch")
                 result["status"] = "duplicate"
             result["data"] = item
@@ -91,11 +91,11 @@ async def import_patients(scope: Scope, content: str, *, confirmed: bool):
                 item, pid, stamp = row["data"], new_id(), now()
                 try:
                     await db.conn.execute(
-                        "INSERT INTO patient_references(id,organization_id,branch_id,external_reference,display_name,phone,primary_doctor_user_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                        "INSERT INTO reference_entities(id,workspace_id,unit_id,reference_type,external_reference,display_name,contact_value,primary_owner_user_id,created_at,updated_at) VALUES(?,?,?,'patient',?,?,?,?,?,?,?)",
                         (
                             pid,
-                            scope.organization_id,
-                            item["branch_id"],
+                            scope.workspace_id,
+                            item["unit_id"],
                             item["external_id"],
                             item["display_name"],
                             item["phone"],
@@ -108,15 +108,15 @@ async def import_patients(scope: Scope, content: str, *, confirmed: bool):
                     # Also handles overlapping imports. Cross-branch conflicts
                     # are generic and roll back the entire import.
                     existing = await fetch_one_sql(
-                        "SELECT branch_id FROM patient_references WHERE organization_id=? AND external_reference=?",
-                        (scope.organization_id, item["external_id"]),
+                        "SELECT unit_id FROM reference_entities WHERE workspace_id=? AND external_reference=?",
+                        (scope.workspace_id, item["external_id"]),
                     )
-                    if not existing or existing["branch_id"] != item["branch_id"]:
+                    if not existing or existing["unit_id"] != item["unit_id"]:
                         raise ValueError("import_conflict") from None
                     duplicates += 1
                     continue
                 sql, args = audit(
-                    scope, item["branch_id"], "patient.imported", "patient", pid
+                    scope, item["unit_id"], "patient.imported", "patient", pid
                 )
                 await db.conn.execute(sql, args)
                 imported += 1
@@ -137,14 +137,14 @@ def _safe_cell(value):
     return result
 
 
-async def export_operations(scope: Scope, kind: str, *, branch_id=None):
+async def export_operations(scope: Scope, kind: str, *, unit_id=None):
     allowed = {
         "tasks": (
             "tasks",
             (
                 "id",
                 "case_id",
-                "patient_id",
+                "reference_id",
                 "assignee_id",
                 "status",
                 "deadline",
@@ -152,11 +152,11 @@ async def export_operations(scope: Scope, kind: str, *, branch_id=None):
             ),
         ),
         "followups": (
-            "clinic_followups",
+            "followups",
             (
                 "id",
                 "case_id",
-                "patient_id",
+                "reference_id",
                 "owner_user_id",
                 "due_at",
                 "attempt_number",
@@ -166,12 +166,12 @@ async def export_operations(scope: Scope, kind: str, *, branch_id=None):
             ),
         ),
         "cases": (
-            "clinic_cases",
+            "cases",
             (
                 "id",
-                "patient_id",
+                "reference_id",
                 "owner_user_id",
-                "primary_doctor_user_id",
+                "primary_owner_user_id",
                 "status",
                 "current_stage",
                 "expected_at",
@@ -179,7 +179,7 @@ async def export_operations(scope: Scope, kind: str, *, branch_id=None):
             ),
         ),
         "outcomes": (
-            "clinic_outcomes",
+            "outcomes",
             ("id", "key", "requires_next_action", "is_terminal"),
         ),
     }
@@ -189,10 +189,10 @@ async def export_operations(scope: Scope, kind: str, *, branch_id=None):
     pred, params = await scope.predicate("exports.create")
     if kind == "outcomes":
         # No patient data in the tenant's outcome dictionary.
-        pred, params = "e.organization_id=?", (scope.organization_id,)
-    elif branch_id:
-        pred += " AND e.branch_id=?"
-        params += (branch_id,)
+        pred, params = "e.workspace_id=?", (scope.workspace_id,)
+    elif unit_id:
+        pred += " AND e.unit_id=?"
+        params += (unit_id,)
     rows = await fetch_all_sql(
         f"SELECT {','.join('e.' + col for col in columns)} FROM {table} e WHERE {pred} ORDER BY e.id LIMIT 5001",  # nosec B608
         params,
@@ -207,7 +207,7 @@ async def export_operations(scope: Scope, kind: str, *, branch_id=None):
         [
             audit(
                 scope,
-                branch_id if kind != "outcomes" else None,
+                unit_id if kind != "outcomes" else None,
                 "export.created",
                 kind,
                 new_id(),
