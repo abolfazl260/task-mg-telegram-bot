@@ -221,8 +221,8 @@ async def database_explorer_rows(
     # Identifiers are built exclusively from TABLE_SPECS after allowlist validation;
     # user-supplied values remain bound parameters.
     count_sql = f"SELECT COUNT(*) FROM {table_sql}{where_sql}"  # nosec B608
-    rows_sql = (  # nosec B608
-        f"SELECT {projection} FROM {table_sql}{where_sql}{order_sql} LIMIT ? OFFSET ?"
+    rows_sql = (
+        f"SELECT {projection} FROM {table_sql}{where_sql}{order_sql} LIMIT ? OFFSET ?"  # nosec B608
     )
     async with db.conn.execute(count_sql, tuple(params)) as cur:
         total = int((await cur.fetchone())[0])
