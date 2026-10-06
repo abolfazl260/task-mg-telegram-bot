@@ -75,7 +75,7 @@
 
 ## هدف
 
-Patient object در TaskMG باید **Operational Reference** باشد، نه EMR کامل.
+Patient object در TaskMG Healthcare باید **Patient Record رسمی و قابل توسعه** باشد. اطلاعات هویتی، ارتباطی و clinical data می‌توانند در خود TaskMG ذخیره شوند و برای هر بخش permission، audit و lifecycle مناسب اعمال شود.
 
 ## P0
 
@@ -129,11 +129,14 @@ Patient object در TaskMG باید **Operational Reference** باشد، نه EM
 
 ## Out of Scope
 
-- clinical chart
-- diagnosis
+Patient Record scope شامل این دسته‌ها نیز می‌شود و باید به‌صورت ماژولار توسعه یابد:
+- clinical chart / clinical notes
+- diagnosis history
 - medication history
-- full medical record
-- imaging archive
+- allergies / chronic conditions
+- treatment-related information
+- medical documents / attachments
+- imaging metadata و در صورت تصمیم محصول، imaging storage/integration
 
 ---
 
@@ -681,8 +684,8 @@ Core AI موجود است اما در clinic profile فعلی غیرفعال ا�
 
 ## Forbidden Scope
 
-- diagnosis
-- treatment recommendation
+- autonomous diagnosis by AI
+- autonomous treatment recommendation
 - medication recommendation
 - autonomous clinical action
 
@@ -912,9 +915,8 @@ Organization
 
 # 29. ویژگی‌هایی که عمداً MVP نیستند
 
-- full appointment scheduling
-- full EMR/EHR
-- billing
+- autonomous clinical decision support بدون guardrail/approval
+- billing/insurance در صورت نبود تصمیم محصول مستقل
 - insurance
 - patient portal
 - full CRM
