@@ -38,6 +38,14 @@ render
 pytest
 ```
 
+برای مشاهده پوشش کد production به‌صورت محلی:
+
+```bash
+python -m pytest --cov=. --cov-config=.coveragerc --cov-report=term-missing
+```
+
+تنظیمات scope پوشش در `.coveragerc` نگهداری می‌شود. تست‌ها و اسکریپت‌های نگه‌داری از denominator پوشش runtime حذف شده‌اند.
+
 برای تغییرات مرتبط با دیتابیس، تست Migration و Schema نیز باید اجرا شود.
 
 ## مستندات
