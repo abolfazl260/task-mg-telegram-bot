@@ -374,6 +374,23 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
     el.innerHTML = count ? `● <strong>${count}</strong> فیلتر فعال` : 'بدون فیلتر اضافه';
   }
 
+  function syncFilterControls() {
+    const search = document.getElementById('taskSearch');
+    const start = document.getElementById('filterStart');
+    const end = document.getElementById('filterEnd');
+    if (search) search.value = state.search || '';
+    if (start) start.value = state.start || '';
+    if (end) end.value = state.end || '';
+
+    document.querySelectorAll('.filter-period').forEach(button =>
+      button.classList.toggle('active', button.dataset.period === state.period)
+    );
+    const customDates = document.getElementById('customDates');
+    if (customDates) customDates.style.display = state.period === 'custom' ? 'grid' : 'none';
+
+    syncFilterControls();
+  }
+
   function bindFilters(options = {}) {
     const card = document.getElementById('reportFilters');
     if (!card) return;
@@ -417,8 +434,8 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
         state.end = '';
         state.period = 'month';
         state.filters = { status: '', priority: '', category: '', assignee: '', has_deadline: '', overdue: '', sort: 'newest' };
-        updateFilterSummary();
         save();
+        syncFilterControls();
         loadSummary();
         if (window.activeReportSection) loadSection(window.activeReportSection, 1);
       });
@@ -915,7 +932,10 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
         </div>
       `;
 
-      if (!document.getElementById('reportFilters')) {
+      const existingFilters = document.getElementById('reportFilters');
+      if (existingFilters) {
+        existingFilters.outerHTML = filterCard(data.filter_options || {});
+      } else {
         priorityTop.insertAdjacentHTML('beforebegin', filterCard(data.filter_options || {}));
       }
       bindFilters(data.filter_options || {});
