@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import time as dt_time
 
-from telegram import BotCommand, InlineKeyboardButton, Update
+from telegram import BotCommand, BotCommandScopeChat, InlineKeyboardButton, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -210,6 +210,10 @@ async def post_init(app:Application):
                 filtered.append(cmd)
         commands=filtered
     await app.bot.delete_my_commands();await app.bot.set_my_commands(commands);logger.info("Telegram command menu updated bot=%s features=%s commands=%s",profile.key if profile else "default",profile.features if profile else {},", ".join(f"/{cmd.command}" for cmd in commands))
+    from config import ADMIN_IDS
+    for admin_id in ADMIN_IDS:
+        if str(admin_id).strip().isdigit():
+            await app.bot.set_my_commands(commands + [BotCommand("backoffice", "لینک موقت پنل مدیریت")], scope=BotCommandScopeChat(int(admin_id)))
     if app.job_queue:
         if profile is not None and profile.feature_enabled("healthcare") and profile.feature_enabled("clinic_staff_reminders"):
             from services.healthcare.notifications import staff_notification_job
