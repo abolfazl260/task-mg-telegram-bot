@@ -106,6 +106,11 @@ from services import (
 from services.admin_service import daily_admin_report, error_handler, notify_new_user
 from services.bot_runtime_manager import run_runtime_control_plane
 from services.database import init_db
+from services.database_backup import (
+    BACKUP_FIRST_RUN_SECONDS,
+    BACKUP_INTERVAL_SECONDS,
+    database_backup_job,
+)
 from services.integration_oauth_runtime import (
     start_integration_oauth_server,
     stop_integration_oauth_server,
@@ -216,6 +221,13 @@ async def post_init(app:Application):
             _run_repeating_once(app.job_queue,weekly_habit_reports,interval=60,first=40,name="weekly_habit_reports")
         if profile is None or profile.permission_enabled("reports.view"):
             _run_daily_once(app.job_queue,daily_admin_report,time=_parse_report_time(),name="daily_admin_report")
+        _run_repeating_once(
+            app.job_queue,
+            database_backup_job,
+            interval=BACKUP_INTERVAL_SECONDS,
+            first=BACKUP_FIRST_RUN_SECONDS,
+            name="database_backup",
+        )
         if profile is None or (profile.feature_enabled("integrations") and profile.permission_enabled("integrations.sync")):
             bot_offset=sum(ord(ch) for ch in (profile.key if profile else "default"))%60
             _run_repeating_once(app.job_queue,_jira_sync_job,interval=60,first=30+bot_offset,name="jira_sync",data=profile)
