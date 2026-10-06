@@ -611,12 +611,12 @@ Outcomeها باید مستقل از feature نوشته شوند.
 
 TaskMG نباید هر درد کلینیک را حل کند.
 
-در MVP، این مسائل خارج از Core Job هستند:
+در MVP، **ثبت و نگهداری Patient Record و Clinical Data داخل Scope است**. موارد زیر خارج از Core Job یا نیازمند capability مستقل هستند:
 
-- تشخیص پزشکی؛
-- نسخه‌نویسی؛
-- clinical charting جامع؛
-- imaging/PACS؛
+- تشخیص خودکار پزشکی توسط AI؛
+- نسخه‌نویسی خودکار؛
+- autonomous treatment recommendation؛
+- PACS/imaging engine پیشرفته مگر در Issue مستقل؛
 - claim processing بیمه؛
 - accounting کامل؛
 - payroll؛
@@ -693,4 +693,4 @@ Pilot با 2 workflow بهتر از rollout کامل نتیجه می‌دهد.
 
 **Capture → Assign → Due → Context → Reminder → Complete → Escalate → Report**
 
-و نه حول ساخت یک پرونده پزشکی جامع.
+در کنار این Loop، Patient Record کامل نیز باید به‌عنوان context ماندگار و قابل مدیریت بیمار وجود داشته باشد.
