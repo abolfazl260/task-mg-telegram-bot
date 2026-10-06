@@ -90,7 +90,7 @@ Patient Coordinator یا Reception.
 - next action date؛
 - last outcome.
 
-در MVP از ذخیره clinical detail غیرضروری اجتناب شود.
+Clinical detail مرتبط با Patient Record قابل ذخیره است؛ اما هر field باید purpose، permission، audit و lifecycle مشخص داشته باشد و UI هر role فقط داده موردنیاز همان نقش را نمایش دهد.
 
 ## Workflow
 
@@ -1074,9 +1074,10 @@ Patient object در MVP lightweight باشد.
 - branch؛
 - tags.
 
-## Avoid
-- unnecessary clinical detail؛
-- large medical record replication.
+## Data handling
+- Patient Record و Clinical Data می‌توانند در TaskMG نگهداری شوند؛
+- نمایش/ویرایش باید role-aware باشد؛
+- bulk replication یا integration باید mapping، audit و permission مشخص داشته باشد.
 
 ---
 
