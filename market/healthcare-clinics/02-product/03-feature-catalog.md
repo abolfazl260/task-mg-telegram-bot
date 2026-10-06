@@ -79,7 +79,7 @@ Patient object در TaskMG Healthcare باید **Patient Record رسمی و قا
 
 ## P0
 
-### Patient Reference
+### Patient Record
 حداقل فیلدها:
 - internal ID
 - display name
@@ -838,7 +838,7 @@ tenant isolation و RBAC باید قبل از scale تثبیت شوند.
 # 26. Feature Dependency Map
 
 ### Patient Follow-up
-Patient Reference  
+Patient Record  
 → Task  
 → Owner  
 → Due  
@@ -848,7 +848,7 @@ Patient Reference
 → Dashboard
 
 ### Case Workflow
-Patient Reference  
+Patient Record  
 → Case  
 → Workflow Template  
 → Task  
@@ -874,7 +874,7 @@ Organization
 | Task | P0 | High | Medium | All |
 | Assignment | P0 | High | Medium | Manager |
 | Due/Reminder | P0 | High | Medium | Frontline |
-| Patient Reference | P0 | Low | High | Reception |
+| Patient Record | P0 | Low | High | Reception |
 | Follow-up Queue | P0 | Medium | High | Coordinator |
 | Case | P0/P1 | Low | High | Manager |
 | Outcome | P0 | Low | High | Coordinator |
@@ -896,7 +896,7 @@ Organization
 
 1. Clinic / staff setup
 2. Roles & permissions
-3. Patient operational reference
+3. Patient Record
 4. Task + owner + due
 5. Follow-up queue
 6. Outcome
