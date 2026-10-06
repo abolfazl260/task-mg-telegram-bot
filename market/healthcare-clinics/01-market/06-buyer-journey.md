@@ -12,7 +12,7 @@
 1. وجود مشکل عملیاتی را بپذیرد؛
 2. هزینه روش فعلی را درک کند؛
 3. متقاعد شود نرم‌افزار فعلی کلینیک به‌تنهایی این مشکل را حل نمی‌کند؛
-4. ببیند TaskMG جایگزین اجباری PMS/EMR نیست؛
+4. ببیند TaskMG می‌تواند Patient Record را نگهداری کند و در عین حال جایگزینی PMS/EMR خارجی اجباری نیست؛
 5. مطمئن شود frontline واقعاً استفاده می‌کند؛
 6. امنیت و privacy را بپذیرد؛
 7. در Pilot نتیجه قابل اندازه‌گیری ببیند.
@@ -238,7 +238,7 @@ Champion بگوید:
 - role-based access؛
 - audit trail؛
 - clear data boundary؛
-- avoid clinical decision storage unless designed for it.
+- store Clinical Data with explicit schema/permission/audit؛ autonomous clinical decision logic only when separately designed and governed.
 
 ## Exit Criteria
 هیچ blocker امنیتی/فنی حل‌نشده‌ای که Pilot را غیرممکن کند باقی نماند.
