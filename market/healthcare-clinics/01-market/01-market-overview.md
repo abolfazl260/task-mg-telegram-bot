@@ -6,13 +6,13 @@
 
 ## 1. خلاصه مدیریتی
 
-محصول فعلی TaskMG از نظر هسته فنی بیشتر از آن‌که یک «Todo App» باشد، یک موتور مدیریت کار، مسئولیت، deadline، همکاری تیمی، گزارش و اتوماسیون است. برای بازار درمان سرپایی، فرصت اصلی این نیست که جایگزین پرونده الکترونیک پزشکی (EMR/EHR) یا نرم‌افزار حسابداری کلینیک شود؛ فرصت اصلی ساخت یک **Operational Workflow Layer** است که کارهای بین بیمار، پذیرش، پزشک، دستیار، لابراتوار، مدیریت و پیگیری را از حالت پیام، تماس، کاغذ و حافظه افراد خارج کند.
+محصول TaskMG Healthcare باید دو لایه را یکپارچه کند: **Patient Record** برای نگهداری اطلاعات هویتی، ارتباطی و بالینی بیمار، و **Operational Workflow Layer** برای اجرای کارهای بین بیمار، پذیرش، پزشک، دستیار، لابراتوار و مدیریت. Billing/insurance/full scheduling می‌توانند ماژول‌های مستقل باشند و وجود Patient Record وابسته به PMS/EMR خارجی نیست.
 
 پیشنهاد استراتژیک این سند:
 
 1. Beachhead Market در فاز اول: **کلینیک‌های خصوصی دندان‌پزشکی با 2 تا 10 دندان‌پزشک و حدود 5 تا 25 نفر پرسنل**.
 2. مسئله محوری: «کارهای بین واحدی و follow-upهایی که صاحب مشخص، deadline مشخص و وضعیت قابل مشاهده ندارند».
-3. Positioning اولیه: **سیستم مدیریت عملیات و پیگیری کلینیک**، نه نرم‌افزار پرونده پزشکی و نه Task Manager عمومی.
+3. Positioning اولیه: **Clinic Operations & Patient Record Platform**؛ نه صرفاً Task Manager عمومی.
 4. Telegram باید کانال اجرای سریع کار برای تیم باشد و Web Dashboard کانال کنترل، گزارش، تنظیم workflow و مدیریت.
 5. داده درمانی حساس باید حداقلی و purpose-limited باشد؛ در MVP تمرکز روی عملیات و coordination باشد، نه تصمیم‌گیری بالینی.
 6. پس از اثبات Product-Market Fit در دندان‌پزشکی، همان هسته به مطب پزشک، زیبایی و فیزیوتراپی توسعه یابد.
@@ -226,7 +226,7 @@ Buyer و User معمولاً یک نفر نیستند. محصول باید هم�
 | پیچیدگی compliance | 2 | داده سلامت حساس؛ باید scope کنترل شود |
 | رقابت | 3 | نرم‌افزارهای مدیریت کلینیک وجود دارند؛ positioning باید متمایز باشد |
 
-**نتیجه:** بازار جذاب است، اما موفقیت به تمرکز روی workflow operations و پرهیز از تبدیل زودهنگام محصول به EMR کامل وابسته است.
+**نتیجه:** بازار جذاب است و Patient Record باید همراه workflow operations توسعه یابد؛ ریسک اصلی، اضافه‌کردن قابلیت‌های سنگین مانند billing/insurance/full scheduling یا autonomous clinical decision بدون زیرساخت و شواهد کافی است.
 
 ---
 
@@ -326,7 +326,7 @@ Patient Event
 | AI Task Capture | کاهش data entry | بالا |
 | Patient Messaging Automation | کاهش کار دستی | متوسط؛ integration لازم |
 | Appointment Scheduling | کاهش no-show | متوسط؛ نیاز به توسعه |
-| Full EMR/EHR | پرونده پزشکی | پایین برای فاز اول |
+| Patient Record / Clinical Data | پرونده بیمار و داده بالینی | بالا؛ بخشی رسمی از Healthcare |
 | Billing/Insurance | مالی/بیمه | پایین برای فاز اول |
 
 ---
@@ -352,11 +352,11 @@ Patient Event
 
 - تشخیص بالینی؛
 - prescription؛
-- پرونده پزشکی جامع؛
+- Patient Record جامع و ماژولار؛
 - تصویربرداری پزشکی به‌عنوان PACS؛
 - حسابداری کامل؛
 - بیمه و claim engine؛
-- جایگزینی کامل PMS/EMR موجود.
+- امکان نگهداری مستقل Patient Record و در صورت نیاز همزیستی/sync با PMS/EMR موجود.
 
 ---
 
@@ -405,4 +405,4 @@ Patient Event
 
 **اولویت بازار: کلینیک خصوصی دندان‌پزشکی چندنفره.**  
 هدف اولیه محصول: **مدیریت عملیات، follow-up و accountability کلینیک**.  
-هدف فاز اول نیست: تبدیل شدن به EMR/PMS جامع.
+هدف فاز اول: Patient Record + عملیات کلینیک. Billing، insurance، full scheduling و autonomous clinical decision فقط با Scope مستقل اضافه شوند.
