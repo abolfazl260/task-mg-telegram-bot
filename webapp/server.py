@@ -62,6 +62,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
     def _serve_static(self,path):
         relative=path.removeprefix("/static/") if path.startswith("/static/") else ""
         if path=="/": relative="index.html"
+        if path in {"/clinic-report", "/clinic-report/"}: relative="clinic-report.html"
         if path in {ADMIN_PATH, ADMIN_PATH+"/"}: relative="admin/index.html"
         if not relative or ".." in Path(relative).parts: return False
         target=(STATIC_DIR/relative).resolve()
