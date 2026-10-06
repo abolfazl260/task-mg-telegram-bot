@@ -556,15 +556,15 @@ MVP migration باید محدود باشد.
 
 ## Usually Migrate
 
-- active patient references
-- open follow-ups
-- open cases if needed
+- active and historical patient records as required
+- medical/clinical history selected by the clinic
+- past and upcoming sessions/visits
+- open follow-ups/actions
+- treatment/case history where used
 
-## Usually Avoid
+## Migrate Based on Clinic Need
 
-- years of historical clinical data can be migrated when required, with staged mapping/validation/security controls
-- old closed tasks
-- full chart history
+Historical clinical data and full chart/session history are valid migration scope when the clinic wants TaskMG to be its standalone record system. Migration must use staged mapping, validation, permission review and reconciliation. Old irrelevant operational tasks may still be excluded by policy.
 
 ---
 
