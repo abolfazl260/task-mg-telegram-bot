@@ -8,6 +8,9 @@ from services.healthcare.terminology import to_healthcare_record
 from services.operations.service import (
     OperationsConfig,
     audit,
+    create_action as create_core_action,
+    create_case as create_core_case,
+    create_reference as create_core_reference,
     create_unit,
     create_workspace,
     new_id,
@@ -220,32 +223,21 @@ async def create_patient(
     phone="",
     doctor_id=None,
 ):
+    """Healthcare patient terminology over a generic reference entity."""
     await scope.branch(unit_id, "patients.manage")
     if doctor_id:
         await require_staff(scope, unit_id, doctor_id, doctor=True)
-    pid, stamp = new_id(), now()
-    await transaction(
-        [
-            (
-                "INSERT INTO reference_entities(id,workspace_id,unit_id,reference_type,external_reference,display_name,contact_value,primary_owner_user_id,created_at,updated_at) VALUES(?,?,?,'patient',?,?,?,?,?,?,?)",
-                (
-                    pid,
-                    scope.workspace_id,
-                    unit_id,
-                    text(external_reference, max_length=100)
-                    if external_reference
-                    else None,
-                    text(display_name, max_length=200),
-                    text(phone, max_length=50, required=False),
-                    str(doctor_id) if doctor_id else None,
-                    stamp,
-                    stamp,
-                ),
-            ),
-            audit(scope, unit_id, "patient.created", "patient", pid),
-        ]
+    row = await create_core_reference(
+        scope,
+        unit_id,
+        display_name,
+        permission="patients.manage",
+        reference_type=HEALTHCARE_CONFIG.reference_type,
+        external_reference=external_reference,
+        contact_value=phone,
+        primary_owner_user_id=str(doctor_id) if doctor_id else None,
     )
-    return await get_entity(scope, "patients", pid)
+    return to_healthcare_record(row)
 
 
 async def create_case(
@@ -267,40 +259,30 @@ async def create_case(
     doctor_id = doctor_id or patient["primary_owner_user_id"]
     if doctor_id:
         await require_staff(scope, patient["unit_id"], doctor_id, doctor=True)
-    # Doctors cannot create a case outside their own patient/doctor relationship.
+
     actor_roles = await fetch_all_sql(
-        "SELECT role FROM workspace_memberships WHERE workspace_id=? AND user_id=? AND status='active' AND (unit_id IS NULL OR unit_id=?)",
+        "SELECT role FROM workspace_memberships "
+        "WHERE workspace_id=? AND user_id=? AND status='active' "
+        "AND (unit_id IS NULL OR unit_id=?)",
         (scope.workspace_id, str(scope.actor_id), patient["unit_id"]),
     )
     if all(r["role"] in {"doctor", "dentist"} for r in actor_roles) and str(
         doctor_id
     ) != str(scope.actor_id):
         raise ClinicAccessError("forbidden")
-    cid, stamp = new_id(), now()
-    await transaction(
-        [
-            (
-                "INSERT INTO cases(id,workspace_id,unit_id,reference_id,title,case_type,owner_user_id,primary_owner_user_id,expected_at,external_reference,opened_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    cid,
-                    scope.workspace_id,
-                    patient["unit_id"],
-                    reference_id,
-                    text(title),
-                    text(case_type, max_length=100),
-                    str(owner_id),
-                    doctor_id,
-                    utc_date(expected_at) if expected_at else None,
-                    text(external_reference, max_length=200, required=False),
-                    stamp,
-                    stamp,
-                    stamp,
-                ),
-            ),
-            audit(scope, patient["unit_id"], "case.created", "case", cid),
-        ]
+
+    row = await create_core_case(
+        scope,
+        reference_id,
+        title,
+        owner_id,
+        permission="cases.manage",
+        case_type=case_type,
+        primary_owner_user_id=str(doctor_id) if doctor_id else None,
+        expected_at=expected_at,
+        external_reference=external_reference,
     )
-    return await get_entity(scope, "cases", cid)
+    return to_healthcare_record(row)
 
 
 def task_insert(scope: Scope, case, task_id, title, owner_id, due_at, workflow_id=None):
@@ -345,23 +327,16 @@ async def create_action(
 ):
     case = await case_for_action(scope, case_id)
     await require_staff(scope, case["unit_id"], owner_id)
-    tid = new_id()
-    statements = [
-        task_insert(scope, case, tid, title, owner_id, utc_date(due_at)),
-        audit(scope, case["unit_id"], "task.created", "task", tid),
-    ]
-    if next_action:
-        statements.extend(
-            [
-                (
-                    "UPDATE cases SET next_action_task_id=?,updated_at=? WHERE id=? AND workspace_id=?",
-                    (tid, now(), case_id, scope.workspace_id),
-                ),
-                audit(scope, case["unit_id"], "next_action.created", "task", tid),
-            ]
-        )
-    await transaction(statements)
-    return await get_entity(scope, "tasks", tid)
+    row = await create_core_action(
+        scope,
+        case_id,
+        title,
+        owner_id,
+        due_at,
+        permission="tasks.manage",
+        next_action=next_action,
+    )
+    return to_healthcare_record(row)
 
 
 async def set_case_status(scope: Scope, case_id: str, status: str, *, blocker=""):
