@@ -211,7 +211,7 @@ Customer بداند:
 - roles
 - permissions
 
-## Step 3 — Patient References
+## Step 3 — Patient Records
 
 - CSV import or manual limited set
 
