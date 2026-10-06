@@ -280,7 +280,7 @@
       modalTitle.value = task.title || '';
       modalStatus.value = task.status || 'pending';
       modalPriority.value = (task.priority || 'medium').toLowerCase();
-      modalDeadline.value = (task.deadline || '').replace(' ', 'T').slice(0, 16);
+      modalDeadline.value = toJalaliInput(task.deadline || '');
       modalCategory.value = task.category || '';
       modalTags.value = task.tags || '';
       modalDescription.value = task.description || '';
@@ -307,6 +307,24 @@
     setTimeout(() => modalTitle.focus(), 50);
   }
 
+  function toJalaliInput(value) {
+    const m = String(value).match(/(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/);
+    if (!m) return '';
+    const g = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    const gy = g.getUTCFullYear(), gm = g.getUTCMonth() + 1, gd = g.getUTCDate();
+    const days = Math.floor((Date.UTC(gy, gm - 1, gd) - Date.UTC(1600, 0, 1)) / 86400000);
+    const jy = 979 + 33 * Math.floor(days / 12053) + 4 * Math.floor((days % 12053) / 1461);
+    const r = days % 1461; const jd = r > 365 ? r - 1 - Math.floor((r - 1) / 365) * 365 : r;
+    const jyear = jy + (r > 365 ? Math.floor((r - 1) / 365) : 0); const jm = jd < 186 ? 1 + Math.floor(jd / 31) : 7 + Math.floor((jd - 186) / 30); const day = 1 + (jd < 186 ? jd % 31 : (jd - 186) % 30);
+    return `${jyear}/${String(jm).padStart(2,'0')}/${String(day).padStart(2,'0')}${m[4] ? ` ${String(m[4]).padStart(2,'0')}:${m[5]}` : ''}`;
+  }
+  function toGregorianInput(value) {
+    const m = String(value || '').replace(/[۰-۹]/g, x => '۰۱۲۳۴۵۶۷۸۹'.indexOf(x)).match(/(\d{4})\D(\d{1,2})\D(\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/);
+    if (!m) return '';
+    const jy = +m[1] - 979, jm = +m[2] - 1, jd = +m[3] - 1; const jdays = 365 * jy + Math.floor(jy / 33) * 8 + Math.floor((jy % 33 + 3) / 4) + (jm < 6 ? jm * 31 : jm * 30 + 186) + jd; const d = new Date(Date.UTC(1600,0,1) + (jdays + 79) * 86400000);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}T${String(m[4] || '00').padStart(2,'0')}:${m[5] || '00'}`;
+  }
+
   function closeModal() {
     modal.hidden = true;
   }
@@ -318,7 +336,7 @@
       title: modalTitle.value.trim(),
       status: modalStatus.value,
       priority: modalPriority.value,
-      deadline: modalDeadline.value,
+      deadline: toGregorianInput(modalDeadline.value),
       category: modalCategory.value.trim(),
       tags: modalTags.value.trim(),
       description: modalDescription.value.trim()

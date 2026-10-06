@@ -461,7 +461,7 @@ button, input, select, textarea {
   position: fixed;
   inset: 0;
   background: rgba(15, 15, 15, 0.45);
-  backdrop-filter: blur(4px);
+  backdrop-filter: none;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -481,6 +481,8 @@ button, input, select, textarea {
   position: relative;
   animation: notionModalSlideIn .18s ease-out;
 }
+.modal-help { display:block; color:var(--text-secondary); font-size:11px; margin-top:4px; }
+@media (prefers-reduced-motion: reduce) { .notion-modal { animation:none; } }
 @keyframes notionModalSlideIn {
   from { opacity: 0; transform: translateY(12px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
