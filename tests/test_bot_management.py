@@ -25,8 +25,6 @@ async def _valid_token(token: str) -> dict:
 async def isolated_db(tmp_path, monkeypatch):
     await database.close_all_dbs()
     monkeypatch.setattr(database, "DB_PATH", tmp_path / "bot_management.db")
-    monkeypatch.delenv("BOT_TOKEN_ENCRYPTION_KEYS_JSON", raising=False)
-    monkeypatch.delenv("BOT_TOKEN_ACTIVE_KEY_ID", raising=False)
     await database.init_db()
     yield
     await database.close_all_dbs()
@@ -215,7 +213,7 @@ def test_legacy_json_profile_preserves_task_option_feature_semantics(tmp_path, m
 
 
 @pytest.mark.asyncio
-async def test_managed_token_is_stored_plaintext_without_encryption_configuration():
+async def test_managed_token_is_stored_plaintext():
     secret = "123456:abcdefghijklmnopqrstuvwxyzABCDE66666"
     await create_managed_bot(
         {
