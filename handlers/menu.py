@@ -9,9 +9,15 @@ from services.team_service import aget_user_teams
 from services.timezone_service import build_timezone_keyboard, build_timezone_text
 from services.user_service import get_user_date_format, set_user_date_format, validate_timezone, set_user_timezone
 
-def _bot_profile(context=None): return context.bot_data.get("bot_config") if context is not None else None
-def _feature_enabled(profile, feature): return not feature or profile is None or profile.feature_enabled(feature)
-def _permission_enabled(profile, permission): return not permission or profile is None or profile.permission_enabled(permission)
+def _bot_profile(context=None):
+    bot_data=getattr(context,"bot_data",{}) if context is not None else {}
+    return (bot_data or {}).get("bot_config")
+def _feature_enabled(profile, feature):
+    checker=getattr(profile,"feature_enabled",None)
+    return not feature or profile is None or checker is None or bool(checker(feature))
+def _permission_enabled(profile, permission):
+    checker=getattr(profile,"permission_enabled",None)
+    return not permission or profile is None or checker is None or bool(checker(permission))
 _CALLBACK_PERMISSION={"add_task":"tasks.create","add_task_manual":"tasks.create","tasks":"tasks.view","tasks_list":"tasks.view","search":"search.use","teams":"teams.view","templates":"templates.use","habit_menu":"habits.manage","stats":"reports.view","import_bulk":"bulk_import.use","custom_bot":"custom_bots.manage","integrations":"integrations.manage","download_csv":"tasks.view","contact_us":"contact.use","ai_start":"ai.use","ai_menu":"ai.use"}
 
 def main_menu(context=None):
