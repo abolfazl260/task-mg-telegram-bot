@@ -2,8 +2,8 @@
 
 > وضعیت سند: Business v1  
 > Beachhead Market: کلینیک‌های خصوصی دندان‌پزشکی چندپزشکه  
-> نقش محصول: Operational Workflow & Follow-up Layer  
-> اصل استراتژیک: **Integrate with systems of record; own the system of action.**
+> نقش محصول: Clinic Operations & Patient Record Platform  
+> اصل استراتژیک: **Own the patient record and the system of action; integrate where external systems add value.**
 
 ---
 
@@ -11,7 +11,7 @@
 
 TaskMG نباید در بازار سلامت با عنوان «ربات مدیریت تسک» یا «نرم‌افزار Todo برای کلینیک» عرضه شود. این دسته‌بندی، محصول را مستقیماً مقابل ابزارهای عمومی مانند ClickUp، Asana و Trello قرار می‌دهد و ارزش تخصصی آن را کاهش می‌دهد.
 
-همچنین TaskMG در فاز اول نباید به‌عنوان «نرم‌افزار مدیریت مطب»، «EMR/EHR»، «Dental PMS» یا «سیستم نوبت‌دهی کامل» Position شود؛ زیرا این دسته‌ها نیازمند عمق بالینی، مالی، بیمه‌ای، scheduling و integration بسیار گسترده هستند.
+TaskMG Healthcare علاوه بر مدیریت عملیات، Patient Record و Clinical Data بیمار را نیز نگهداری می‌کند. Positioning نباید محصول را به «Task Manager ساده» محدود کند. در عین حال قابلیت‌هایی مانند billing/insurance، full scheduling و autonomous clinical decision support تنها در صورت تصمیم محصول مستقل وارد Scope می‌شوند.
 
 Positioning پیشنهادی:
 
@@ -72,13 +72,8 @@ Positioning پیشنهادی:
 - customer باید workflow را خودش طراحی کند؛
 - patient/case context ندارد.
 
-### Dental PMS / EMR
-چرا نه؟
-- scope بسیار بزرگ؛
-- replacement anxiety؛
-- migration پیچیده؛
-- compliance و clinical requirements بالا؛
-- رقابت مستقیم با incumbents قوی.
+### Patient Record / EMR capabilities
+TaskMG بخشی از این دسته را عمداً پوشش می‌دهد: Patient Record، Clinical Data، documents و history بیمار. توسعه باید مرحله‌ای، permission-aware و migration-safe باشد. Billing، insurance، full scheduling و autonomous clinical decision support الزاماً همراه این Scope نیستند.
 
 ### CRM عمومی
 چرا نه؟
@@ -112,7 +107,7 @@ Positioning پیشنهادی:
 
 برای **کلینیک‌های خصوصی چندپزشکه** که عملیات روزانه آن‌ها بین پذیرش، پزشک، دستیار، مدیر و پیام‌رسان‌ها پخش شده است، **TaskMG** یک **Clinic Operations Workflow Platform** است که هر اقدام بعدی را به task قابل‌ردیابی با owner، deadline، reminder و context تبدیل می‌کند و وضعیت کل عملیات را در Telegram و Web قابل مشاهده می‌سازد.
 
-برخلاف **Task Managerهای عمومی** که نیاز به طراحی workflow از صفر دارند، یا **PMSهای کلینیک** که عمدتاً system of record هستند، TaskMG روی **execution، follow-up، handoff و accountability** تمرکز می‌کند و می‌تواند کنار نرم‌افزار فعلی کلینیک کار کند.
+برخلاف **Task Managerهای عمومی**، TaskMG هم **Patient Record** را نگهداری می‌کند و هم **execution، follow-up، handoff و accountability** را مدیریت می‌کند. در صورت وجود PMS/EMR خارجی نیز می‌تواند از طریق integration با آن همزیستی یا sync داشته باشد.
 
 ---
 
@@ -588,7 +583,7 @@ Telegram برای تیم، Web برای مدیر، workflowهای آماده ب�
 
 نسخه کوتاه:
 
-«ما نرم‌افزار پرونده پزشکی نیستیم. روی فاصله‌ای کار می‌کنیم که معمولاً بین نرم‌افزار کلینیک و کار واقعی تیم وجود دارد؛ یعنی پیگیری‌ها، callbackها، taskهای داخلی و handoffهایی که امروز داخل پیام، دفتر یا حافظه افراد هستند.»
+«TaskMG پرونده بیمار و اطلاعات بالینی موردنیاز را در کنار workflow، پیگیری، task و handoffهای تیم نگهداری می‌کند؛ یعنی اطلاعات بیمار و اجرای کار روزانه در یک بستر permission-aware و قابل Audit به هم متصل می‌شوند.»
 
 ---
 
