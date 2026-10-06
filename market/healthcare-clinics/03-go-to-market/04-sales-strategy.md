@@ -91,7 +91,7 @@ Founder-led / senior consultative.
 Lead فعلاً مناسب نیست اگر:
 
 - فقط calendar می‌خواهد
-- فقط EMR می‌خواهد
+- فقط replacement کامل billing/insurance/scheduling می‌خواهد و Patient Record + workflow scope کافی نیست
 - solo low-volume
 - pain ندارد
 - buyer نامشخص
@@ -311,7 +311,7 @@ Close زمانی انجام شود که:
 
 Response:
 
-«هدف جایگزینی PMS نیست. می‌خواهیم ببینیم actionهایی که بعد از ثبت بیمار یا نوبت ایجاد می‌شوند امروز کجا track می‌شوند.»
+«TaskMG می‌تواند Patient Record را نگهداری کند و در صورت وجود PMS با آن integrate شود. علاوه بر خود اطلاعات بیمار، می‌خواهیم actionهایی که بعد از ثبت بیمار، درمان یا نوبت ایجاد می‌شوند نیز قابل track باشند.»
 
 Discovery:
 - callback?
