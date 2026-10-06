@@ -34,10 +34,21 @@ async def test_clinic_profile_can_create_patient_and_session_types(test_db, monk
     assert (await task_service.get_task_by_id_async(session_id))["work_item_type"] == "session"
 
     types = await list_work_item_types_async("clinic")
-    assert {item["key"] for item in types} == {"patient", "session"}
+    assert {item["key"] for item in types} == {"task", "patient", "session"}
     patient = next(item for item in types if item["key"] == "patient")
     assert patient["is_default"] is True
     assert patient["allowed_child_types"] == ["session"]
+
+
+@pytest.mark.asyncio
+async def test_clinic_keeps_legacy_task_type_valid(test_db, monkeypatch):
+    monkeypatch.setattr(task_service, "_bot", lambda: "clinic")
+
+    task_id = await task_service.create_task_async(
+        206, "Operational task", "medium", "", "", "", work_item_type="task"
+    )
+
+    assert (await task_service.get_task_by_id_async(task_id))["work_item_type"] == "task"
 
 
 @pytest.mark.asyncio
