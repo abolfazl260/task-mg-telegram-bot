@@ -28,6 +28,6 @@ def test_load_bot_profiles_allows_managed_store_with_zero_active_bots(monkeypatc
             }
         ],
     )
-    monkeypatch.setattr(bot_platform, "_custom_bot_profiles", lambda: [])
+    monkeypatch.setattr(bot_platform, "_custom_bot_profiles", list)
 
     assert bot_platform.load_bot_profiles() == []
