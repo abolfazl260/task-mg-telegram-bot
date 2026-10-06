@@ -124,6 +124,7 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
 .priority-box,.prod-metric-box{border-radius:8px!important;box-shadow:none!important}.priority-box:hover,.prod-metric-box:hover{transform:none!important;box-shadow:none!important}
 .gh-heatmap-wrapper{background:#f7f6f3!important;border-color:#e9e9e7!important;border-radius:10px!important}
 .busiest-banner{border-color:#e9e9e7!important;border-radius:8px!important}.busy-pill{border-color:#e9e9e7!important;border-radius:6px!important;background:#f7f6f3!important}
+.task-card[draggable="true"]{cursor:grab!important;touch-action:none!important}.task-card.is-dragging{opacity:.45!important}.task-card.is-saving{opacity:.6!important;pointer-events:none!important}.column.drop-target{outline:2px dashed #37352f!important;outline-offset:3px!important;background:#f1f0ee!important}.kanban-error{margin-bottom:12px!important}
 `;
   document.head.appendChild(style);
 
@@ -480,7 +481,7 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
         </div>
         <div class="board">
           ${Object.entries(labels).map(([k, l]) => `
-            <section class="column">
+            <section class="column" data-kanban-status="${k}">
               <div class="column-head">
                 <h3>${l}</h3>
                 <span class="count">${(data.columns?.[k] || []).length}</span>
@@ -489,6 +490,31 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
             </section>
           `).join('')}
         </div>`;
+      details.querySelectorAll('.task-card[data-task-id]').forEach(card => {
+        card.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', card.dataset.taskId); card.classList.add('is-dragging'); });
+        card.addEventListener('dragend', () => card.classList.remove('is-dragging'));
+      });
+      details.querySelectorAll('[data-kanban-status]').forEach(column => {
+        column.addEventListener('dragover', e => { e.preventDefault(); column.classList.add('drop-target'); });
+        column.addEventListener('dragleave', () => column.classList.remove('drop-target'));
+        column.addEventListener('drop', async e => {
+          e.preventDefault(); column.classList.remove('drop-target');
+          const id = e.dataTransfer.getData('text/plain');
+          const card = details.querySelector(`.task-card[data-task-id="${CSS.escape(id)}"]`);
+          const source = card?.closest('[data-kanban-status]'); const next = column.dataset.kanbanStatus;
+          if (!card || !source || source === column || card.dataset.moving === '1') return;
+          card.dataset.moving = '1'; card.classList.add('is-saving');
+          try {
+            const response = await fetch(`/api/public-tasks/${encodeURIComponent(token)}/${encodeURIComponent(id)}`, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status: next}) });
+            if (!response.ok) throw new Error('ذخیره وضعیت انجام نشد');
+            await loadSection('kanban', 1);
+          } catch (error) {
+            card.classList.remove('is-saving');
+            card.animate([{transform:'translateX(4px)'},{transform:'translateX(-4px)'},{transform:'translateX(0)'}], {duration:260});
+            details.insertAdjacentHTML('afterbegin', `<div class="error kanban-error">${esc(error.message || 'خطا در انتقال تسک')}</div>`);
+          } finally { delete card.dataset.moving; }
+        });
+      });
       return;
     }
     if (section === 'week') {
@@ -597,7 +623,7 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
   }
 
   function taskCard(x) {
-    return `<article class="task-card">
+    return `<article class="task-card" draggable="true" data-task-id="${esc(x.id)}" title="برای تغییر وضعیت بکشید">
       <b>${esc(x.title)}</b>
       <div class="task-meta">
         <span>${priority(x.priority)}</span>
