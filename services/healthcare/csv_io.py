@@ -33,10 +33,12 @@ async def preview_patients(scope: Scope, content: str):
         try:
             if None in row or any(value is None for value in row.values()):
                 raise ValueError("invalid_csv_row")
+            unit_id = text(row["branch_id"], max_length=100)
             item = {
                 "external_id": text(row["external_id"], max_length=100),
                 "display_name": text(row["display_name"], max_length=200),
-                "unit_id": text(row["branch_id"], max_length=100),
+                "unit_id": unit_id,
+                "branch_id": unit_id,
                 "phone": text(row.get("phone", ""), max_length=50, required=False),
                 "doctor_id": text(
                     row.get("doctor_id", ""), max_length=100, required=False
