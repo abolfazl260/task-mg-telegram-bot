@@ -2,7 +2,7 @@
 from __future__ import annotations
 import hashlib, secrets, time
 from urllib.parse import quote
-from services.database import sync_execute, sync_fetch_one
+from services.database import sync_execute, fetch_one, _run
 from webapp.config import WEBAPP_BASE_URL
 
 TTL_SECONDS = 600
@@ -17,5 +17,5 @@ def create_admin_link(admin_id: object) -> str:
     return f"{WEBAPP_BASE_URL}/backoffice/{quote(token, safe='')}"
 def resolve_admin_token(token: str) -> str | None:
     if not token: return None
-    _ensure(); row = sync_fetch_one("admin_access_tokens", "token_hash=? AND revoked=0 AND expires_at>?", (_hash(token), time.time()))
+    _ensure(); row = _run(fetch_one("admin_access_tokens", "token_hash=? AND revoked=0 AND expires_at>?", (_hash(token), time.time())))
     return str(row.get("admin_id")) if row else None
