@@ -107,7 +107,7 @@ def _resolved_settings(payload: dict, base_profile: str, fallback=None) -> dict:
         except json.JSONDecodeError as exc:
             raise ValueError("invalid_settings_json") from exc
     if not isinstance(settings, dict):
-        raise ValueError("invalid_settings_json")
+        raise ValueError("invalid_settings_json")  # noqa: TRY004
     validate_work_item_type_settings(settings)
     return settings
 
