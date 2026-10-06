@@ -73,8 +73,11 @@ def date_format_text(user_id):
     current=get_user_date_format(user_id);label="شمسی 🇮🇷" if current=="jalali" else "میلادی 🌐";return f"🗓 **تنظیمات تقویم**\n\nتقویم فعال: **{label}**"
 def language_keyboard():return InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="language_fa")],[InlineKeyboardButton("🇬🇧 English",callback_data="language_en")],[InlineKeyboardButton("🔙 بازگشت به تنظیمات",callback_data="settings")]])
 def contact_text():return "📞 **ارتباط با ما**\nبرای پیشنهاد یا پشتیبانی با ما در ارتباط باشید."
-def contact_keyboard():
-    rows=[[InlineKeyboardButton(f"⭐️ دونیت {amount} استارز",callback_data=f"donate_{amount}")] for amount in DONATION_AMOUNTS];rows.append([InlineKeyboardButton("🔙 بازگشت به منوی اصلی",callback_data="tasks_back")]);return InlineKeyboardMarkup(rows)
+def contact_keyboard(context=None):
+    profile=_bot_profile(context);rows=[]
+    if _feature_enabled(profile,"donate") and _permission_enabled(profile,"donate.use"):
+        rows.extend([[InlineKeyboardButton(f"⭐️ دونیت {amount} استارز",callback_data=f"donate_{amount}")] for amount in DONATION_AMOUNTS])
+    rows.append([InlineKeyboardButton("🔙 بازگشت به منوی اصلی",callback_data="tasks_back")]);return InlineKeyboardMarkup(rows)
 
 async def button_handler(update,context):
     query=update.callback_query;data=query.data;profile=_bot_profile(context)
@@ -141,4 +144,4 @@ async def button_handler(update,context):
         from handlers.import_bulk import import_callback;return await import_callback(update,context)
     if data=="download_csv":
         from handlers.task import download_csv;return await download_csv(update,context)
-    if data=="contact_us":return await query.message.reply_text(contact_text(),reply_markup=contact_keyboard(),parse_mode="Markdown")
+    if data=="contact_us":return await query.message.reply_text(contact_text(),reply_markup=contact_keyboard(context),parse_mode="Markdown")
