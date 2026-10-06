@@ -78,11 +78,13 @@ def date_format_keyboard(user_id):
 def date_format_text(user_id):
     current=get_user_date_format(user_id);label="شمسی 🇮🇷" if current=="jalali" else "میلادی 🌐";return f"🗓 **تنظیمات تقویم**\n\nتقویم فعال: **{label}**"
 def language_keyboard():return InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="language_fa")],[InlineKeyboardButton("🇬🇧 English",callback_data="language_en")],[InlineKeyboardButton("🔙 بازگشت به تنظیمات",callback_data="settings")]])
-def contact_text():return "📞 **ارتباط با ما**\nبرای پیشنهاد یا پشتیبانی با ما در ارتباط باشید."
+def contact_text():return "📞 **ارتباط با ما**\nبرای شارژ حساب، پیشنهاد یا پشتیبانی می‌توانید برای ادمین‌ها پیام بفرستید. پس از ارسال، شماره تیکت دریافت می‌کنید و پاسخ شما پیگیری خواهد شد."
 def contact_keyboard(context=None):
     profile=_bot_profile(context);rows=[]
     if _feature_enabled(profile,"donate") and _permission_enabled(profile,"donate.use"):
         rows.extend([[InlineKeyboardButton(f"⭐️ دونیت {amount} استارز",callback_data=f"donate_{amount}")] for amount in DONATION_AMOUNTS])
+    if _permission_enabled(profile,"contact.use"):
+        rows.append([InlineKeyboardButton("✉️ ارسال پیام به پشتیبانی",callback_data="contact_new")])
     rows.append([InlineKeyboardButton("🔙 بازگشت به منوی اصلی",callback_data="tasks_back")]);return InlineKeyboardMarkup(rows)
 
 async def button_handler(update,context):

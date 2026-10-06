@@ -27,6 +27,15 @@ def _top_assignees(user_id, limit=3):
 async def handle_tag_text(update, context):
     """Unified text/media entry point: tags first, then the normal task flow."""
     from handlers import task as task_module
+    if context.user_data.get("step") == "support_ticket":
+        from services.support_service import create_support_ticket
+        message = (update.effective_message.text or "").strip()
+        if message:
+            profile = context.bot_data.get("bot_config")
+            ticket = await create_support_ticket(update.effective_user, message, getattr(profile, "key", "default"), context)
+            context.user_data.pop("step", None)
+            await update.effective_message.reply_text(f"✅ درخواست شما ارسال شد.\n🎫 شماره تیکت: `{ticket}`\nبه‌زودی پاسخ می‌دهیم.", parse_mode="Markdown")
+        return True
 
     step = context.user_data.get("step")
     logger.debug(
