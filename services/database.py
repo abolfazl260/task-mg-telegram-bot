@@ -278,6 +278,19 @@ async def migrate_core_schema(conn) -> None:
     END;
     """
     await conn.executescript(parent_trigger.format(operation="insert", verb="INSERT") + parent_trigger.format(operation="update", verb="UPDATE"))
+    await conn.execute(
+        """CREATE TABLE IF NOT EXISTS task_attribute_definitions (
+            id TEXT PRIMARY KEY, bot_key TEXT NOT NULL DEFAULT 'default', workspace_id TEXT,
+            work_item_type TEXT NOT NULL, field_key TEXT NOT NULL, label TEXT NOT NULL,
+            data_type TEXT NOT NULL, required INTEGER NOT NULL DEFAULT 0, repeatable INTEGER NOT NULL DEFAULT 0,
+            default_value_json TEXT, validation_json TEXT NOT NULL DEFAULT '{}',
+            searchable INTEGER NOT NULL DEFAULT 0, filterable INTEGER NOT NULL DEFAULT 0, sortable INTEGER NOT NULL DEFAULT 0,
+            group_key TEXT NOT NULL DEFAULT '', display_order INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1, version INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '',
+            UNIQUE(bot_key, workspace_id, work_item_type, field_key, version)
+        )"""
+    )
     async with conn.execute("PRAGMA table_info(task_attribute_definitions)") as cursor:
         attribute_columns = {row[1] for row in await cursor.fetchall()}
     for name, statement in (("sensitive", "ALTER TABLE task_attribute_definitions ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0"), ("view_roles_json", "ALTER TABLE task_attribute_definitions ADD COLUMN view_roles_json TEXT NOT NULL DEFAULT '[]'"), ("edit_roles_json", "ALTER TABLE task_attribute_definitions ADD COLUMN edit_roles_json TEXT NOT NULL DEFAULT '[]'")):
