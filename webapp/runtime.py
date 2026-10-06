@@ -40,9 +40,8 @@ def _install_report_routes() -> None:
             return
         path = urlparse(self.path).path
         token = report_token_from_path(path)
-        if token:
-            if resolve_report_token(token):
-                html = web_report_html(token)
+        if token and resolve_report_token(token):
+            html = web_report_html(token)
                 task_url = f'/tasks/{quote(token, safe="")}'
                 nav = f'<a href="{task_url}" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none;border-radius:12px;padding:10px 14px;background:#ffffff18;border:1px solid #ffffff30;color:#fff;font-weight:800;font-size:13px;white-space:nowrap">📋 مدیریت تسک‌ها</a>'
                 html = html.replace('<div class="hero-top">', f'<div class="hero-top">{nav}', 1)
