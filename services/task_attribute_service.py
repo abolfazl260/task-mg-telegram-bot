@@ -6,6 +6,7 @@ types.  JSON is reserved for structured values such as multi-select fields.
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import uuid
 from datetime import date, datetime, timezone
@@ -48,6 +49,17 @@ def _definition_scope(workspace_id: str | None):
     return str(workspace_id) if workspace_id else None
 
 
+def _value_hash(value) -> str:
+    return hashlib.sha256(_json(value).encode("utf-8")).hexdigest()[:16] if value is not None else ""
+
+
+def _role_allowed(definition: dict, actor_id, task: dict, action: str, actor_roles=None) -> bool:
+    if str(actor_id) == str(task.get("user_id")):
+        return True
+    roles = _parse_json(definition.get(f"{action}_roles_json"), [])
+    return not roles or bool(set(str(r) for r in (actor_roles or [])) & set(str(r) for r in roles))
+
+
 def _validate_definition_input(field_key: str, data_type: str, validation: dict | None):
     key = str(field_key or "").strip().lower()
     if not KEY_RE.match(key):
@@ -71,7 +83,8 @@ async def create_attribute_definition_async(
     bot_key: str | None = None, workspace_id: str | None = None, required: bool = False,
     repeatable: bool = False, default: Any = None, validation: dict | None = None,
     searchable: bool = False, filterable: bool = False, sortable: bool = False,
-    group_key: str = "", display_order: int = 0,
+    group_key: str = "", display_order: int = 0, sensitive: bool = False,
+    view_roles: list[str] | None = None, edit_roles: list[str] | None = None,
 ):
     key, dtype, rules = _validate_definition_input(field_key, data_type, validation)
     bot = str(bot_key or _bot())
@@ -97,12 +110,12 @@ async def create_attribute_definition_async(
         ("""INSERT INTO task_attribute_definitions
            (id,bot_key,workspace_id,work_item_type,field_key,label,data_type,required,repeatable,
             default_value_json,validation_json,searchable,filterable,sortable,group_key,display_order,
-            active,version,created_at,updated_at)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            active,version,created_at,updated_at,sensitive,view_roles_json,edit_roles_json)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
          (definition_id, bot, _definition_scope(workspace_id), item_type, key, str(label or key), dtype,
           int(bool(required)), int(bool(repeatable)), _json(candidate) if candidate is not None else None,
           _json(rules), int(bool(searchable)), int(bool(filterable)), int(bool(sortable)), str(group_key or ""),
-          int(display_order), 1, version, now, now)),
+          int(display_order), 1, version, now, now, int(bool(sensitive)), _json(view_roles or []), _json(edit_roles or []))),
     ])
     return await get_attribute_definition_async(definition_id)
 
@@ -224,11 +237,13 @@ async def _resolve_definition_async(task: dict, field_key: str, definition_id: s
     return definition
 
 
-async def set_task_attribute_async(task_id, field_key, value, actor_id, *, definition_id: str | None = None, ordinal: int = 0):
+async def set_task_attribute_async(task_id, field_key, value, actor_id, *, definition_id: str | None = None, ordinal: int = 0, actor_roles=None):
     task = await get_task_by_id_async(task_id)
     if not task or not await user_can_modify_task_async(actor_id, task):
         raise PermissionError("attribute_permission_denied")
     definition = await _resolve_definition_async(task, field_key, definition_id)
+    if not _role_allowed(definition, actor_id, task, "edit", actor_roles):
+        raise PermissionError("attribute_field_edit_denied")
     if not definition.get("repeatable") and int(ordinal) != 0:
         raise ValueError("attribute_not_repeatable")
     normalized = await validate_attribute_value_async(
@@ -238,6 +253,7 @@ async def set_task_attribute_async(task_id, field_key, value, actor_id, *, defin
     cols = _typed_columns(definition["data_type"], normalized)
     now = _now()
     value_id = str(uuid.uuid4())
+    previous = await fetch_one_sql("SELECT * FROM task_attribute_values WHERE task_id=? AND definition_id=? AND ordinal=?", (str(task_id), definition["id"], int(ordinal)))
     await execute(
         """INSERT INTO task_attribute_values
            (id,task_id,definition_id,definition_version,ordinal,value_text,value_number,value_boolean,value_date,value_datetime,value_json,created_at,updated_at)
@@ -249,10 +265,11 @@ async def set_task_attribute_async(task_id, field_key, value, actor_id, *, defin
         (value_id, str(task_id), definition["id"], definition["version"], int(ordinal), cols["value_text"], cols["value_number"],
          cols["value_boolean"], cols["value_date"], cols["value_datetime"], cols["value_json"], now, now),
     )
+    await execute("INSERT INTO task_attribute_audit(id,task_id,definition_id,actor_id,action,old_value_hash,new_value_hash,created_at) VALUES(?,?,?,?,?,?,?,?)", (str(uuid.uuid4()), str(task_id), definition["id"], str(actor_id), "write", _value_hash(previous), _value_hash(normalized), now))
     return await get_task_attributes_async(task_id, actor_id)
 
 
-async def get_task_attributes_async(task_id, actor_id):
+async def get_task_attributes_async(task_id, actor_id, *, actor_roles=None):
     task = await get_task_by_id_async(task_id)
     if not task or not await user_can_modify_task_async(actor_id, task):
         raise PermissionError("attribute_permission_denied")
@@ -264,6 +281,8 @@ async def get_task_attributes_async(task_id, actor_id):
     )
     result = []
     for row in rows:
+        if not _role_allowed(row, actor_id, task, "view", actor_roles):
+            continue
         dtype = row["data_type"]
         if dtype in {"text", "long_text", "phone", "email", "url", "select", "user_reference", "task_reference"}:
             value = row["value_text"]
@@ -282,6 +301,7 @@ async def get_task_attributes_async(task_id, actor_id):
         row.pop("value_date", None); row.pop("value_datetime", None); row.pop("value_json", None)
         row["validation"] = _parse_json(row.pop("validation_json", "{}"), {})
         row["default"] = _parse_json(row.pop("default_value_json", None), None)
+        row["sensitive"] = bool(row.get("sensitive"))
         result.append(row)
     return result
 
