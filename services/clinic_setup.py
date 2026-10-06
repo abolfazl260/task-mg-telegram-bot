@@ -54,19 +54,27 @@ async def bootstrap_async(actor_id: str, bot_key: str, name: str, *, timezone_na
         branch_map.setdefault(branch_name, uuid.uuid4().hex)
         if not await fetch_one_sql('SELECT id FROM workspace_units WHERE workspace_id=? AND name=?', (workspace_id, branch_name)):
             await execute('INSERT INTO workspace_units(id,workspace_id,name,unit_type) VALUES(?,?,?,\'branch\')', (branch_map[branch_name], workspace_id, branch_name))
-    for …10223 tokens truncated…or 1)) if denominator else 0.0
-    page, page_size = max(1, int(page)), max(1, min(int(page_size), 200))
-    offset = (page - 1) * page_size
-    drill_sql = f"SELECT {alias}.* FROM {table} {alias} WHERE {where} ORDER BY {alias}.{definition['date_field']} DESC, {alias}.id DESC LIMIT ? OFFSET ?"
-    drill_rows = await fetch_all_sql(drill_sql, tuple(params) + (page_size, offset))
-    return {"definition": definition, "summary": {"value": total, "metric": metric, "empty": not bool(drill_rows)}, "groups": aggregate_rows if group else [], "rows": drill_rows, "page": page, "page_size": page_size}
+    for member in staff or []:
+        if not isinstance(member, dict) or not member.get('user_id'): continue
+        branch_id = member.get('branch_id')
+        if not branch_id and member.get('branch_name'): branch_id = branch_map.get(member['branch_name'])
+        existing_member = await fetch_one_sql('SELECT id FROM workspace_memberships WHERE workspace_id=? AND user_id=? AND unit_id IS ?', (workspace_id, str(member['user_id']), branch_id))
+        await transaction([
+            ('INSERT OR IGNORE INTO users(user_id) VALUES(?)', (str(member['user_id']),)),
+            ('INSERT INTO workspace_memberships(id,workspace_id,user_id,unit_id,role,status) VALUES(?,?,?,?,?,\'active\') ON CONFLICT(id) DO UPDATE SET role=excluded.role,status=excluded.status', (existing_member['id'] if existing_member else uuid.uuid4().hex, workspace_id, str(member['user_id']), branch_id, member.get('role', 'reception'))),
+        ])
+    definitions_created = await _ensure_definitions(workspace_id, bot_key, field_config)
+    status = await setup_status_async(workspace_id, actor_id)
+    return {**status, 'definitions_created': definitions_created}
 
+async def setup_status_async(workspace_id: str, actor_id: str):
+    member = await fetch_one_sql("SELECT 1 FROM workspace_memberships WHERE workspace_id=? AND user_id=? AND status='active'", (workspace_id, str(actor_id)))
+    if not member: raise PermissionError('setup_permission_denied')
+    workspace = await fetch_one_sql('SELECT * FROM workspaces WHERE id=? AND workspace_type=\'healthcare\' AND status=\'active\'', (workspace_id,))
+    if not workspace: raise ValueError('clinic_not_found')
+    branches = await fetch_one_sql('SELECT COUNT(*) AS n FROM workspace_units WHERE workspace_id=? AND status=\'active\'', (workspace_id,))
+    staff = await fetch_one_sql('SELECT COUNT(DISTINCT user_id) AS n FROM workspace_memberships WHERE workspace_id=? AND status=\'active\'', (workspace_id,))
+    schemas = await fetch_one_sql('SELECT COUNT(*) AS n FROM task_attribute_definitions WHERE workspace_id=? AND active=1', (workspace_id,))
+    return {'workspace_id': workspace_id, 'name': workspace['name'], 'timezone': workspace['timezone'], 'branches': int(branches['n']), 'staff': int(staff['n']), 'attribute_definitions': int(schemas['n']), 'ready': bool(branches['n'] and staff['n'] and schemas['n'])}
 
-def _run(coro):
-    from services.database import _run as db_run
-    return db_run(coro)
-
-create_report_definition = lambda *a, **k: _run(create_report_definition_async(*a, **k))
-get_report_definition = lambda *a, **k: _run(get_report_definition_async(*a, **k))
-list_report_definitions = lambda *a, **k: _run(list_report_definitions_async(*a, **k))
-execute_report = lambda *a, **k: _run(execute_report_async(*a, **k))
+bootstrap = bootstrap_async

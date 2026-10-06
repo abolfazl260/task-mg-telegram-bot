@@ -65,7 +65,7 @@ async def clinic_menu(update, context):
             )
         labels = profile.settings.get("terminology", {})
         scope = await _scope(update, context)
-            branch_rows = await __import__("services.database", fromlist=["fetch_all_sql"]).fetch_all_sql("SELECT id,name FROM workspace_units WHERE workspace_id=? AND status='active' ORDER BY name", (scope.organization_id,))
+        branch_rows = await __import__("services.database", fromlist=["fetch_all_sql"]).fetch_all_sql("SELECT id,name FROM workspace_units WHERE workspace_id=? AND status='active' ORDER BY name", (scope.organization_id,))
         selected_branch = context.user_data.get("clinic_branch_id")
         if not branch_rows:
             can_manage = any(m.get("role") in {"owner", "manager", "admin"} for m in memberships)
