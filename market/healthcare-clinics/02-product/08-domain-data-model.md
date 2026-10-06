@@ -1,8 +1,8 @@
 # مدل داده دامنه — Healthcare Clinics Domain Data Model
 
 > وضعیت سند: Domain Model v1  
-> هدف: تعریف مدل داده‌ای که System of Action کلینیک را پشتیبانی کند، بدون تبدیل TaskMG به EMR کامل.  
-> اصل: **Operational data first, minimum necessary data, tenant-safe by default.**
+> هدف: تعریف مدل داده‌ای یکپارچه برای **Patient Record + System of Action** کلینیک؛ به‌طوری‌که TaskMG بتواند اطلاعات بیمار و داده‌های clinical/operational را نگهداری و workflowهای مرتبط را اجرا کند.  
+> اصل: **Patient record + operational execution, permission-aware, audited, tenant-safe by default.**
 
 ---
 
@@ -300,13 +300,22 @@ Operational reference بیمار.
 - operational_tags
 - source
 
-## Not Included by Default
+## Patient Record Scope
 
-- diagnosis
-- medical history
-- medication
-- clinical chart
-- imaging
+Patient Record می‌تواند شامل این داده‌ها باشد و باید به‌صورت schema/migration-safe توسعه یابد:
+- demographics and identity
+- contact information
+- allergies
+- chronic conditions
+- medications
+- diagnoses
+- medical/clinical history
+- clinical notes
+- treatment-related information
+- documents and attachments
+- imaging metadata/files where enabled
+- external PMS/EMR references
+- operational history
 
 ## Rules
 
@@ -1045,7 +1054,7 @@ related patient/case + branch policy.
 | Task status | TaskMG |
 | Follow-up outcome | TaskMG |
 | Case next action | TaskMG |
-| Patient clinical record | PMS/EMR |
+| Patient clinical record | TaskMG Healthcare؛ با امکان sync/reference به PMS/EMR |
 | Appointment time when integrated | PMS/Calendar |
 | Payment transaction | Payment provider |
 | External lab status if integrated | Lab system |
@@ -1074,9 +1083,7 @@ related patient/case + branch policy.
 
 ## Class D — Clinical/Highly Sensitive
 
-اگر در آینده ذخیره شود:
-- diagnosis
-- clinical note
+برای داده بالینی ذخیره‌شده از جمله diagnosis و clinical note باید permission، audit، retention و export controls جداگانه اعمال شود.
 - medical document
 
 MVP باید Class D را حداقل نگه دارد.
