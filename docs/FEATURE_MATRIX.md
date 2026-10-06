@@ -296,12 +296,29 @@ AI Reports        ✓
 9. هر Feature جدید باید یک ورودی در این ماتریس داشته باشد.
 10. برای قابلیت‌های مشترک، نام Permission باید یکتا، توصیفی و قابل توسعه باشد.
 
-## Healthcare vertical foundation
+## Healthcare / Vertical foundation
 
-`healthcare` defaults off for Core bots and is enabled in the Clinic profile.
-It adds separate PatientReference, Case, FollowUp and Outcome entities over Core
-Tasks. `clinic_staff_reminders` controls staff-only durable notifications and
-requires `healthcare`. Clinic generic AI/Voice and external integrations remain
-disabled pending scoped drafts/confirmation and tenant mapping. Template versions
-are configured through the Healthcare API, not the generic single-task template
-menu. See [implementation and rollout limits](HEALTHCARE_IMPLEMENTATION.md).
+The target architecture is defined in `docs/CLINIC_VERTICAL_ARCHITECTURE.md`.
+
+Verticals are built from Core capabilities, not separate hard-coded domain tables. Core must provide:
+
+- typed work items / record types
+- parent/child hierarchy (Task/Subtask)
+- configurable attribute schemas
+- repeatable/multi-value fields
+- dynamic validation/forms/layouts
+- attribute search/filter/report support
+- field/section-aware permissions for sensitive data
+- attachment/document relationships
+- vertical-specific Web navigation/views/reports
+- shared Telegram/Web/API service layer
+
+The Clinic profile maps these capabilities as:
+
+- Patient = top-level typed Work Item / Task
+- Session / Visit = child Work Item / Subtask
+- Follow-up / Treatment Action = typed child action
+- Patient/clinical fields = Core attributes activated by Clinic schema
+
+`healthcare` remains a Clinic feature/profile switch, but the underlying mechanisms must be reusable by other Vertical profiles. A Clinic must be usable standalone without PMS/EMR integration.
+
