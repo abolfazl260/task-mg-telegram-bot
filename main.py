@@ -322,7 +322,7 @@ def build_application(profile):
         context.user_data["step"] = "support_ticket"
         await update.callback_query.message.reply_text("✉️ پیام خود را برای پشتیبانی ارسال کنید. پس از ارسال، شماره تیکت دریافت می‌کنید.")
     app.add_handler(CallbackQueryHandler(support_callback,pattern="^contact_new$"))
-    app.add_handler(CallbackQueryHandler(button_handler,pattern="^(?:add_task(?:_manual)?|ai_menu|ai_start|ai_(?:task|habit)_.+|tasks(?:_list|_back)?|search|teams|templates|habit_menu|stats|help|settings(?:_timezone|_date_format|_language))|timezone_set_.+|date_format_(?:jalali|gregorian)|language_(?:fa|en)|integrations|custom_bot|import_bulk|download_csv|contact_us)$"))
+    app.add_handler(CallbackQueryHandler(button_handler,pattern="^(?:add_task(?:_manual)?|ai_menu|ai_start|ai_(?:task|habit)_.+|tasks(?:_list|_back)?|search|teams|templates|habit_menu|stats|help|settings(?:_(?:timezone|date_format|language))?|timezone_set_.+|date_format_(?:jalali|gregorian)|language_(?:fa|en)|integrations|custom_bot|import_bulk|download_csv|contact_us)$"))
     if _feature(app,"voice") and _permission(app,"voice.use"):
         app.add_handler(MessageHandler(filters.VOICE,handle_voice_message))
     app.add_error_handler(error_handler);return app
