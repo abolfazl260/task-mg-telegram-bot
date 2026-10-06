@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 from telegram.ext import CommandHandler, ConversationHandler
 
-from bot_platform import BotProfile, DEFAULT_FEATURES
+from bot_platform import DEFAULT_FEATURES, BotProfile
 
 
 @pytest.fixture
