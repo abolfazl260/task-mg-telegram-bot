@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from services.database import get_db
 from services.bot_feature_registry import DEFAULT_PROFILE_TEMPLATES
+from services.bot_permission_registry import default_permission_policy
 from services.bot_runtime_status import get_runtime_status, list_runtime_statuses
 from services.bot_management_service import (
     create_managed_bot,
@@ -12,6 +13,7 @@ from services.bot_management_service import (
     get_managed_bot,
     list_audit_events,
     list_managed_bots,
+    permissions_registry_payload,
     seed_default_profiles,
     set_bot_status,
     update_managed_bot,
@@ -99,11 +101,26 @@ async def bot_management()->list[dict]:
 async def bot_feature_registry()->dict:
     await seed_default_profiles()
     profiles=[
-        {"key":key,"label":template["name"],"features":list(template["features"])}
+        {
+            "key":key,
+            "label":template["name"],
+            "features":list(template["features"]),
+            "permissions":default_permission_policy(template["features"]),
+        }
         for key,template in DEFAULT_PROFILE_TEMPLATES.items()
     ]
-    profiles.append({"key":"custom","label":"Custom","features":["core","tasks"]})
-    return {"features":feature_registry_payload(),"profiles":profiles}
+    custom_features=["core","tasks"]
+    profiles.append({
+        "key":"custom",
+        "label":"Custom",
+        "features":custom_features,
+        "permissions":default_permission_policy(custom_features),
+    })
+    return {
+        "features":feature_registry_payload(),
+        "permissions":permissions_registry_payload(),
+        "profiles":profiles,
+    }
 
 
 async def get_bot_management_detail(bot_key:str)->dict|None:
