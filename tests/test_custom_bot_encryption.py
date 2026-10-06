@@ -23,6 +23,12 @@ async def isolated_custom_bot_db(tmp_path, monkeypatch):
     monkeypatch.setenv("BOT_TOKEN_ENCRYPTION_KEYS_JSON", json.dumps({"test": _key()}))
     monkeypatch.setenv("BOT_TOKEN_ACTIVE_KEY_ID", "test")
     await database.init_db()
+    db = await database.get_db()
+    await db.conn.execute(
+        "INSERT INTO users(user_id,full_name,username) VALUES(?,?,?)",
+        ("123", "Test User", "tester"),
+    )
+    await db.conn.commit()
     yield
     database.shutdown_sync_loop()
     await database.close_all_dbs()
