@@ -230,9 +230,10 @@ async def add_comment_message_async(task_id: str, author: dict, message) -> bool
     )
 
 
-async def get_comment_messages_async(task_id: str, *, invalid_content_logger=None) -> list[dict]:
+async def get_comment_messages_async(task_id: str, *, invalid_content_logger=None, row_fetcher=None) -> list[dict]:
     await _ensure_schema()
-    rows = await fetch_all(
+    fetch_rows = row_fetcher or fetch_all
+    rows = await fetch_rows(
         _TABLE,
         "task_id=? ORDER BY created_at, id",
         (str(task_id),),
