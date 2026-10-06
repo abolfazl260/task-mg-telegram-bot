@@ -6,6 +6,9 @@
 #reportFilters .section-title h2{font-size:20px!important;letter-spacing:-.2px}
 #reportFilters .section-title .muted{display:block;margin-top:5px;line-height:1.7}
 #clearReportFilters{border:1px solid #e2e8f0!important;background:#fff!important;color:#475569!important;border-radius:12px!important;padding:9px 14px!important;transition:.18s!important}
+#reportFilters .filter-summary{display:inline-flex;align-items:center;gap:6px;margin-top:8px;color:#64748b;font-size:12px;font-weight:700}
+#reportFilters .filter-summary strong{color:#172033}
+#reportFilters .filter-period:focus-visible,#reportFilters button:focus-visible,#reportFilters select:focus-visible,#reportFilters input:focus-visible{outline:3px solid rgba(35,131,226,.25);outline-offset:2px}
 #clearReportFilters:hover{background:#f8fafc!important;border-color:#cbd5e1!important;transform:translateY(-1px)}
 #reportFilters>div:nth-of-type(2){display:grid!important;grid-template-columns:repeat(4,1fr)!important;gap:8px!important;padding:5px!important;background:#f1f5f9!important;border-radius:16px!important}
 #reportFilters .filter-period{border:0!important;background:transparent!important;color:#64748b!important;border-radius:12px!important;padding:11px 10px!important;cursor:pointer!important;font:inherit!important;font-weight:800!important;transition:.18s!important}
@@ -171,7 +174,7 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
       <div class="section-title">
         <div>
           <h2>🗓️ فیلتر گزارشات</h2>
-          <span class="muted">فیلترها مستقل هستند و می‌توانند هم‌زمان اعمال شوند.</span>
+          <span class="muted">فیلترها مستقل هستند و می‌توانند هم‌زمان اعمال شوند.</span><span id="filterSummary" class="filter-summary" aria-live="polite"></span>
         </div>
         <button id="clearReportFilters" style="border:1px solid #e5eaf2;background:#f8fafc;border-radius:12px;padding:9px 12px;cursor:pointer;font:inherit;font-weight:700">پاک کردن</button>
       </div>
@@ -364,6 +367,13 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  function updateFilterSummary() {
+    const el = document.getElementById('filterSummary');
+    if (!el) return;
+    const count = [state.search, state.start, state.end, ...Object.entries(state.filters).filter(([k]) => k !== 'sort').map(([, v]) => v)].filter(Boolean).length;
+    el.innerHTML = count ? `● <strong>${count}</strong> فیلتر فعال` : 'بدون فیلتر اضافه';
+  }
+
   function bindFilters(options = {}) {
     const card = document.getElementById('reportFilters');
     if (!card) return;
@@ -375,13 +385,19 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
           document.querySelectorAll('.filter-period').forEach(x => x.classList.toggle('active', x === button));
           document.getElementById('customDates').style.display = state.period === 'custom' ? 'grid' : 'none';
           save();
+          updateFilterSummary();
           loadSummary();
+          if (window.activeReportSection) loadSection(window.activeReportSection, 1);
         })
       );
       document.getElementById('applyReportFilter')?.addEventListener('click', () => {
         state.search = document.getElementById('taskSearch')?.value.trim() || '';
         state.start = document.getElementById('filterStart')?.value || '';
         state.end = document.getElementById('filterEnd')?.value || '';
+        if (state.period === 'custom' && state.start && state.end && state.start > state.end) {
+          alert('تاریخ شروع باید قبل از تاریخ پایان باشد.');
+          return;
+        }
         state.filters.status = document.getElementById('filterStatus')?.value || '';
         state.filters.priority = document.getElementById('filterPriority')?.value || '';
         state.filters.category = document.getElementById('filterCategory')?.value || '';
@@ -390,15 +406,18 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
         state.filters.overdue = document.getElementById('filterOverdue')?.value || '';
         state.filters.sort = document.getElementById('taskSort')?.value || 'newest';
         save();
+        updateFilterSummary();
         loadSummary();
         if (window.activeReportSection) loadSection(window.activeReportSection, 1);
       });
+      document.getElementById('taskSearch')?.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('applyReportFilter')?.click(); });
       document.getElementById('clearReportFilters')?.addEventListener('click', () => {
         state.search = '';
         state.start = '';
         state.end = '';
         state.period = 'month';
         state.filters = { status: '', priority: '', category: '', assignee: '', has_deadline: '', overdue: '', sort: 'newest' };
+        updateFilterSummary();
         save();
         loadSummary();
         if (window.activeReportSection) loadSection(window.activeReportSection, 1);
@@ -426,6 +445,7 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
       const el = document.getElementById(id);
       if (el) el.value = state.filters[key] || '';
     });
+    updateFilterSummary();
   }
 
   function renderFiltered(section, data) {
