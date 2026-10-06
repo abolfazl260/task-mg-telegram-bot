@@ -60,7 +60,7 @@ async def metrics(scope: Scope, *, unit_id=None):
                 scope,
                 unit_id,
                 "dashboard.viewed",
-                "organization",
+                "workspace",
                 scope.workspace_id,
             )
         ]
