@@ -117,7 +117,7 @@ async def record_outcome(
                 if current["outcome_id"] != outcome["id"]:
                     raise ValueError("outcome_already_recorded")
                 await db.conn.rollback()
-                return current
+                return to_healthcare_record(current)
             fid, tid = (new_id(), new_id()) if due else (None, None)
             stamp = now()
             statements = [
