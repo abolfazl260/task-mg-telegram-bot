@@ -175,7 +175,7 @@ TaskMG به Task Manager عمومی تبدیل شود و differentiation از Cl
 
 ## Risk
 
-Scope به EMR/PMS/clinical decision support کشیده شود.
+گسترش Patient Record بدون permission، audit، retention و security مناسب انجام شود یا ذخیره Clinical Data با autonomous clinical decision support اشتباه گرفته شود.
 
 ## Impact
 
@@ -784,7 +784,7 @@ pilot success with CSV/manual reference.
 
 ## A8
 
-Patient Reference is sufficient without full medical record.
+Patient Record باید بتواند اطلاعات کامل مرتبط با بیمار، از جمله Clinical Data موردنیاز، را در TaskMG نگهداری کند.
 
 ### Evidence Needed
 workflow blockers.
