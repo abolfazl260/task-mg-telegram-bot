@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
-
 from services.database import fetch_all_sql, fetch_one_sql, transaction
 from services.healthcare.access import ROLE_PERMISSIONS, ClinicAccessError, Scope
 from services.healthcare.terminology import to_healthcare_record
+from services.operations.service import (
+    OperationsConfig,
+    audit,
+    create_unit,
+    create_workspace,
+    new_id,
+    now,
+    text,
+    utc_date,
+)
 
 CASE_STATUSES = {"active", "waiting", "blocked", "completed", "closed", "cancelled"}
 OUTCOMES = {
@@ -22,6 +28,13 @@ OUTCOMES = {
     "resolved": ("حل شد", False, True),
     "rework": ("بازکاری", True, False),
 }
+
+HEALTHCARE_CONFIG = OperationsConfig(
+    workspace_type="healthcare",
+    reference_type="patient",
+    default_timezone="Asia/Tehran",
+    outcomes=OUTCOMES,
+)
 TABLES = {
     "patients": "reference_entities",
     "cases": "cases",
@@ -36,100 +49,32 @@ DOCTOR_CONTEXT = {
 }
 
 
-def new_id():
-    # Short enough for Telegram callback_data while retaining random identity.
-    return uuid.uuid4().hex
-
-
-def now():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def text(value, *, max_length=500, required=True):
-    if (
-        not isinstance(value, str)
-        or len(value.strip()) > max_length
-        or (required and not value.strip())
-    ):
-        raise ValueError("invalid_field")
-    return value.strip()
-
-
-def utc_date(value: str):
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            raise ValueError
-        return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    except (TypeError, ValueError, AttributeError) as exc:
-        raise ValueError("timezone_required") from exc
-
-
-def audit(scope: Scope, unit_id, action, entity_type, entity_id):
-    # Deliberately excludes names, contact info, free text, and clinical data.
-    return (
-        "INSERT INTO operational_audit(id,workspace_id,unit_id,actor_user_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
-        (
-            new_id(),
-            scope.workspace_id,
-            unit_id,
-            str(scope.actor_id),
-            action,
-            entity_type,
-            entity_id,
-            now(),
-        ),
-    )
-
 
 async def create_organization(
-    actor_id: str, bot_key: str, name: str, timezone_name="Asia/Tehran"
+    actor_id: str,
+    bot_key: str,
+    name: str,
+    timezone_name="Asia/Tehran",
 ):
-    ZoneInfo(timezone_name)
-    oid, mid = new_id(), new_id()
-    await transaction(
-        [
-            ("INSERT OR IGNORE INTO users(user_id) VALUES(?)", (str(actor_id),)),
-            (
-                "INSERT INTO workspaces(id,bot_key,name,workspace_type,timezone) VALUES(?,?,?,'healthcare',?)",
-                (oid, text(bot_key), text(name), timezone_name),
-            ),
-            (
-                "INSERT INTO workspace_memberships(id,workspace_id,user_id,role) VALUES(?,?,?,'owner')",
-                (mid, oid, str(actor_id)),
-            ),
-            *[
-                (
-                    "INSERT INTO outcomes(id,workspace_id,key,label,requires_next_action,is_terminal) VALUES(?,?,?,?,?,?)",
-                    (new_id(), oid, key, label, int(requires), int(terminal)),
-                )
-                for key, (label, requires, terminal) in OUTCOMES.items()
-            ],
-            audit(
-                Scope(oid, str(actor_id)),
-                None,
-                "organization.created",
-                "organization",
-                oid,
-            ),
-        ]
+    """Healthcare terminology wrapper over Core workspace creation."""
+    return await create_workspace(
+        actor_id,
+        bot_key,
+        name,
+        config=HEALTHCARE_CONFIG,
+        timezone_name=timezone_name,
+        owner_role="owner",
     )
-    return oid
 
 
 async def create_branch(scope: Scope, name: str):
-    await scope.predicate("branches.manage")
-    bid = new_id()
-    await transaction(
-        [
-            (
-                "INSERT INTO workspace_units(id,workspace_id,name) VALUES(?,?,?)",
-                (bid, scope.workspace_id, text(name)),
-            ),
-            audit(scope, bid, "branch.created", "branch", bid),
-        ]
+    """Healthcare branch terminology over a generic Core workspace unit."""
+    return await create_unit(
+        scope,
+        name,
+        permission="branches.manage",
+        unit_type="branch",
     )
-    return bid
 
 
 async def set_membership(
