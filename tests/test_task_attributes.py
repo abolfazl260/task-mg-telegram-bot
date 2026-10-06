@@ -4,6 +4,7 @@ import pytest
 
 from services import task_attribute_service as attributes
 from services import task_service
+from services.database import fetch_all
 
 
 @pytest.mark.asyncio
@@ -63,3 +64,18 @@ async def test_attribute_permission_and_repeatable_multi_select(test_db, monkeyp
     await attributes.set_task_attribute_async(patient, "tags", ["a", "b"], 12)
     with pytest.raises(PermissionError, match="attribute_permission_denied"):
         await attributes.get_task_attributes_async(patient, 99)
+
+
+@pytest.mark.asyncio
+async def test_sensitive_attribute_roles_and_audit_metadata(test_db, monkeypatch):
+    monkeypatch.setattr(task_service, "_bot", lambda: "clinic")
+    monkeypatch.setattr(attributes, "_bot", lambda: "clinic")
+    patient = await task_service.create_task_async(13, "Patient", "medium", "", "", "", work_item_type="patient")
+    await attributes.create_attribute_definition_async(
+        "diagnosis", "Diagnosis", "text", work_item_type="patient", sensitive=True,
+        view_roles=["doctor"], edit_roles=["doctor"],
+    )
+    await attributes.set_task_attribute_async(patient, "diagnosis", "private", 13)
+    assert (await attributes.get_task_attributes_async(patient, 13))[0]["sensitive"] is True
+    audit = await fetch_all("task_attribute_audit", "task_id=?", (patient,))
+    assert audit and "private" not in str(audit[0])
