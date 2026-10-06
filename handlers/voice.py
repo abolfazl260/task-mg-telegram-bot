@@ -25,8 +25,10 @@ from services.task_intelligence import parse_task_request_smart
 logger = logging.getLogger(__name__)
 
 def _permission_enabled(context, permission_key: str) -> bool:
-    profile = context.bot_data.get("bot_config") if context is not None else None
-    return profile is None or profile.permission_enabled(permission_key)
+    bot_data = getattr(context, "bot_data", {}) if context is not None else {}
+    profile = (bot_data or {}).get("bot_config")
+    checker = getattr(profile, "permission_enabled", None)
+    return profile is None or checker is None or bool(checker(permission_key))
 
 _VOICE_PROCESSING_SEMAPHORE = asyncio.Semaphore(3)
 
