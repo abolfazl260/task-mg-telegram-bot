@@ -99,64 +99,6 @@
             "tasks",
             "healthcare"
           ]
-        },
-        {
-          "key": "followup",
-          "label_singular": "پیگیری",
-          "label_plural": "پیگیری‌ها",
-          "icon": "📞",
-          "allowed_parent_types": [
-            "patient",
-            "session"
-          ],
-          "allowed_child_types": [],
-          "status_profile": "followup",
-          "default_field_schema": "clinic.followup",
-          "default_views": [
-            "list",
-            "detail",
-            "queue"
-          ],
-          "default_actions": [
-            "create",
-            "update",
-            "reschedule",
-            "complete",
-            "comment",
-            "attach"
-          ],
-          "feature_flags": [
-            "tasks",
-            "healthcare"
-          ]
-        },
-        {
-          "key": "action",
-          "label_singular": "اقدام",
-          "label_plural": "اقدام‌ها",
-          "icon": "✅",
-          "allowed_parent_types": [
-            "patient",
-            "session"
-          ],
-          "allowed_child_types": [],
-          "status_profile": "default",
-          "default_field_schema": "clinic.action",
-          "default_views": [
-            "list",
-            "detail"
-          ],
-          "default_actions": [
-            "create",
-            "update",
-            "status",
-            "comment",
-            "attach"
-          ],
-          "feature_flags": [
-            "tasks",
-            "healthcare"
-          ]
         }
       ]
     },

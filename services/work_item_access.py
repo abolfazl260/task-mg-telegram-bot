@@ -5,7 +5,7 @@ closed; personal/team tasks retain their existing TaskBot ACL.
 """
 from __future__ import annotations
 
-from services.database import fetch_one_sql, fetch_all_sql
+from services.database import fetch_all_sql, fetch_one_sql
 from services.work_item_type_service import _profile_settings_async
 
 
@@ -27,7 +27,7 @@ async def membership_roles(task, actor_id):
 async def workspace_predicate(workspace_id, actor_id, *, alias='t', action='view'):
     if alias not in {'t', 's', 'p', 'e', 'c', 'f'} or action not in {'view', 'edit', 'report', 'manage_schema'}:
         raise ValueError('invalid_access_predicate')
-    workspace, policy = await policy_for_workspace(workspace_id)
+    _workspace, policy = await policy_for_workspace(workspace_id)
     memberships = await fetch_all_sql('SELECT role,unit_id FROM workspace_memberships WHERE workspace_id=? AND user_id=? AND status=\'active\'', (workspace_id, str(actor_id)))
     terms, params = [], [workspace_id]
     for membership in memberships:

@@ -41,8 +41,8 @@ async def _ensure_schema():
 
 
 async def save_task_media_async(task_id: str, media_items: list[dict] | None, actor_id=None):
-    from services.work_item_access import authorized_task
     from services.attachment_service import attach_file_async
+    from services.work_item_access import authorized_task
     if not media_items:
         return
     await authorized_task(task_id, actor_id, write=True)
@@ -73,8 +73,8 @@ async def save_task_media_async(task_id: str, media_items: list[dict] | None, ac
 
 
 async def get_task_media_async(task_id: str, actor_id=None):
-    from services.work_item_access import authorized_task
     from services.attachment_service import list_attachments_async
+    from services.work_item_access import authorized_task
     await authorized_task(task_id, actor_id)
     await _ensure_schema()
     rows = await fetch_all(

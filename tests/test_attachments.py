@@ -1,6 +1,8 @@
 import pytest
 
-from services import attachment_service as files, task_service, task_attribute_service as attrs
+from services import attachment_service as files
+from services import task_attribute_service as attrs
+from services import task_service
 from services.database import transaction
 
 

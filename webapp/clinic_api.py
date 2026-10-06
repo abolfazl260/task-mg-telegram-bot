@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from services import (
+    attachment_service,
+    clinic_dashboard,
+    clinic_setup,
+    clinic_typed,
+    clinic_typed_io,
+    contact_point_service,
+    report_definition_service,
+)
 from services.database import fetch_all_sql, fetch_one_sql
-from services import attachment_service, report_definition_service, clinic_typed, clinic_setup, contact_point_service, clinic_dashboard, clinic_typed_io
-from services.work_item_access import authorized_task
 from services.healthcare import csv_io, followups, reports, service, workflows
 from services.healthcare.access import ClinicAccessError, Scope, actor_scopes
+from services.work_item_access import authorized_task
 from webapp.bot_profile import get_webapp_bot_profile
 
 
