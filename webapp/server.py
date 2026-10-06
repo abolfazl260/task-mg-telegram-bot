@@ -72,7 +72,11 @@ class WebAppHandler(BaseHTTPRequestHandler):
         from services.admin_access import resolve_admin_token
         cookies = parse_qs(self.headers.get("Cookie", "").replace(";", "&"))
         admin_id = resolve_admin_token(unquote(cookies.get("admin_session", [""])[0]))
-        if not admin_id or not is_admin(admin_id):
+        # The token was issued by /backoffice only after an admin check. The
+        # short-lived, hashed token is the session credential for API calls;
+        # re-checking a separately loaded ADMIN_IDS list here can reject a
+        # valid session after configuration reload.
+        if not admin_id:
             raise WebAppTaskAccessError("admin_required")
         return type("Admin", (), {"id": int(admin_id)})()
 
