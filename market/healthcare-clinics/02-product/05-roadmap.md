@@ -47,7 +47,7 @@
 
 Vertical Healthcare نیازمند اضافه‌کردن یا تقویت این لایه‌هاست:
 
-- Patient Operational Reference
+- Patient Record
 - Case
 - Follow-up Queue
 - Outcome
@@ -57,7 +57,7 @@ Vertical Healthcare نیازمند اضافه‌کردن یا تقویت این 
 - Workflow Escalation
 - Clinic Metrics
 - Integration Mapping
-- Data Boundaries
+- Patient Record / Clinical Data Security Boundaries
 
 ---
 
@@ -115,7 +115,7 @@ Phase 0 فقط زمانی Done است که:
 - Branch
 - Staff
 - Role
-- Patient Reference
+- Patient Record
 - Case پایه
 - Outcome
 - Next Action
@@ -438,7 +438,7 @@ AI تصمیم بالینی خودکار نمی‌گیرد.
 | Capability | Phase 1 | Phase 2 | Phase 3 | Phase 4 | Phase 5 | Phase 6+ |
 |---|---|---|---|---|---|---|
 | Task Core | Mature | Improve | — | — | Scale | — |
-| Patient Reference | Basic | Improve | Report | Sync | Multi-branch | Verticalize |
+| Patient Record | Basic | Improve | Report | Sync | Multi-branch | Verticalize |
 | Case | Basic | Advanced | Analytics | Sync | Cross-branch | Verticalize |
 | Next Action | Basic | Automated | Analytics | External trigger | Scale | AI |
 | Templates | 5 fixed | Configurable | Analytics | Triggered | Central | Library |
