@@ -164,6 +164,20 @@ CREATE TABLE IF NOT EXISTS task_attribute_values (
     updated_at TEXT NOT NULL DEFAULT '',
     UNIQUE(task_id, definition_id, ordinal)
 );
+CREATE TABLE IF NOT EXISTS task_contact_points (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    type TEXT NOT NULL CHECK(type IN ('phone','email','address','other')),
+    label TEXT NOT NULL DEFAULT '',
+    value TEXT NOT NULL,
+    normalized_value TEXT NOT NULL,
+    is_primary INTEGER NOT NULL DEFAULT 0 CHECK(is_primary IN (0,1)),
+    note TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','inactive')),
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT ''
+);
 CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_bot_key ON tasks(bot_key);
 CREATE INDEX IF NOT EXISTS idx_tasks_bot_user ON tasks(bot_key,user_id);
@@ -186,6 +200,9 @@ CREATE INDEX IF NOT EXISTS idx_attribute_values_task ON task_attribute_values(ta
 CREATE INDEX IF NOT EXISTS idx_attribute_values_text ON task_attribute_values(definition_id, value_text);
 CREATE INDEX IF NOT EXISTS idx_attribute_values_number ON task_attribute_values(definition_id, value_number);
 CREATE INDEX IF NOT EXISTS idx_attribute_values_date ON task_attribute_values(definition_id, value_date);
+CREATE INDEX IF NOT EXISTS idx_contact_points_task ON task_contact_points(task_id, type, status);
+CREATE INDEX IF NOT EXISTS idx_contact_points_normalized ON task_contact_points(normalized_value, type);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_points_primary ON task_contact_points(task_id, type) WHERE is_primary=1 AND status='active';
 """
 
 CORE_SCHEMA = SCHEMA
@@ -269,12 +286,22 @@ async def migrate_core_schema(conn) -> None:
             created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '',
             UNIQUE(task_id, definition_id, ordinal)
         );
+        CREATE TABLE IF NOT EXISTS task_contact_points (
+            id TEXT PRIMARY KEY, workspace_id TEXT, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            type TEXT NOT NULL CHECK(type IN ('phone','email','address','other')), label TEXT NOT NULL DEFAULT '',
+            value TEXT NOT NULL, normalized_value TEXT NOT NULL, is_primary INTEGER NOT NULL DEFAULT 0 CHECK(is_primary IN (0,1)),
+            note TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','inactive')),
+            created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+        );
         CREATE INDEX IF NOT EXISTS idx_attribute_definitions_lookup ON task_attribute_definitions(bot_key, workspace_id, work_item_type, active, display_order);
         CREATE INDEX IF NOT EXISTS idx_attribute_definitions_search ON task_attribute_definitions(searchable, filterable, sortable);
         CREATE INDEX IF NOT EXISTS idx_attribute_values_task ON task_attribute_values(task_id, definition_id, ordinal);
         CREATE INDEX IF NOT EXISTS idx_attribute_values_text ON task_attribute_values(definition_id, value_text);
         CREATE INDEX IF NOT EXISTS idx_attribute_values_number ON task_attribute_values(definition_id, value_number);
         CREATE INDEX IF NOT EXISTS idx_attribute_values_date ON task_attribute_values(definition_id, value_date);
+        CREATE INDEX IF NOT EXISTS idx_contact_points_task ON task_contact_points(task_id, type, status);
+        CREATE INDEX IF NOT EXISTS idx_contact_points_normalized ON task_contact_points(normalized_value, type);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_points_primary ON task_contact_points(task_id, type) WHERE is_primary=1 AND status='active';
         """
     )
 
