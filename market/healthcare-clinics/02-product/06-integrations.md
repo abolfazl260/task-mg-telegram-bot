@@ -8,7 +8,7 @@
 
 # 1. نقش Integration در Product
 
-TaskMG باید System of Action باشد، نه System of Record.
+TaskMG Clinic باید هم Patient Record را نگهداری کند و هم System of Action را اجرا کند؛ PMS/EMR خارجی optional است.
 
 بنابراین Integration سه کار اصلی دارد:
 
