@@ -3,6 +3,7 @@ import logging
 from datetime import time as dt_time
 
 from telegram import BotCommand, BotCommandScopeChat, InlineKeyboardButton, Update
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -213,7 +214,13 @@ async def post_init(app:Application):
     from config import ADMIN_IDS
     for admin_id in ADMIN_IDS:
         if str(admin_id).strip().isdigit():
-            await app.bot.set_my_commands(commands + [BotCommand("backoffice", "لینک موقت پنل مدیریت")], scope=BotCommandScopeChat(int(admin_id)))
+            try:
+                await app.bot.set_my_commands(commands + [BotCommand("backoffice", "لینک موقت پنل مدیریت")], scope=BotCommandScopeChat(int(admin_id)))
+            except BadRequest as exc:
+                # A user who has not opened this bot yet is not a resolvable
+                # chat for Telegram. Do not prevent a managed bot from
+                # starting just because its admin menu cannot be registered.
+                logger.warning("Admin command menu unavailable bot=%s admin=%s: %s", profile.key if profile else "default", admin_id, exc)
     if app.job_queue:
         if profile is not None and profile.feature_enabled("healthcare") and profile.feature_enabled("clinic_staff_reminders"):
             from services.healthcare.notifications import staff_notification_job
