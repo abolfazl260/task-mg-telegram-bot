@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
-from typing import ClassVar, Mapping, Collection
+from typing import ClassVar
 
 from services.database import fetch_all_sql
 
