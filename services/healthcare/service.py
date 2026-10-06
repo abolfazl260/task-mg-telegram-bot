@@ -1,6 +1,6 @@
 """Scoped operational patient/case/action repositories and atomic mutations."""
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 from services.database import fetch_all_sql, fetch_one_sql, transaction
 from services.healthcare.access import ClinicAccessError, ROLE_PERMISSIONS, Scope
