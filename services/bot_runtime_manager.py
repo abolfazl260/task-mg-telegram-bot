@@ -122,7 +122,7 @@ class BotRuntimeManager:
     async def _cleanup_failed_start(self, bot_key: str, app: Application) -> None:
         try:
             await self._stop_app(app)
-        except Exception:  # noqa: BLE001 - cleanup must not mask the start error
+        except Exception:
             logger.exception("bot_runtime_failed_start_cleanup bot=%s", bot_key)
 
     async def _start_profile(
@@ -147,7 +147,7 @@ class BotRuntimeManager:
                 await updater.start_polling(
                     allowed_updates=[*Update.ALL_TYPES, "guest_message"]
                 )
-        except Exception as exc:  # noqa: BLE001 - runtime isolation boundary
+        except Exception as exc:
             if app is not None:
                 await self._cleanup_failed_start(bot_key, app)
             await self._record(
@@ -189,7 +189,7 @@ class BotRuntimeManager:
         await self._record(bot_key, "stopping", desired_status=desired_status)
         try:
             await self._stop_app(handle.app)
-        except Exception as exc:  # noqa: BLE001 - runtime isolation boundary
+        except Exception as exc:
             await self._record(
                 bot_key,
                 "error",
@@ -216,7 +216,7 @@ class BotRuntimeManager:
         bot_key = old.profile.key
         try:
             rollback = await self._start_profile(old.profile, event="started")
-        except Exception:  # noqa: BLE001 - failure already persisted by start path
+        except Exception:
             logger.exception("bot_runtime_rollback_failed bot=%s", bot_key)
             return
 
@@ -239,7 +239,7 @@ class BotRuntimeManager:
         self.handles.pop(bot_key, None)
         try:
             await self._stop_app(old.app)
-        except Exception as exc:  # noqa: BLE001 - runtime isolation boundary
+        except Exception as exc:
             self.handles[bot_key] = old
             await self._record(
                 bot_key,
@@ -252,7 +252,7 @@ class BotRuntimeManager:
 
         try:
             await self._start_profile(profile, event="reloaded")
-        except Exception as exc:  # noqa: BLE001 - runtime isolation boundary
+        except Exception as exc:
             await self._rollback_profile(
                 old,
                 reload_error=_safe_error("reload_failed", exc),
@@ -261,7 +261,7 @@ class BotRuntimeManager:
     async def _start_isolated(self, profile: BotProfile) -> None:
         try:
             await self._start_profile(profile, event="started")
-        except Exception:  # noqa: BLE001 - one bot must not terminate siblings
+        except Exception:
             logger.warning(
                 "bot_runtime_start_isolated_failure bot=%s",
                 profile.key,
@@ -301,7 +301,7 @@ class BotRuntimeManager:
                     await self.reconcile(initial_profiles)
                 else:
                     await self.reconcile()
-            except Exception:  # noqa: BLE001 - keep running bots alive on loader failure
+            except Exception:
                 logger.exception("bot_runtime_reconcile_failed")
             first = False
             try:
@@ -357,7 +357,7 @@ async def run_runtime_control_plane(
         if shutdown_hook is not None:
             try:
                 await shutdown_hook()
-            except Exception:  # noqa: BLE001 - continue global shutdown
+            except Exception:
                 logger.exception("shared_runtime_shutdown_failed")
 
         resource_stop.set()
@@ -374,17 +374,17 @@ async def run_runtime_control_plane(
             from webapp.runtime import stop_webapp_server
 
             stop_webapp_server()
-        except Exception:  # noqa: BLE001 - continue process shutdown
+        except Exception:
             logger.exception("Failed to stop webapp server during shutdown")
         try:
             from services.database import close_all_dbs
 
             await close_all_dbs()
-        except Exception:  # noqa: BLE001 - continue process shutdown
+        except Exception:
             logger.exception("Failed to close database connections during shutdown")
         try:
             from services.database import shutdown_sync_loop
 
             shutdown_sync_loop()
-        except Exception:  # noqa: BLE001 - continue process shutdown
+        except Exception:
             logger.exception("Failed to close database compatibility loop during shutdown")
