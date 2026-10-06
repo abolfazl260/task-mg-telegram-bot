@@ -106,7 +106,7 @@ Phase 0 فقط زمانی Done است که:
 
 ## هدف
 
-ساخت حداقل System of Action قابل استفاده در Pilot واقعی.
+ساخت حداقل Clinic مستقل و قابل استفاده در Pilot واقعی: Patient Record + Session/Visit hierarchy + operational actions.
 
 ## Product Scope
 
@@ -271,7 +271,7 @@ Case active + no next action
 
 ## هدف
 
-کاهش duplicate data entry و اتصال TaskMG به System of Record.
+کاهش duplicate data entry و اتصال optional به سیستم‌های خارجی؛ TaskMG Clinic باید قبل از integration نیز مستقل قابل استفاده باشد.
 
 ## Integration Priority
 
@@ -780,4 +780,4 @@ Roadmap باید حداقل بعد از هر یک از این اتفاق‌ها 
 
 **Validate → Clinic MVP → Workflow Automation → Management Analytics → Integrations → Multi-Branch → Vertical Expansion → Advanced Intelligence**
 
-اگر تیم این ترتیب را بشکند و قبل از PMF به سمت PMS جامع، integrationهای متعدد یا AI پیچیده برود، ریسک scope creep و کاهش سرعت یادگیری بالا می‌رود.
+اگر تیم قبل از تثبیت Core typed items/attributes و Clinic standalone UX به سمت integrationهای متعدد یا AI پیچیده برود، ریسک scope creep و معماری شکننده بالا می‌رود.
