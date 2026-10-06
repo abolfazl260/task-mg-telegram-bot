@@ -38,6 +38,7 @@ async def record_runtime_status(
     desired_status: str,
     event: str = "",
     error: str = "",
+    clear_error: bool = False,
 ) -> None:
     await ensure_runtime_status_schema()
     now = _now()
@@ -45,6 +46,7 @@ async def record_runtime_status(
     stopped = now if event == "stopped" else ""
     reloaded = now if event == "reloaded" else ""
     error_at = now if error else ""
+    clear_error_flag = 1 if clear_error else 0
     db = await get_db()
     async with db.lock:
         await db.conn.execute(
@@ -69,10 +71,12 @@ async def record_runtime_status(
                     ELSE bot_runtime_status.last_reloaded_at
                 END,
                 last_error=CASE
+                    WHEN ?=1 THEN ''
                     WHEN excluded.last_error!='' THEN excluded.last_error
                     ELSE bot_runtime_status.last_error
                 END,
                 last_error_at=CASE
+                    WHEN ?=1 THEN ''
                     WHEN excluded.last_error_at!='' THEN excluded.last_error_at
                     ELSE bot_runtime_status.last_error_at
                 END,
@@ -88,6 +92,8 @@ async def record_runtime_status(
                 error,
                 error_at,
                 now,
+                clear_error_flag,
+                clear_error_flag,
             ),
         )
         await db.conn.commit()
