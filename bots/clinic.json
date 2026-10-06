@@ -45,6 +45,30 @@
       "default_type": "patient",
       "types": [
         {
+          "key": "task",
+          "label_singular": "کار",
+          "label_plural": "کارها",
+          "icon": "📝",
+          "allowed_parent_types": [],
+          "allowed_child_types": [],
+          "status_profile": "default",
+          "default_field_schema": {},
+          "default_views": [
+            "list",
+            "detail"
+          ],
+          "default_actions": [
+            "create",
+            "update",
+            "status",
+            "comment",
+            "attach"
+          ],
+          "feature_flags": [
+            "tasks"
+          ]
+        },
+        {
           "key": "patient",
           "label_singular": "بیمار",
           "label_plural": "بیماران",
