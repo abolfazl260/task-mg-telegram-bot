@@ -8,7 +8,7 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <div class="notion-app">
+  <div class="notion-app" data-auth-protected hidden>
     <!-- Topbar -->
     <header class="notion-topbar">
       <div class="notion-breadcrumbs">
@@ -87,7 +87,7 @@
     </form>
   </div>
 
-  <script src="/static/task.js"></script>
+  <script src="/static/auth-guard.js"></script>\n  <script src="/static/task.js"></script>
   <script>
     (function() {
       const b = document.getElementById('dashboard-link');
