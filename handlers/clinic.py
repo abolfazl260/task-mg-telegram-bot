@@ -141,16 +141,18 @@ async def handle_clinic_input(update, context):
             await update.effective_message.reply_text("کد پرونده/شناسه بیمار را ارسال کنید یا - بفرستید:")
         elif step == "typed_session_title":
             context.user_data["clinic_session_title"] = value
-            context.user_data["clinic_input"] = "typed_session_time"
-            await update.effective_message.reply_text("زمان جلسه را با قالب ISO ارسال کنید یا - بفرستید:")
-        elif step == "typed_session_time":
+            context.user_data["clinic_input"] = "typed_session_date"
+            await update.effective_message.reply_text("📅 تاریخ جلسه را انتخاب کنید:\nجلسه یک نوبت مشخص از مراجعه بیمار است؛ پرونده عملیاتی برای پیگیری بلندمدت استفاده می‌شود.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("امروز", callback_data="clinic:session_date:0"), InlineKeyboardButton("فردا", callback_data="clinic:session_date:1")], [InlineKeyboardButton("۳ روز بعد", callback_data="clinic:session_date:3"), InlineKeyboardButton("انتخاب تاریخ شمسی", callback_data="clinic:session_date:custom")], [InlineKeyboardButton("بدون تاریخ", callback_data="clinic:session_date:none")]]))
+        elif step == "typed_session_custom_date":
+            from utils.date_parse import parse_deadline_input
+            scheduled = parse_deadline_input(value)
+            if not scheduled: raise ValueError("invalid_date")
             scope = Scope(memberships[0]["organization_id"], str(update.effective_user.id))
             patient_id = context.user_data.pop("clinic_patient_id")
             title = context.user_data.pop("clinic_session_title")
-            scheduled = None if value == "-" else value
             await service.create_case(scope, patient_id, title, str(update.effective_user.id), expected_at=scheduled)
             context.user_data.pop("clinic_input", None)
-            await update.effective_message.reply_text("✅ جلسه بیمار ایجاد شد.")
+            await update.effective_message.reply_text("✅ جلسه بیمار برای تاریخ شمسی انتخاب‌شده ایجاد شد.")
         elif step == "typed_case_title":
             scope = Scope(memberships[0]["organization_id"], str(update.effective_user.id))
             patient_id = context.user_data.pop("clinic_patient_id")
@@ -311,6 +313,20 @@ async def clinic_callback(update, context):
             lines = [f"👤 {patient.get('display_name')}\nوضعیت: {patient.get('status')}"]
             lines.append("\n".join(f"• {x['title']} · {x['status']}" for x in cases) or "هنوز پرونده عملیاتی یا جلسه‌ای ثبت نشده است.")
             return await _render(update, "\n".join(lines), [[InlineKeyboardButton("➕ ایجاد جلسه", callback_data=f"clinic:new_session:{parts[2]}"), InlineKeyboardButton("📁 ایجاد پرونده عملیاتی", callback_data=f"clinic:new_case:{parts[2]}")], [InlineKeyboardButton("بازگشت", callback_data="clinic:patients:0")]])
+        if parts[1] == "session_date":
+            if context.user_data.get("clinic_input") != "typed_session_date":
+                raise ValueError("session_date_expired")
+            choice = parts[2]
+            if choice == "custom":
+                context.user_data["clinic_input"] = "typed_session_custom_date"
+                return await query.message.reply_text("تاریخ را به شمسی وارد کنید؛ مثال: ۱۴۰۵/۰۷/۱۵ یا 1405-07-15")
+            scope = await _scope(update, context)
+            patient_id = context.user_data.pop("clinic_patient_id")
+            title = context.user_data.pop("clinic_session_title")
+            expected = None if choice == "none" else (datetime.now(timezone.utc) + timedelta(days=int(choice))).date().isoformat()
+            await service.create_case(scope, patient_id, title, str(update.effective_user.id), expected_at=expected)
+            context.user_data.pop("clinic_input", None)
+            return await query.message.reply_text("✅ جلسه بیمار ایجاد شد.")
         if parts[1] == "new_session":
             context.user_data["clinic_patient_id"] = parts[2]
             context.user_data["clinic_input"] = "typed_session_title"
@@ -318,7 +334,7 @@ async def clinic_callback(update, context):
         if parts[1] == "new_case":
             context.user_data["clinic_patient_id"] = parts[2]
             context.user_data["clinic_input"] = "typed_case_title"
-            return await query.message.reply_text("عنوان پرونده عملیاتی را ارسال کنید:")
+            return await query.message.reply_text("📁 پرونده عملیاتی برای یک روند چندمرحله‌ای بیمار است و می‌تواند چند جلسه، اقدام و پیگیری داشته باشد.\n\nعنوان پرونده عملیاتی را ارسال کنید:")
         if parts[1] == "followup":
             item = await service.get_entity(scope, "followups", parts[2])
             case = await service.get_entity(scope, "cases", item["case_id"])
