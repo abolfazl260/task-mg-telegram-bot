@@ -25,8 +25,8 @@ def _claim(bot_key: str, kind: str, min_interval: int) -> bool:
     with _LOCK:
         if key in _RUNNING:
             return False
-        last_success = _LAST_SUCCESS.get(key, 0.0)
-        if now - last_success < min_interval:
+        last_success = _LAST_SUCCESS.get(key)
+        if last_success is not None and now - last_success < min_interval:
             return False
         _RUNNING.add(key)
         return True
