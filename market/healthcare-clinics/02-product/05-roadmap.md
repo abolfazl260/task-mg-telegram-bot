@@ -115,8 +115,11 @@ Phase 0 فقط زمانی Done است که:
 - Branch
 - Staff
 - Role
-- Patient Record
-- Case پایه
+- Patient typed Work Item
+- ContactPointهای تفکیک‌شده
+- Patient Attributes / Clinical Record
+- Session/Visit child item
+- Follow-up/Action child item
 - Outcome
 - Next Action
 
@@ -130,10 +133,13 @@ Phase 0 فقط زمانی Done است که:
 - reminder
 
 ### P0 Views
+- Patients list/detail
+- Patient medical/contact sections
+- Sessions/Visits list and history
 - personal queue
 - follow-up queue
 - overdue
-- manager dashboard
+- Clinic-specific manager dashboard
 
 ### P0 Templates
 - Treatment Plan Follow-up
