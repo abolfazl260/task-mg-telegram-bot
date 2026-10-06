@@ -3,7 +3,7 @@
 > وضعیت سند: Product Strategy v1  
 > Vertical: Healthcare Clinics  
 > Beachhead: کلینیک‌های خصوصی دندان‌پزشکی چندپزشکه  
-> اصل محصول: **System of Record را جایگزین نکن؛ System of Action را بساز.**
+> اصل محصول: **Patient Record و System of Action را روی Core مشترک یکپارچه کن؛ Clinic باید بدون PMS خارجی قابل استفاده باشد.**
 
 ---
 
@@ -75,7 +75,7 @@
 
 ## هدف
 
-Patient object در TaskMG Healthcare باید **Patient Record رسمی و قابل توسعه** باشد. اطلاعات هویتی، ارتباطی و clinical data می‌توانند در خود TaskMG ذخیره شوند و برای هر بخش permission، audit و lifecycle مناسب اعمال شود.
+Patient در TaskMG Healthcare یک **top-level typed Work Item / Task** با Patient Record کامل است. اطلاعات هویتی، ارتباطی و Clinical Data به‌صورت Core Attributes روی این item ذخیره می‌شوند. Session/Visit/Follow-up نیز child item / Subtask هستند.
 
 ## P0
 
@@ -125,7 +125,7 @@ Patient object در TaskMG Healthcare باید **Patient Record رسمی و قا
 
 - patient communication preferences
 - consent metadata
-- cross-branch patient reference
+- cross-branch patient record
 
 ## Out of Scope
 
