@@ -355,6 +355,21 @@ LEGACY_TABLE_RENAMES = (
     ("clinic_notifications", "operational_notifications"),
 )
 
+GENERIC_METADATA_COLUMNS = {
+    "workspaces": {
+        "workspace_type": "TEXT NOT NULL DEFAULT 'generic'",
+    },
+    "workspace_units": {
+        "unit_type": "TEXT NOT NULL DEFAULT 'branch'",
+    },
+    "workspace_memberships": {
+        "metadata_json": "TEXT NOT NULL DEFAULT '{}'",
+    },
+    "reference_entities": {
+        "reference_type": "TEXT NOT NULL DEFAULT 'generic'",
+    },
+}
+
 LEGACY_COLUMN_RENAMES = {
     "workspace_units": (("organization_id", "workspace_id"),),
     "workspace_memberships": (
@@ -454,6 +469,17 @@ async def migrate(conn) -> None:
                     )
                     columns.remove(old)
                     columns.add(new)
+
+        for table, additions in GENERIC_METADATA_COLUMNS.items():
+            if table not in tables:
+                continue
+            columns = await _column_names(conn, table)
+            for name, definition in additions.items():
+                if name not in columns:
+                    await conn.execute(
+                        f"ALTER TABLE {table} ADD COLUMN {name} {definition}"  # nosec B608
+                    )
+                    columns.add(name)
 
         if "tasks" in tables:
             columns = await _column_names(conn, "tasks")
