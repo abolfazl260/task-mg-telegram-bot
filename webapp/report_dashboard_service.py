@@ -256,11 +256,14 @@ def _heatmap_data(tasks, start: date, end: date) -> dict:
     created_counts: dict[str, int] = {}
     completed_counts: dict[str, int] = {}
     deadline_counts: dict[str, int] = {}
+    titles: dict[str, list[str]] = {}
     
     for task in tasks:
         c_date = str(task.get("created_at") or "")[:10]
         if c_date:
             created_counts[c_date] = created_counts.get(c_date, 0) + 1
+            title = str(task.get("title") or "بدون عنوان").strip()
+            titles.setdefault(c_date, []).append(title[:70])
         status = (task.get("status") or "").lower()
         if status in {"done", "completed"}:
             comp_date = str(task.get("completed_at") or "")[:10]
@@ -302,6 +305,7 @@ def _heatmap_data(tasks, start: date, end: date) -> dict:
             "count": total_activity,
             "activity": total_activity,
             "completion_rate": daily_rate,
+            "titles": titles.get(iso, [])[:5],
         })
         cursor += timedelta(days=1)
         

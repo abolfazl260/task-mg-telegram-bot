@@ -63,6 +63,7 @@
 .gh-day-labels{display:grid!important;grid-template-rows:repeat(7,16px)!important;gap:4px!important;font-size:11px!important;color:#64748b!important;font-weight:700!important;line-height:16px!important;text-align:right!important;padding-left:4px!important}
 .gh-cells-grid{display:grid!important;grid-template-rows:repeat(7,16px)!important;grid-auto-flow:column!important;grid-auto-columns:16px!important;gap:4px!important}
 .gh-heat-cell{width:16px!important;height:16px!important;border-radius:4px!important;cursor:pointer!important;transition:transform .14s,outline .14s!important;box-sizing:border-box!important}
+.heat-nav{border:1px solid #cbd5e1!important;background:#fff!important;color:#1e293b!important;border-radius:9px!important;padding:6px 10px!important;cursor:pointer!important;font:inherit!important;font-size:12px!important;font-weight:800!important}
 .gh-heat-cell:hover{transform:scale(1.3)!important;z-index:3!important;outline:2px solid #1e293b!important}
 .gh-level-0{background:#ebedf0!important;border:1px solid rgba(27,31,35,.05)!important}
 .gh-level-1{background:#9be9a8!important;border:1px solid rgba(27,31,35,.08)!important}
@@ -490,6 +491,22 @@
       const busiest = data.busiest_days || [];
       const jalaliPeriod = data.jalali_period || '';
       const dayNames = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'];
+      const firstDate = new Date(`${days[0]?.date || new Date().toISOString().slice(0, 10)}T00:00:00Z`);
+      const monthLabel = jalaliPeriod || 'ماه جاری';
+      const shiftMonth = (delta) => {
+        const d = new Date(Date.UTC(firstDate.getUTCFullYear(), firstDate.getUTCMonth() + delta, 1));
+        const start = d.toISOString().slice(0, 10);
+        const endDate = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
+        const end = endDate.toISOString().slice(0, 10);
+        const p = new URLSearchParams({ period: 'custom', start, end });
+        loadSectionWithQuery('heatmap', p);
+      };
+      window.loadSectionWithQuery = (section, p) => {
+        details.innerHTML = '<div class="loading">در حال دریافت گزارش...</div>';
+        getJson(`/api/public-reports/monthly/${encodeURIComponent(token)}/section/${section}?${p.toString()}`)
+          .then(renderFiltered.bind(null, section)).catch(e => { details.innerHTML = `<p class="error">${esc(e.message)}</p>`; });
+      };
+      window.__heatmapShift = shiftMonth;
 
       details.innerHTML = `
         <div class="section-title">
@@ -500,6 +517,9 @@
             </div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="heat-nav" onclick="window.__heatmapShift(-1)">‹ ماه قبل</button>
+            <span class="chip">${esc(monthLabel)}</span>
+            <button class="heat-nav" onclick="window.__heatmapShift(1)">ماه بعد ›</button>
             <span class="chip">کل فعالیت‌ها: ${data.total || 0}</span>
             <span class="chip" style="background:#ecfdf3;color:#027a48">تکمیل‌شده: ${data.total_completed || 0}</span>
             <span class="chip" style="background:#eff8ff;color:#175cd3">نرخ تکمیل: ${data.overall_completion_rate || 0}٪</span>
@@ -530,7 +550,7 @@
             <div class="gh-cells-grid">
               ${days.map(x => `
                 <div class="gh-heat-cell gh-level-${x.level || 0}"
-                     title="${esc(x.weekday_name)} ${x.jalali_day} ${esc(x.jalali_month_name)} ${x.jalali_year} (${esc(x.date)})&#10;کل فعالیت: ${x.activity} مورد&#10;✅ انجام‌شده: ${x.completed} | ➕ ایجادشده: ${x.created}&#10;نرخ تکمیل: ${x.completion_rate}٪">
+                     title="${esc(x.weekday_name)} ${x.jalali_day} ${esc(x.jalali_month_name)} ${x.jalali_year} (${esc(x.date)})&#10;کل فعالیت: ${x.activity} مورد&#10;✅ انجام‌شده: ${x.completed} | ➕ ایجادشده: ${x.created}&#10;نرخ تکمیل: ${x.completion_rate}٪&#10;${(x.titles || []).join(' · ')}">
                 </div>
               `).join('')}
             </div>
