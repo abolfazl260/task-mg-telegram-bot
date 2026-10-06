@@ -1,9 +1,6 @@
 """Reusable operational-domain primitives for TaskMG Core.
 
-Verticals such as Healthcare configure terminology and role policy on top of
-these workspace/reference/case/workflow/follow-up capabilities.
+Import concrete modules explicitly (services.operations.schema,
+services.operations.access, services.operations.service) so database bootstrap
+does not create circular imports.
 """
-
-from services.operations.access import WorkspaceAccessError, WorkspaceScope
-
-__all__ = ["WorkspaceAccessError", "WorkspaceScope"]
