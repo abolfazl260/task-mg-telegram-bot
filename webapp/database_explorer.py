@@ -151,7 +151,8 @@ def _build_filter(column: str, kind: str, operator: str, item: dict[str, Any]) -
                 raise ValueError("invalid_filter_range")
             return f"{quoted} BETWEEN ? AND ?", [lower, upper]
         value = _number_value(item.get("value"))
-        return f"{quoted} {{'equals':'=','greater_than':'>','less_than':'<'}[operator]} ?", [value]
+        sql_operator = {"equals": "=", "greater_than": ">", "less_than": "<"}[operator]
+        return f"{quoted} {sql_operator} ?", [value]
     if kind == "datetime":
         if operator == "range":
             lower, upper = _text_value(item.get("value")), _text_value(item.get("value_to"))
@@ -159,7 +160,8 @@ def _build_filter(column: str, kind: str, operator: str, item: dict[str, Any]) -
                 raise ValueError("invalid_filter_range")
             return f"{quoted} BETWEEN ? AND ?", [lower, upper]
         value = _text_value(item.get("value"))
-        return f"{quoted} {{'before':'<','after':'>'}[operator]} ?", [value]
+        sql_operator = {"before": "<", "after": ">"}[operator]
+        return f"{quoted} {sql_operator} ?", [value]
     value = str(item.get("value", "")).strip().lower()
     if value not in {"true", "false", "1", "0"}:
         raise ValueError("invalid_boolean_filter")
