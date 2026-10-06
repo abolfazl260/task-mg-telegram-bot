@@ -116,7 +116,7 @@ Category پیشنهادی:
 
 Category education باید توضیح دهد:
 
-- PMS = System of Record
+- TaskMG Healthcare = Patient Record + System of Action؛ PMS می‌تواند external/integrated system باقی بماند
 - TaskMG = System of Action
 
 Content باید به مشتری کمک کند تفاوت را بفهمد.
@@ -504,7 +504,7 @@ Example score:
 ## Negative
 - solo low-volume: -3
 - only wants calendar: -3
-- full EMR replacement: -5
+- expects full billing/insurance/scheduling replacement on day one: -5
 
 ---
 
