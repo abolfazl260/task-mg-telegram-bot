@@ -4,6 +4,7 @@
   const tg2 = window.Telegram?.WebApp;
   const initData2 = tg2?.initData || "";
   let registry = [];
+  let permissionRegistry = [];
   let templates = {};
   let editingKey = "";
 
@@ -38,6 +39,39 @@
       </label>`).join("");
   }
 
+  function selectedPermissionPolicy() {
+    const checked = new Set(
+      [...document.querySelectorAll("#botPermissionGrid input[type=checkbox]:checked")].map(x => x.value)
+    );
+    return Object.fromEntries(permissionRegistry.map(p => [p.key, checked.has(p.key)]));
+  }
+
+  function renderPermissionGrid(selected = {}) {
+    const selectedSet = new Set(
+      Array.isArray(selected)
+        ? selected
+        : Object.entries(selected || {}).filter(([, enabled]) => Boolean(enabled)).map(([key]) => key)
+    );
+    const enabledFeatures = new Set(selectedFeatures());
+    const grid = q("#botPermissionGrid");
+    if (!grid) return;
+    grid.innerHTML = permissionRegistry.map(p => {
+      const required = p.required_features || [];
+      const available = required.every(feature => enabledFeatures.has(feature));
+      const checked = available && selectedSet.has(p.key);
+      return `
+        <label class="feature-option" title="${esc2(required.length ? "Requires features: " + required.join(", ") : "No feature dependency")}">
+          <input type="checkbox" value="${esc2(p.key)}" ${checked ? "checked" : ""} ${available ? "" : "disabled"}>
+          <span><b>${esc2(p.label)}</b><small>${esc2(p.key)}</small></span>
+        </label>`;
+    }).join("");
+  }
+
+  function syncPermissionAvailability() {
+    const current = selectedPermissionPolicy();
+    renderPermissionGrid(current);
+  }
+
   function resetEditor() {
     editingKey = "";
     q("#botEditorTitle").textContent = "Create Bot";
@@ -50,7 +84,9 @@
     q("#botSettings").value = "{}";
     q("#botStatus").value = "inactive";
     q("#botProfileType").value = "custom";
-    renderFeatureGrid(["core","tasks"]);
+    const template = templates.custom || {features:["core","tasks"], permissions:{}};
+    renderFeatureGrid(template.features || ["core","tasks"]);
+    renderPermissionGrid(template.permissions || {});
     q("#cancelBotEdit").hidden = true;
     message("");
   }
@@ -71,6 +107,7 @@
     q("#botStatus").value = bot.status || "inactive";
     q("#botProfileType").value = bot.profile_type || "custom";
     renderFeatureGrid(bot.features || []);
+    renderPermissionGrid(bot.permissions || {});
     q("#cancelBotEdit").hidden = false;
     q("#botEditor").scrollIntoView({behavior:"smooth", block:"start"});
   }
@@ -115,8 +152,11 @@
   async function loadRegistry() {
     const data = await request("/api/admin/bot-features");
     registry = data.features || [];
+    permissionRegistry = data.permissions || [];
     templates = Object.fromEntries((data.profiles || []).map(profile => [profile.key, profile]));
-    renderFeatureGrid((templates.custom && templates.custom.features) || ["core","tasks"]);
+    const template = templates.custom || {features:["core","tasks"], permissions:{}};
+    renderFeatureGrid(template.features || ["core","tasks"]);
+    renderPermissionGrid(template.permissions || {});
   }
 
   async function saveBot(event) {
@@ -140,7 +180,8 @@
       status: q("#botStatus").value,
       profile_type: q("#botProfileType").value,
       base_profile: q("#botProfileType").value === "custom" ? "" : q("#botProfileType").value,
-      features: selectedFeatures()
+      features: selectedFeatures(),
+      permissions: selectedPermissionPolicy()
     };
     if (!payload.bot_token) delete payload.bot_token;
     if (editingKey) {
@@ -170,8 +211,12 @@
   q("#botEditorForm")?.addEventListener("submit", e => saveBot(e).catch(err => message(err.message, true)));
   q("#botProfileType")?.addEventListener("change", e => {
     const template = templates[e.target.value];
-    if (template?.features) renderFeatureGrid(template.features);
+    if (template?.features) {
+      renderFeatureGrid(template.features);
+      renderPermissionGrid(template.permissions || {});
+    }
   });
+  q("#botFeatureGrid")?.addEventListener("change", syncPermissionAvailability);
   q("#validateBotToken")?.addEventListener("click", validateToken);
   q("#cancelBotEdit")?.addEventListener("click", resetEditor);
   q("#newBotButton")?.addEventListener("click", resetEditor);
