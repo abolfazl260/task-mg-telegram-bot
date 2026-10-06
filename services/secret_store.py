@@ -9,6 +9,7 @@ available only for decryption during rotation.
 """
 from __future__ import annotations
 
+import binascii
 import json
 import os
 import re
@@ -57,7 +58,7 @@ def _load_keyring() -> SecretKeyring | None:
             raise SecretStoreError("invalid_bot_token_key_id")
         try:
             keys[key_id] = Fernet(str(encoded_key).strip().encode("ascii"))
-        except (ValueError, TypeError, UnicodeEncodeError) as exc:
+        except (binascii.Error, ValueError, TypeError, UnicodeEncodeError) as exc:
             raise SecretStoreError("invalid_bot_token_encryption_key") from exc
 
     if not active:
