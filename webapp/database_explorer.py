@@ -222,7 +222,7 @@ async def database_explorer_rows(
         total = int((await cur.fetchone())[0])
     async with db.conn.execute(
         f"SELECT {projection} FROM {table_sql}{where_sql}{order_sql} LIMIT ? OFFSET ?",
-        tuple([*params, limit, offset]),
+        (*params, limit, offset),
     ) as cur:
         rows = [dict(row) for row in await cur.fetchall()]
     return {

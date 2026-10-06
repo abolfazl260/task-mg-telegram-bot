@@ -87,7 +87,14 @@ async def test_database_explorer_core_tasks_do_not_leak_healthcare_scoped_rows(t
         ("branch-1", "org-1", "Main"),
     )
     await test_db.conn.execute(
-        "INSERT INTO tasks(id, user_id, title, created_at) VALUES(?,?,?,?)",
+        """
+        INSERT INTO clinic_memberships(id, organization_id, user_id, branch_id, role)
+        VALUES(?,?,?,?,?)
+        """,
+        ("membership-1", "org-1", "u1", "branch-1", "admin"),
+    )
+    await test_db.conn.execute(
+        "INSERT INTO tasks(id, user_id, title, created_at) VALUES(?,?,?,?)
         ("core-task", "u1", "Core task", "2026-10-01T00:00:00Z"),
     )
     await test_db.conn.execute(
