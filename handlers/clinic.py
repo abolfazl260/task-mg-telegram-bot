@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from services.healthcare import followups, reports, service
+from services import clinic_typed
 from services.healthcare.access import ClinicAccessError, Scope, actor_scopes
 from services.operations.service import create_workspace
 from services.permission_service import is_admin
@@ -96,6 +97,7 @@ async def clinic_menu(update, context):
                     labels.get("case", "پرونده عملیاتی"), callback_data="clinic:cases:0"
                 ),
             ],
+            [InlineKeyboardButton("🗓️ جلسات و پیگیری‌های تایپ‌شده", callback_data="clinic:typed:0")],
         ]
         if any(
             m["role"] in {"owner", "manager", "admin"}
@@ -138,6 +140,11 @@ async def handle_clinic_input(update, context):
             context.user_data["clinic_patient_phone"] = "" if value == "-" else value
             context.user_data["clinic_input"] = "patient_reference"
             await update.effective_message.reply_text("کد پرونده/شناسه بیمار را ارسال کنید یا - بفرستید:")
+        elif step == "typed_reschedule":
+            task_id = context.user_data.pop("clinic_reschedule_task_id")
+            await clinic_typed.reschedule_async(task_id, str(update.effective_user.id), value)
+            context.user_data.pop("clinic_input", None)
+            await update.effective_message.reply_text("✅ زمان جلسه تغییر کرد.")
         else:
             unit_id = context.user_data.get("clinic_branch_id") or next((m.get("branch_id") for m in memberships if m.get("branch_id")), None)
             if not unit_id: raise ValueError("branch_required")
@@ -193,6 +200,31 @@ async def clinic_callback(update, context):
                 message,
                 [[InlineKeyboardButton("منو", callback_data="clinic:menu")]],
             )
+        if parts[1] == "typed":
+            offset = max(0, int(parts[2]))
+            from services.work_item_access import workspace_predicate
+            from services.database import fetch_all_sql
+            pred, args = await workspace_predicate(scope.workspace_id, str(update.effective_user.id), alias="t", action="view")
+            rows = await fetch_all_sql("SELECT t.* FROM tasks t WHERE " + pred + " AND t.work_item_type IN ('session','followup') AND t.archived_at IS NULL ORDER BY COALESCE(t.deadline,t.created_at),t.id LIMIT ? OFFSET ?", args + (6, offset))
+            buttons = [[InlineKeyboardButton(f"{r['title']} · {r['status']}", callback_data=f"clinic:typed_item:{r['id']}")] for r in rows]
+            buttons.append([InlineKeyboardButton("منو", callback_data="clinic:menu")])
+            return await _render(update, "جلسات و پیگیری‌ها", buttons)
+        if parts[1] == "typed_item":
+            item = await clinic_typed._item(parts[2], str(update.effective_user.id))
+            buttons = []
+            if item.get("work_item_type") == "session":
+                buttons.extend([[InlineKeyboardButton("✅ تکمیل", callback_data=f"clinic:typed_status:{item['id']}:completed")], [InlineKeyboardButton("📅 تغییر زمان", callback_data=f"clinic:typed_reschedule:{item['id']}")]])
+            elif item.get("work_item_type") == "followup":
+                buttons.append([InlineKeyboardButton("✅ تکمیل", callback_data=f"clinic:typed_status:{item['id']}:completed")])
+            buttons.append([InlineKeyboardButton("منو", callback_data="clinic:menu")])
+            return await _render(update, f"{item['title']}\nوضعیت: {item['status']}", buttons)
+        if parts[1] == "typed_status":
+            await clinic_typed.transition_async(parts[2], str(update.effective_user.id), parts[3])
+            return await _render(update, "✅ وضعیت ثبت شد.", [[InlineKeyboardButton("منو", callback_data="clinic:menu")]])
+        if parts[1] == "typed_reschedule":
+            context.user_data["clinic_reschedule_task_id"] = parts[2]
+            context.user_data["clinic_input"] = "typed_reschedule"
+            return await query.message.reply_text("زمان جدید جلسه را با قالب ISO ارسال کنید (مثلاً 2026-10-08T10:00:00+03:30):")
         if parts[1] == "queue":
             view, offset = parts[2], max(0, int(parts[3]))
             page = await followups.queue(scope, view, limit=6, offset=offset)

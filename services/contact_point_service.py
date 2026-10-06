@@ -6,7 +6,14 @@ import uuid
 from datetime import datetime, timezone
 
 from services.database import execute, fetch_all_sql, fetch_one, fetch_one_sql, transaction
-from services.task_service import get_task_by_id_async, user_can_modify_task_async
+from services.work_item_access import authorized_task as _authorized_task
+
+
+async def authorized_task(*args, **kwargs):
+    try:
+        return await _authorized_task(*args, **kwargs)
+    except PermissionError as exc:
+        raise PermissionError("contact_point_permission_denied") from exc
 
 PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
 ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
@@ -40,9 +47,7 @@ async def create_contact_point_async(task_id, contact_type, value, actor_id, *, 
         raise ValueError("invalid_contact_point")
     if status not in {"active", "inactive"}:
         raise ValueError("invalid_contact_status")
-    task = await get_task_by_id_async(task_id)
-    if not task or not await user_can_modify_task_async(actor_id, task):
-        raise PermissionError("contact_point_permission_denied")
+    task = await authorized_task(task_id, actor_id, write=True)
     normalized = normalize_contact_value(ctype, value)
     if not normalized:
         raise ValueError("invalid_contact_point")
@@ -67,16 +72,12 @@ async def get_contact_point_async(point_id, actor_id):
     row = await fetch_one("task_contact_points", "id=?", (str(point_id),))
     if not row:
         return None
-    task = await get_task_by_id_async(row["task_id"])
-    if not task or not await user_can_modify_task_async(actor_id, task):
-        raise PermissionError("contact_point_permission_denied")
+    await authorized_task(row["task_id"], actor_id)
     return row
 
 
 async def list_contact_points_async(task_id, actor_id, *, contact_type=None, include_inactive=False):
-    task = await get_task_by_id_async(task_id)
-    if not task or not await user_can_modify_task_async(actor_id, task):
-        raise PermissionError("contact_point_permission_denied")
+    task = await authorized_task(task_id, actor_id)
     clauses = ["task_id=?"]
     params = [str(task_id)]
     if contact_type:
@@ -93,6 +94,7 @@ async def update_contact_point_async(point_id, actor_id, *, value=None, label=No
     point = await get_contact_point_async(point_id, actor_id)
     if not point:
         return False
+    await authorized_task(point["task_id"], actor_id, write=True)
     task_id, ctype = point["task_id"], point["type"]
     updates, params = [], []
     normalized = point["normalized_value"]
@@ -129,8 +131,11 @@ async def search_contact_points_async(query, actor_id, *, workspace_id=None, con
     rows = await fetch_all_sql("SELECT cp.*,t.title,t.user_id,t.workspace_id FROM task_contact_points cp JOIN tasks t ON t.id=cp.task_id WHERE " + " AND ".join(clauses) + " ORDER BY cp.created_at DESC", tuple(params))
     allowed = []
     for row in rows:
-        task = await get_task_by_id_async(row["task_id"])
-        if task and await user_can_modify_task_async(actor_id, task): allowed.append(row)
+        try:
+            await authorized_task(row['task_id'], actor_id)
+            allowed.append(row)
+        except PermissionError:
+            continue
     return allowed
 
 

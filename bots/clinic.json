@@ -99,8 +99,131 @@
             "tasks",
             "healthcare"
           ]
+        },
+        {
+          "key": "followup",
+          "label_singular": "پیگیری",
+          "label_plural": "پیگیری‌ها",
+          "icon": "📞",
+          "allowed_parent_types": [
+            "patient",
+            "session"
+          ],
+          "allowed_child_types": [],
+          "status_profile": "followup",
+          "default_field_schema": "clinic.followup",
+          "default_views": [
+            "list",
+            "detail",
+            "queue"
+          ],
+          "default_actions": [
+            "create",
+            "update",
+            "reschedule",
+            "complete",
+            "comment",
+            "attach"
+          ],
+          "feature_flags": [
+            "tasks",
+            "healthcare"
+          ]
+        },
+        {
+          "key": "action",
+          "label_singular": "اقدام",
+          "label_plural": "اقدام‌ها",
+          "icon": "✅",
+          "allowed_parent_types": [
+            "patient",
+            "session"
+          ],
+          "allowed_child_types": [],
+          "status_profile": "default",
+          "default_field_schema": "clinic.action",
+          "default_views": [
+            "list",
+            "detail"
+          ],
+          "default_actions": [
+            "create",
+            "update",
+            "status",
+            "comment",
+            "attach"
+          ],
+          "feature_flags": [
+            "tasks",
+            "healthcare"
+          ]
         }
       ]
+    },
+    "work_item_access": {
+      "owner": {
+        "view": true,
+        "edit": true,
+        "report": true,
+        "manage_schema": true,
+        "assigned_only": false
+      },
+      "admin": {
+        "view": true,
+        "edit": true,
+        "report": true,
+        "manage_schema": true,
+        "assigned_only": false
+      },
+      "manager": {
+        "view": true,
+        "edit": true,
+        "report": true,
+        "manage_schema": false,
+        "assigned_only": false
+      },
+      "reception": {
+        "view": true,
+        "edit": true,
+        "report": false,
+        "manage_schema": false,
+        "assigned_only": false
+      },
+      "coordinator": {
+        "view": true,
+        "edit": true,
+        "report": false,
+        "manage_schema": false,
+        "assigned_only": false
+      },
+      "doctor": {
+        "view": true,
+        "edit": true,
+        "report": true,
+        "manage_schema": false,
+        "assigned_only": true
+      },
+      "dentist": {
+        "view": true,
+        "edit": true,
+        "report": true,
+        "manage_schema": false,
+        "assigned_only": true
+      },
+      "assistant": {
+        "view": true,
+        "edit": false,
+        "report": false,
+        "manage_schema": false,
+        "assigned_only": false
+      },
+      "secretary": {
+        "view": true,
+        "edit": true,
+        "report": false,
+        "manage_schema": false,
+        "assigned_only": false
+      }
     }
   },
   "features": {

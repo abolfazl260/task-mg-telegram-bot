@@ -160,7 +160,7 @@ async def list_child_tasks_async(parent_task_id, actor_id, *, limit=50, offset=0
         raise ValueError("invalid_pagination")
     archived_clause = "" if include_archived else " AND archived_at IS NULL"
     return await fetch_all_sql(
-        f"SELECT * FROM tasks WHERE parent_task_id=?{archived_clause} ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?",
+        f"SELECT * FROM tasks WHERE parent_task_id=?{archived_clause} ORDER BY created_at ASC, rowid ASC LIMIT ? OFFSET ?",
         (str(parent_task_id), limit, offset),
     )
 

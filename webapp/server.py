@@ -216,6 +216,24 @@ class WebAppHandler(BaseHTTPRequestHandler):
                 raise WebAppTaskAccessError("assignment_manage_permission_denied")
             tid=self.server.webapp_runtime.submit(create_task(user.id,bot_key,title=title,priority=str(data.get("priority") or "medium"),deadline=str(data.get("deadline") or ""),category=str(data.get("category") or ""),tags=data.get("tags") if isinstance(data.get("tags"),str) else ", ".join(map(str,data.get("tags") or [])),description=str(data.get("description") or ""),team_id=str(data.get("team_id") or ""),work_item_type=data.get("work_item_type")))
             return self._json(201,{"task":self.server.webapp_runtime.submit(get_task(user.id,tid,bot_key))})
+        if path.startswith('/api/tasks/') and '/attachments' in path:
+            from services import attachment_service
+            parts = path.strip('/').split('/')
+            if len(parts) not in {4, 5} or parts[3] != 'attachments':
+                return self._json(404, {'error': 'not_found'})
+            task_id = parts[2]
+            # Restrict this adapter to personal/team TaskBot items. Workspace
+            # attachments use the scope-checked Clinic adapter.
+            if not self.server.webapp_runtime.submit(get_task(user.id,task_id,bot_key)):
+                raise WebAppTaskAccessError('forbidden')
+            if method == 'GET':
+                return self._json(200, {'items': self.server.webapp_runtime.submit(attachment_service.list_attachments_async(task_id, user.id))})
+            if len(parts) == 4 and method == 'POST':
+                data = _json_body(self)
+                return self._json(201, {'item': self.server.webapp_runtime.submit(attachment_service.attach_file_async(task_id, user.id, file_id=data.get('file_id'),filename=data.get('filename',''),media_type=data.get('media_type','application/octet-stream'),size_bytes=data.get('size_bytes',0),attribute_definition_id=data.get('attribute_definition_id')))})
+            if len(parts) == 5 and method == 'DELETE':
+                return self._json(200, {'archived': self.server.webapp_runtime.submit(attachment_service.archive_attachment_async(parts[4], user.id))})
+            return self._json(405, {'error': 'method_not_allowed'})
         if path.startswith("/api/tasks/"):
             task_id=path.rsplit("/",1)[-1]
             if not task_id: return self._json(400,{"error":"invalid_task_id"})
@@ -254,7 +272,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
             return self._handle_admin(method) if path.startswith("/api/admin/") else self._handle_api(method)
         except TelegramWebAppAuthError: return self._json(401,{"error":"unauthorized"})
         except WebAppBotProfileError: return self._json(400,{"error":"invalid_bot_profile"})
-        except (WebAppTaskAccessError,ClinicAccessError): return self._json(403,{"error":"forbidden"})
+        except (WebAppTaskAccessError,ClinicAccessError,PermissionError): return self._json(403,{"error":"forbidden"})
         except sqlite3.IntegrityError: return self._json(409,{"error":"conflict"})
         except ValueError as e: return self._json(400,{"error":"invalid_request" if urlparse(self.path).path.startswith("/api/clinic/") else str(e)})
         except Exception:
