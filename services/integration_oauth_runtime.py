@@ -41,7 +41,7 @@ async def _oauth_callback(request: web.Request) -> web.Response:
 
     try:
         complete_oauth(provider, code, state)
-    except Exception:  # noqa: BLE001 - HTTP boundary must return generic failure
+    except Exception:
         logger.exception(
             "OAuth callback failed provider=%s operation=complete_oauth",
             provider,
@@ -86,7 +86,7 @@ async def start_integration_oauth_server() -> None:
         try:
             site = web.TCPSite(runner, host, port)
             await site.start()
-        except Exception:  # noqa: BLE001 - cleanup partially initialized runner
+        except Exception:
             await runner.cleanup()
             raise
 
