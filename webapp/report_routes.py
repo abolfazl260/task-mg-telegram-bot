@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -70,13 +70,21 @@ def web_report_html(token):
     html=_PAGE.replace('__REPORT_TOKEN__',json.dumps(token,ensure_ascii=False))
     return html.replace('</body>', '<script src="/report-dashboard.js"></script>'+_NOTION_REPORT_CSS+'</body>')
 
+def report_token_from_path(path: str) -> str | None:
+    candidate = unquote((path or "").strip("/"))
+    if candidate.startswith("report/"):
+        candidate = candidate[len("report/"):]
+    if not candidate or "/" in candidate or len(candidate) < 40:
+        return None
+    return candidate
+
 def handle_report_get(handler):
     path=urlparse(handler.path).path
     if path=='/report-dashboard.js':
         _html(handler,200,open('webapp/report_dashboard.js','r',encoding='utf-8').read()); return True
     if path and path not in ('/','/report-launch') and not path.startswith('/api/'):
-        token=quote(path.strip('/'),safe='')
-        if '/' not in token and len(token)>=40: _html(handler,200,web_report_html(token)); return True
+        token=report_token_from_path(path)
+        if token: _html(handler,200,web_report_html(token)); return True
     if path=='/report-launch': _html(handler,400,'<h2>این مسیر دیگر استفاده نمی‌شود.</h2><p>گزارش با لینک اختصاصی باز می‌شود.</p>'); return True
     return False
 
