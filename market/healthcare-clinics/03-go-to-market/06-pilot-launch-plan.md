@@ -70,7 +70,7 @@ Pilot شروع نشود اگر:
 
 - buyer مشخص نیست
 - فقط curiosity است
-- full EMR replacement expectation
+- انتظار replacement کامل billing/insurance/scheduling یا clinical automation بدون Scope مشخص
 - custom development زیاد
 - no staff commitment
 - no baseline
@@ -185,9 +185,9 @@ Pilot باید minimum data داشته باشد.
 ## Prefer
 
 - synthetic training data first
-- operational patient reference
-- minimum patient identity
-- no unnecessary clinical notes
+- Patient Record scope defined
+- identity/contact/clinical fields mapped intentionally
+- Clinical Data access, audit and retention reviewed before real-data use
 
 ## Agreement
 
