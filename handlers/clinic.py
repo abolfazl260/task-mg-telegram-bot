@@ -8,6 +8,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from services.healthcare import followups, reports, service
 from services.healthcare.access import ClinicAccessError, Scope, actor_scopes
+from services.operations.service import create_workspace
+from services.permission_service import is_admin
 
 
 async def _scope(update, context):
@@ -38,6 +40,15 @@ async def clinic_menu(update, context):
         if not profile or not profile.feature_enabled("healthcare"):
             raise ClinicAccessError("forbidden")
         memberships = await actor_scopes(str(update.effective_user.id), profile.key)
+        # A newly enabled managed clinic bot may not have a workspace yet.
+        # Bootstrap one for the configured administrator so /clinic is usable
+        # immediately; regular users still require an explicit membership.
+        if not memberships and is_admin(update.effective_user.id):
+            await create_workspace(
+                str(update.effective_user.id), profile.key,
+                profile.name or "فضای کار کلینیک",
+            )
+            memberships = await actor_scopes(str(update.effective_user.id), profile.key)
         orgs = {m["organization_id"]: m["name"] for m in memberships}
         if (
             len(orgs) > 1
