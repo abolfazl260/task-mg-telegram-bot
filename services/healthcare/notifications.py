@@ -27,15 +27,15 @@ async def deliver(bot, bot_key: str, *, at=None, batch_size=30):
         # Telegram accepted a message leaves 'sending' for operator review; it
         # is not automatically resent because Telegram has no idempotency key.
         row = await execute_returning_one(
-            """UPDATE clinic_notifications SET status='sending',attempt=attempt+1
-            WHERE id=(SELECT n.id FROM clinic_notifications n JOIN clinic_organizations o ON o.id=n.organization_id
+            """UPDATE operational_notifications SET status='sending',attempt=attempt+1
+            WHERE id=(SELECT n.id FROM operational_notifications n JOIN workspaces o ON o.id=n.workspace_id
             WHERE n.status='pending' AND n.send_at<=? AND o.bot_key=? AND o.status='active'
             ORDER BY n.send_at,n.id LIMIT 1) AND status='pending' RETURNING *""",
             (stamp, bot_key),
         )
         if not row:
             break
-        scope = Scope(row["organization_id"], row["recipient_id"])
+        scope = Scope(row["workspace_id"], row["recipient_id"])
         try:
             task = await get_entity(scope, "tasks", row["task_id"])
             if (
@@ -62,7 +62,7 @@ async def deliver(bot, bot_key: str, *, at=None, batch_size=30):
                 await transaction(
                     [
                         (
-                            "UPDATE clinic_notifications SET status='pending',send_at=? WHERE id=? AND status='sending'",
+                            "UPDATE operational_notifications SET status='pending',send_at=? WHERE id=? AND status='sending'",
                             (retry_at, row["id"]),
                         )
                     ]
@@ -83,16 +83,16 @@ async def deliver(bot, bot_key: str, *, at=None, batch_size=30):
 
 
 async def _finish(row, status):
-    system = Scope(row["organization_id"], "system")
+    system = Scope(row["workspace_id"], "system")
     await transaction(
         [
             (
-                "UPDATE clinic_notifications SET status=?,sent_at=? WHERE id=? AND status='sending'",
+                "UPDATE operational_notifications SET status=?,sent_at=? WHERE id=? AND status='sending'",
                 (status, now() if status == "sent" else None, row["id"]),
             ),
             audit(
                 system,
-                row["branch_id"],
+                row["unit_id"],
                 "notification." + status,
                 "task",
                 row["task_id"],
@@ -116,6 +116,6 @@ async def staff_notification_job(context):
 async def delivery_state(scope: Scope):
     await scope.predicate("reports.view")
     return await fetch_one_sql(
-        "SELECT SUM(status='sending') AS ambiguous,SUM(status='failed') AS failed FROM clinic_notifications WHERE organization_id=?",
-        (scope.organization_id,),
+        "SELECT SUM(status='sending') AS ambiguous,SUM(status='failed') AS failed FROM operational_notifications WHERE workspace_id=?",
+        (scope.workspace_id,),
     )
