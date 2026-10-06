@@ -35,12 +35,15 @@ runuser -u "${SERVICE_USER}" -- "${INSTALL_DIR}/.venv/bin/pip" install --upgrade
 runuser -u "${SERVICE_USER}" -- "${INSTALL_DIR}/.venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
 
 if [[ ! -f "${INSTALL_DIR}/.env" ]]; then
-  cat > "${INSTALL_DIR}/.env" <<'ENVEOF'
+  BOT_TOKEN_KEY="$(runuser -u "${SERVICE_USER}" -- "${INSTALL_DIR}/.venv/bin/python" -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+  cat > "${INSTALL_DIR}/.env" <<ENVEOF
 BOT_TOKEN=replace-with-your-telegram-bot-token
+BOT_TOKEN_ENCRYPTION_KEYS_JSON={"initial":"${BOT_TOKEN_KEY}"}
+BOT_TOKEN_ACTIVE_KEY_ID=initial
 ENVEOF
   chown "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}/.env"
   chmod 600 "${INSTALL_DIR}/.env"
-  echo "Created ${INSTALL_DIR}/.env. Edit BOT_TOKEN before starting the service." >&2
+  echo "Created ${INSTALL_DIR}/.env with a generated managed-bot encryption key. Edit BOT_TOKEN before starting the service." >&2
 fi
 
 sed \
