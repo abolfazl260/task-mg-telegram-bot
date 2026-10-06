@@ -4,7 +4,7 @@ from telegram import BotCommand,Update,InlineKeyboardButton
 from telegram.request import HTTPXRequest
 from telegram.ext import Application,CommandHandler,CallbackQueryHandler,MessageHandler,PreCheckoutQueryHandler,TypeHandler,ConversationHandler,filters
 from config import ADMIN_REPORT_TIME,BOT_PROFILES
-from bot_platform import run_applications
+from services.bot_runtime_manager import run_runtime_control_plane
 from bot_context import set_current_bot_key,set_current_user_id
 from handlers.start import start
 from handlers.menu import button_handler
@@ -212,11 +212,15 @@ def build_application(profile):
         app.add_handler(MessageHandler(filters.VOICE,handle_voice_message))
     app.add_error_handler(error_handler);return app
 def main():
-    apps=[build_application(profile) for profile in BOT_PROFILES];logger.info("Starting %s bot application(s): %s",len(apps),", ".join(p.key for p in BOT_PROFILES))
-    if len(apps)==1:
-        loop=asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        apps[0].run_polling(allowed_updates=[*Update.ALL_TYPES,"guest_message"])
-    else:
-        asyncio.run(run_applications(apps))
+    logger.info(
+        "Starting dynamic bot runtime with %s initial profile(s): %s",
+        len(BOT_PROFILES),
+        ", ".join(p.key for p in BOT_PROFILES),
+    )
+    asyncio.run(
+        run_runtime_control_plane(
+            build_application,
+            initial_profiles=BOT_PROFILES,
+        )
+    )
 if __name__=="__main__":main()
