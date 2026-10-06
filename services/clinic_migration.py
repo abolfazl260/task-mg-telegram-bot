@@ -7,9 +7,8 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
 
-from services.database import execute, fetch_all_sql, fetch_one_sql, transaction
+from services.database import execute, fetch_all_sql, fetch_one_sql
 from services.healthcare.access import ClinicAccessError, Scope
 from services.operations.service import now
 

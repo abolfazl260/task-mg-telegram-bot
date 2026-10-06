@@ -1,5 +1,7 @@
 import pytest
+
 from services import clinic_dashboard, clinic_typed
+
 
 @pytest.mark.asyncio
 async def test_dashboard_counts_match_typed_source(clinic):

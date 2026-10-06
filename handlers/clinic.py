@@ -6,8 +6,8 @@ from datetime import datetime, timedelta, timezone
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from services.healthcare import followups, reports, service
 from services import clinic_typed
+from services.healthcare import followups, reports, service
 from services.healthcare.access import ClinicAccessError, Scope, actor_scopes
 from services.operations.service import create_workspace
 from services.permission_service import is_admin
@@ -65,8 +65,7 @@ async def clinic_menu(update, context):
             )
         labels = profile.settings.get("terminology", {})
         scope = await _scope(update, context)
-        branches = await service.list_entities(scope, "patients", limit=1)
-        branch_rows = await __import__("services.database", fromlist=["fetch_all_sql"]).fetch_all_sql("SELECT id,name FROM workspace_units WHERE workspace_id=? AND status='active' ORDER BY name", (scope.organization_id,))
+            branch_rows = await __import__("services.database", fromlist=["fetch_all_sql"]).fetch_all_sql("SELECT id,name FROM workspace_units WHERE workspace_id=? AND status='active' ORDER BY name", (scope.organization_id,))
         selected_branch = context.user_data.get("clinic_branch_id")
         if not branch_rows:
             can_manage = any(m.get("role") in {"owner", "manager", "admin"} for m in memberships)
@@ -202,8 +201,8 @@ async def clinic_callback(update, context):
             )
         if parts[1] == "typed":
             offset = max(0, int(parts[2]))
-            from services.work_item_access import workspace_predicate
             from services.database import fetch_all_sql
+            from services.work_item_access import workspace_predicate
             pred, args = await workspace_predicate(scope.workspace_id, str(update.effective_user.id), alias="t", action="view")
             rows = await fetch_all_sql("SELECT t.* FROM tasks t WHERE " + pred + " AND t.work_item_type IN ('session','followup') AND t.archived_at IS NULL ORDER BY COALESCE(t.deadline,t.created_at),t.id LIMIT ? OFFSET ?", args + (6, offset))
             buttons = [[InlineKeyboardButton(f"{r['title']} · {r['status']}", callback_data=f"clinic:typed_item:{r['id']}")] for r in rows]

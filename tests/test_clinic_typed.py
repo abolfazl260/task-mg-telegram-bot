@@ -1,9 +1,8 @@
 import pytest
 
 from services import clinic_typed
-from services.healthcare import service
-from services.healthcare.access import Scope
 from services.database import fetch_one_sql
+from services.healthcare import service
 
 
 @pytest.mark.asyncio
