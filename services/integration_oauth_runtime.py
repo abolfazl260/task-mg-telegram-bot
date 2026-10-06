@@ -81,7 +81,7 @@ async def start_integration_oauth_server() -> None:
         )
         runner = web.AppRunner(oauth_app)
         await runner.setup()
-        host = os.getenv("INTEGRATION_HOST", "0.0.0.0")
+        host = os.getenv("INTEGRATION_HOST", "127.0.0.1")
         port = int(os.getenv("INTEGRATION_PORT", "8080"))
         try:
             site = web.TCPSite(runner, host, port)
