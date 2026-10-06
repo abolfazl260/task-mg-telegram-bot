@@ -14,9 +14,9 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
 BOT_PROFILES = load_bot_profiles()
-DEFAULT_BOT_PROFILE = BOT_PROFILES[0]
-BOT_TOKEN = DEFAULT_BOT_PROFILE.token
-BOT_USERNAME = DEFAULT_BOT_PROFILE.username
+DEFAULT_BOT_PROFILE = BOT_PROFILES[0] if BOT_PROFILES else None
+BOT_TOKEN = DEFAULT_BOT_PROFILE.token if DEFAULT_BOT_PROFILE else ""
+BOT_USERNAME = DEFAULT_BOT_PROFILE.username if DEFAULT_BOT_PROFILE else ""
 
 # Optional Groq integration for the /ai task assistant. Never hard-code API keys.
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
