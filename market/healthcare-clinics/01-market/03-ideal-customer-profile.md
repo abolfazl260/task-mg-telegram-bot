@@ -321,9 +321,9 @@ ICP خوب معمولاً این رفتارها را دارد:
 ### Product Red Flags
 
 - فقط calendar می‌خواهد؛
-- فقط EMR می‌خواهد؛
+- فقط replacement کامل billing/insurance/scheduling می‌خواهد و workflow/Patient Record ما برایش کافی نیست؛
 - نیاز اصلی billing/insurance است؛
-- نیاز اصلی diagnosis/clinical decision support است؛
+- نیاز اصلی autonomous diagnosis/clinical decision support است؛
 - حاضر به تغییر هیچ workflow نیست.
 
 ### Business Red Flags
