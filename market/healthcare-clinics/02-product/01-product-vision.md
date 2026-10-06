@@ -3,7 +3,7 @@
 > وضعیت سند: Product Strategy v1  
 > Vertical: Healthcare Clinics  
 > Beachhead: کلینیک‌های خصوصی دندان‌پزشکی چندپزشکه  
-> Product Category: Clinic Operations Workflow Platform
+> Product Category: Clinic Management & Patient Record Platform
 
 ---
 
@@ -19,7 +19,7 @@
 
 # 2. Mission
 
-**کاهش chaos عملیاتی در کلینیک‌ها از طریق تبدیل ارتباطات و رویدادهای روزمره به Next Actionهای قابل پیگیری.**
+**ایجاد یک Clinic Workspace مستقل برای نگهداری Patient Record، مدیریت Session/Visit و اجرای قابل‌اعتماد عملیات روزانه.**
 
 ماموریت محصول سه بخش دارد:
 
@@ -637,10 +637,9 @@ Metric مکمل:
 
 MVP باید یک سؤال را جواب دهد:
 
-**آیا کلینیک حاضر است workflowهای واقعی روزانه خود را برای جلوگیری از missed action روی TaskMG اجرا کند؟**
+**آیا یک کلینیک می‌تواند بدون PMS/EMR اجباری، بیماران و پرونده‌هایشان را ثبت کند، Session/Visitها را مدیریت کند و عملیات روزانه را روی TaskMG اجرا کند؟**
 
-نه:
-«آیا تمام نیازهای نرم‌افزار کلینیک را پوشش می‌دهیم؟»
+MVP لازم نیست billing/insurance/all-in-one practice management را کامل کند، اما باید Patient Record + Session Management + Core Operations را end-to-end و مستقل پوشش دهد.
 
 ---
 
@@ -659,28 +658,38 @@ MVP باید یک سؤال را جواب دهد:
 - outcome؛
 - reschedule.
 
-## P3 — Context
-- patient/case reference؛
+## P3 — Patient Record
+- Patient top-level Work Item؛
+- identity/contact attributes؛
+- medical/clinical attributes؛
+- multiple contact points؛
 - comments؛
 - attachments.
 
-## P4 — Workflow
+## P4 — Session / Visit
+- child item / subtask؛
+- date/time؛
+- doctor؛
+- status/history؛
+- clinical/session notes.
+
+## P5 — Workflow
 - templates؛
 - recurring؛
 - stages.
 
-## P5 — Management
+## P6 — Management
 - dashboard؛
 - overdue؛
 - filters؛
 - reports.
 
-## P6 — Access
+## P7 — Access
 - roles؛
 - permissions؛
 - audit.
 
-## P7 — Channels
+## P8 — Channels
 - Telegram execution؛
 - Web control.
 
