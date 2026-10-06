@@ -16,6 +16,7 @@ from services.operations.service import (
     new_id,
     now,
     text,
+    utc_date as utc_date,
 )
 
 CASE_STATUSES = {"active", "waiting", "blocked", "completed", "closed", "cancelled"}
