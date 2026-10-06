@@ -195,6 +195,8 @@ def _run_daily_once(job_queue,callback,*,name,**kwargs):
     if _job_registered(job_queue,name):return
     job_queue.run_daily(callback,name=name,**kwargs)
 
+_database_backup_registered = False
+
 async def post_init(app:Application):
     await init_db();install_task_capabilities(app);profile=app.bot_data.get("bot_config")
     commands=[BotCommand("ai","دستیار هوشمند تحلیل تسک‌ها"),BotCommand("clinic","فضای کار کلینیک"),BotCommand("start","شروع ربات و منوی اصلی"),BotCommand("add","افزودن تسک جدید"),BotCommand("reports","گزارشات و آمار"),BotCommand("tasks","منوی تسک‌ها"),BotCommand("unassigned","وظایف بدون مسئول"),BotCommand("team","تیم و فضای مشترک"),BotCommand("search","جستجوی تسک"),BotCommand("templates","تمپلیت‌های آماده"),BotCommand("habit","مدیریت عادت‌ها"),BotCommand("donate","حمایت با Telegram Stars"),BotCommand("jira","اتصال به Jira"),BotCommand("jira_status","وضعیت اتصال Jira"),BotCommand("jira_disconnect","قطع اتصال Jira"),BotCommand("help","راهنمای کامل استفاده")]
@@ -233,13 +235,13 @@ async def post_init(app:Application):
             _run_repeating_once(app.job_queue,weekly_habit_reports,interval=60,first=40,name="weekly_habit_reports")
         if profile is None or profile.permission_enabled("reports.view"):
             _run_daily_once(app.job_queue,daily_admin_report,time=_parse_report_time(),name="daily_admin_report")
-        _run_repeating_once(
-            app.job_queue,
-            database_backup_job,
-            interval=BACKUP_INTERVAL_SECONDS,
-            first=BACKUP_FIRST_RUN_SECONDS,
-            name="database_backup",
-        )
+        global _database_backup_registered
+        # A process can host several managed bots, but the database is shared.
+        # Register one daily backup job only; otherwise every bot sends the
+        # same archive to the admins from its own job queue.
+        if not _database_backup_registered:
+            _run_repeating_once(app.job_queue, database_backup_job, interval=BACKUP_INTERVAL_SECONDS, first=BACKUP_FIRST_RUN_SECONDS, name="database_backup")
+            _database_backup_registered = True
         if profile is None or (profile.feature_enabled("integrations") and profile.permission_enabled("integrations.sync")):
             bot_offset=sum(ord(ch) for ch in (profile.key if profile else "default"))%60
             _run_repeating_once(app.job_queue,_jira_sync_job,interval=60,first=30+bot_offset,name="jira_sync",data=profile)
