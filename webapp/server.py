@@ -129,14 +129,18 @@ class WebAppHandler(BaseHTTPRequestHandler):
                 filters=json.loads((query.get("filters") or ["[]"])[0] or "[]")
             except json.JSONDecodeError:
                 return self._json(400,{"error":"invalid_filters"})
-            return self._json(200,self.server.webapp_runtime.submit(database_explorer_rows(
-                table,
-                filters=filters,
-                sort=(query.get("sort") or [""])[0].strip(),
-                direction=(query.get("direction") or [""])[0].strip(),
-                limit=limit,
-                offset=offset,
-            )))
+            try:
+                payload=self.server.webapp_runtime.submit(database_explorer_rows(
+                    table,
+                    filters=filters,
+                    sort=(query.get("sort") or [""])[0].strip(),
+                    direction=(query.get("direction") or [""])[0].strip(),
+                    limit=limit,
+                    offset=offset,
+                ))
+            except TypeError as exc:
+                return self._json(400,{"error":str(exc)})
+            return self._json(200,payload)
         if path=="/api/admin/tasks/creation" and method=="GET":
             try: days=int((query.get("days") or ["7"])[0])
             except ValueError: return self._json(400,{"error":"invalid_days"})
@@ -237,7 +241,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
         except WebAppBotProfileError: return self._json(400,{"error":"invalid_bot_profile"})
         except (WebAppTaskAccessError,ClinicAccessError): return self._json(403,{"error":"forbidden"})
         except sqlite3.IntegrityError: return self._json(409,{"error":"conflict"})
-        except (ValueError,TypeError) as e: return self._json(400,{"error":"invalid_request" if urlparse(self.path).path.startswith("/api/clinic/") else str(e)})
+        except ValueError as e: return self._json(400,{"error":"invalid_request" if urlparse(self.path).path.startswith("/api/clinic/") else str(e)})
         except Exception:
             if urlparse(self.path).path.startswith("/api/clinic/"):
                 logger.error("clinic_request_failed method=%s",method)

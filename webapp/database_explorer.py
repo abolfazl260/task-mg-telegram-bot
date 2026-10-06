@@ -218,10 +218,16 @@ async def database_explorer_rows(
     table_sql = _quote_identifier(table)
     order_sql = f" ORDER BY {_quote_identifier(sort)} {direction.upper()}"
     db = await get_db()
-    async with db.conn.execute(f"SELECT COUNT(*) FROM {table_sql}{where_sql}", tuple(params)) as cur:
+    # Identifiers are built exclusively from TABLE_SPECS after allowlist validation;
+    # user-supplied values remain bound parameters.
+    count_sql = f"SELECT COUNT(*) FROM {table_sql}{where_sql}"  # nosec B608
+    rows_sql = (  # nosec B608
+        f"SELECT {projection} FROM {table_sql}{where_sql}{order_sql} LIMIT ? OFFSET ?"
+    )
+    async with db.conn.execute(count_sql, tuple(params)) as cur:
         total = int((await cur.fetchone())[0])
     async with db.conn.execute(
-        f"SELECT {projection} FROM {table_sql}{where_sql}{order_sql} LIMIT ? OFFSET ?",
+        rows_sql,
         (*params, limit, offset),
     ) as cur:
         rows = [dict(row) for row in await cur.fetchall()]
