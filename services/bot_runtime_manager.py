@@ -261,7 +261,7 @@ class BotRuntimeManager:
     async def _start_isolated(self, profile: BotProfile) -> None:
         try:
             await self._start_profile(profile, event="started")
-        except Exception:
+        except Exception:  # noqa: BLE001 - one bot must not terminate siblings
             logger.warning(
                 "bot_runtime_start_isolated_failure bot=%s",
                 profile.key,
@@ -301,7 +301,7 @@ class BotRuntimeManager:
                     await self.reconcile(initial_profiles)
                 else:
                     await self.reconcile()
-            except Exception:
+            except Exception:  # noqa: BLE001 - keep running bots alive on loader failure
                 logger.exception("bot_runtime_reconcile_failed")
             first = False
             try:
