@@ -123,7 +123,7 @@ def _text_value(value: Any) -> str:
 
 def _number_value(value: Any) -> int | float:
     if isinstance(value, bool):
-        raise ValueError("invalid_number_filter")
+        raise TypeError("invalid_number_filter")
     try:
         number = float(str(value))
     except (TypeError, ValueError):
@@ -205,7 +205,7 @@ async def database_explorer_rows(
         clauses.append(scope_sql)
     for item in filters:
         if not isinstance(item, dict):
-            raise ValueError("invalid_filters")
+            raise TypeError("invalid_filters")
         column, operator = str(item.get("column") or ""), str(item.get("operator") or "")
         if column not in column_types:
             raise ValueError("invalid_filter_column")

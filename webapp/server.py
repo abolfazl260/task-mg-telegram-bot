@@ -237,7 +237,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
         except WebAppBotProfileError: return self._json(400,{"error":"invalid_bot_profile"})
         except (WebAppTaskAccessError,ClinicAccessError): return self._json(403,{"error":"forbidden"})
         except sqlite3.IntegrityError: return self._json(409,{"error":"conflict"})
-        except ValueError as e: return self._json(400,{"error":"invalid_request" if urlparse(self.path).path.startswith("/api/clinic/") else str(e)})
+        except (ValueError,TypeError) as e: return self._json(400,{"error":"invalid_request" if urlparse(self.path).path.startswith("/api/clinic/") else str(e)})
         except Exception:
             if urlparse(self.path).path.startswith("/api/clinic/"):
                 logger.error("clinic_request_failed method=%s",method)
