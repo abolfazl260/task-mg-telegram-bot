@@ -2,17 +2,17 @@
 
 > وضعیت سند: MVP Scope v1  
 > Beachhead: کلینیک خصوصی دندان‌پزشکی چندپزشکه  
-> هدف MVP: اثبات اینکه TaskMG می‌تواند workflowهای عملیاتی واقعی کلینیک را با Adoption قابل قبول و Outcome قابل اندازه‌گیری اجرا کند.
+> هدف MVP: اثبات یک Clinic مستقل روی TaskMG که Patient Record، Session/Visit و عملیات روزانه را بدون وابستگی اجباری به PMS/EMR مدیریت کند.
 
 ---
 
 # 1. MVP چه چیزی را باید اثبات کند؟
 
-MVP نباید اثبات کند که TaskMG یک نرم‌افزار جامع کلینیک است.
+MVP باید اثبات کند که TaskMG می‌تواند هسته روزمره یک Clinic را مستقل اجرا کند:
 
-باید این فرضیه را اثبات کند:
+**Patient Record کامل + Contactها + Session/Visit history + Follow-up/Task + Doctor/Secretary UX + Web Clinic Workspace.**
 
-**اگر یک کلینیک workflowهای follow-up و کارهای داخلی خود را با Owner، Due Date، Outcome و Next Action روی TaskMG اجرا کند، آیا missed action کمتر، visibility مدیر بیشتر و استفاده روزمره تیم پایدار می‌شود؟**
+Billing، insurance و سایر ماژول‌های سنگین می‌توانند Roadmap مستقل داشته باشند؛ اما نگهداری Patient Record و Sessionها دیگر خارج از MVP نیست.
 
 سه سؤال حیاتی:
 
@@ -24,7 +24,7 @@ MVP نباید اثبات کند که TaskMG یک نرم‌افزار جامع �
 
 # 2. تعریف MVP
 
-MVP یک **Clinic Operations Workflow Layer** است که در Telegram و Web اجرا می‌شود و پنج workflow پایه را پوشش می‌دهد:
+MVP یک **Standalone Clinic Management & Patient Record Workspace** است که در Telegram و Web اجرا می‌شود. پنج workflow پایه نیز روی همین Patient/Session model اجرا می‌شوند:
 
 1. Treatment Plan Follow-up
 2. General Patient Callback
@@ -38,7 +38,8 @@ MVP یک **Clinic Operations Workflow Layer** است که در Telegram و Web �
 
 ## Primary Users
 
-- Reception
+- Secretary / Reception
+- Doctor / Dentist
 - Patient Coordinator
 - Clinic Manager
 - Assistant
