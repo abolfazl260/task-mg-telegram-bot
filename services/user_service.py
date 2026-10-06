@@ -114,7 +114,7 @@ async def set_user_date_format_async(user_id, date_format):
     await execute(
         "INSERT INTO users(user_id,date_format,timezone,messages_count) VALUES(?,?,?,0) "
         "ON CONFLICT(user_id) DO UPDATE SET date_format=excluded.date_format",
-        (str(user_id), value, DEFAULT_DATE_FORMAT),
+        (str(user_id), value, DEFAULT_TIMEZONE),
     )
     return True
 
