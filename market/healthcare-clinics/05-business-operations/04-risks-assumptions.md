@@ -186,9 +186,9 @@ TaskMG به Task Manager عمومی تبدیل شود و differentiation از Cl
 
 ## Mitigation
 
-- system-of-action boundary;
+- Core typed-item/attribute boundary;
 - product scope review;
-- integrate-before-replace;
+- standalone-first, integrate-when-useful;
 - reject clinical record expansion without evidence.
 
 ---
