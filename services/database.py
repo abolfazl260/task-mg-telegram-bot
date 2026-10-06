@@ -132,7 +132,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks(deadline);
 CREATE INDEX IF NOT EXISTS idx_tasks_team_id ON tasks(team_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee_id ON tasks(assignee_id);
-CREATE INDEX IF NOT EXISTS idx_comments_task_id ON task_comments(task_id);\nCREATE UNIQUE INDEX IF NOT EXISTS idx_comments_source_key ON task_comments(source_key);
+CREATE INDEX IF NOT EXISTS idx_comments_task_id ON task_comments(task_id);
 CREATE INDEX IF NOT EXISTS idx_assignment_task_id ON task_assignment_history(task_id);
 CREATE INDEX IF NOT EXISTS idx_members_user_id ON team_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_habits_user_id ON habits(user_id);
@@ -143,6 +143,29 @@ CREATE INDEX IF NOT EXISTS idx_business_messages_connection ON business_messages
 """
 
 CORE_SCHEMA = SCHEMA
+
+
+async def migrate_core_schema(conn) -> None:
+    """Apply additive migrations required before post-schema indexes exist."""
+    async with conn.execute("PRAGMA table_info(task_comments)") as cursor:
+        columns = {row[1] for row in await cursor.fetchall()}
+
+    additions = (
+        ("bot_key", "ALTER TABLE task_comments ADD COLUMN bot_key TEXT NOT NULL DEFAULT 'default'"),
+        ("source", "ALTER TABLE task_comments ADD COLUMN source TEXT NOT NULL DEFAULT 'core'"),
+        ("source_key", "ALTER TABLE task_comments ADD COLUMN source_key TEXT"),
+        ("telegram_chat_id", "ALTER TABLE task_comments ADD COLUMN telegram_chat_id TEXT"),
+        ("telegram_message_id", "ALTER TABLE task_comments ADD COLUMN telegram_message_id INTEGER"),
+    )
+    for name, statement in additions:
+        if name not in columns:
+            await conn.execute(statement)
+
+    await conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_comments_source_key "
+        "ON task_comments(source_key)"
+    )
+    await conn.commit()
 
 
 class Database:
@@ -162,6 +185,7 @@ class Database:
             await self.conn.execute("PRAGMA synchronous=NORMAL")
         if not self.initialized:
             await self.conn.executescript(CORE_SCHEMA)
+            await migrate_core_schema(self.conn)
             await migrate_operations(self.conn)
             await self.conn.commit()
             self.initialized = True
