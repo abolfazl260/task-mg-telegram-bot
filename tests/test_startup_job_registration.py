@@ -132,6 +132,7 @@ async def test_post_init_registers_expected_jobs_once_for_profile(monkeypatch, a
         "habit_reminders",
         "weekly_habit_reports",
         "daily_admin_report",
+        "database_backup",
         "jira_sync",
         "external_task_sync",
     }
@@ -144,6 +145,8 @@ async def test_post_init_registers_expected_jobs_once_for_profile(monkeypatch, a
     jobs = {job.name: job for job in app.job_queue.jobs}
     assert jobs["jira_sync"].data is profile
     assert jobs["external_task_sync"].data is profile
+    assert jobs["database_backup"].kwargs["interval"] == app_main.BACKUP_INTERVAL_SECONDS
+    assert jobs["database_backup"].kwargs["first"] == app_main.BACKUP_FIRST_RUN_SECONDS
 
 
 async def test_job_registration_and_callbacks_keep_bot_profiles_isolated(
