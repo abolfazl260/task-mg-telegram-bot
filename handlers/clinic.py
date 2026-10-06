@@ -101,12 +101,40 @@ async def clinic_menu(update, context):
     except ClinicAccessError:
         await update.effective_message.reply_text("دسترسی مجاز به کلینیک پیدا نشد.")
 
+async def handle_clinic_input(update, context):
+    step = context.user_data.get("clinic_input")
+    if not step or not update.effective_message or not update.effective_message.text:
+        return False
+    value = update.effective_message.text.strip()
+    profile = context.application.bot_data.get("bot_config")
+    try:
+        memberships = await actor_scopes(str(update.effective_user.id), profile.key)
+        if not memberships: raise ClinicAccessError("forbidden")
+        if step == "patient_name":
+            context.user_data["clinic_patient_name"] = value
+            context.user_data["clinic_input"] = "patient_phone"
+            await update.effective_message.reply_text("شماره تماس بیمار را ارسال کنید یا - بفرستید:")
+        else:
+            unit_id = next((m.get("branch_id") for m in memberships if m.get("branch_id")), None)
+            if not unit_id: raise ValueError("branch_required")
+            item = await service.create_patient(Scope(memberships[0]["organization_id"], str(update.effective_user.id)), unit_id, context.user_data.pop("clinic_patient_name"), phone="" if value == "-" else value)
+            context.user_data.pop("clinic_input", None)
+            await update.effective_message.reply_text(f"✅ بیمار ثبت شد.\nشناسه: {item['id']}")
+        return True
+    except (ClinicAccessError, ValueError):
+        context.user_data.pop("clinic_input", None)
+        await update.effective_message.reply_text("ثبت بیمار انجام نشد؛ ابتدا شعبه کلینیک را تعریف کنید.")
+        return True
+
 
 async def clinic_callback(update, context):
     query = update.callback_query
     await query.answer()
     try:
         parts = (query.data or "").split(":")
+        if query.data == "clinic:new_patient":
+            context.user_data["clinic_input"] = "patient_name"
+            return await query.message.reply_text("نام و نام خانوادگی بیمار را ارسال کنید:")
         if parts[1] == "org":
             profile = context.application.bot_data.get("bot_config")
             if not profile or not profile.feature_enabled("healthcare"):
@@ -187,6 +215,8 @@ async def clinic_callback(update, context):
                         )
                     ]
                 )
+            if kind == "patients":
+                rows.insert(0, [InlineKeyboardButton("➕ ثبت بیمار جدید", callback_data="clinic:new_patient")])
             rows.append([InlineKeyboardButton("منو", callback_data="clinic:menu")])
             return await _render(update, "\n".join(lines) or "موردی وجود ندارد.", rows)
         if parts[1] == "followup":

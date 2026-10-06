@@ -266,9 +266,10 @@ def build_application(profile):
     if _feature(app,"unassigned") and _permission(app,"unassigned.view"):app.add_handler(CommandHandler("unassigned",unassigned_tasks))
     if _feature(app,"teams") and _permission(app,"teams.view"):app.add_handler(CommandHandler("team",team_command))
     if _feature(app,"healthcare"):
-        from handlers.clinic import clinic_callback, clinic_menu
+        from handlers.clinic import clinic_callback, clinic_menu, handle_clinic_input
         app.add_handler(CommandHandler("clinic",clinic_menu))
         app.add_handler(CallbackQueryHandler(clinic_callback,pattern="^clinic:"))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_clinic_input), group=0)
     if _feature(app,"search") and _permission(app,"search.use"):app.add_handler(CommandHandler("search",search_command))
     if _feature(app,"templates") and _permission(app,"templates.use"):app.add_handler(CommandHandler("templates",show_templates_menu))
     from handlers.help import help_command
