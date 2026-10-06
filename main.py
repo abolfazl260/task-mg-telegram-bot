@@ -5,6 +5,7 @@ from telegram.request import HTTPXRequest
 from telegram.ext import Application,CommandHandler,CallbackQueryHandler,MessageHandler,PreCheckoutQueryHandler,TypeHandler,ConversationHandler,filters
 from config import ADMIN_REPORT_TIME,BOT_PROFILES
 from services.bot_runtime_manager import run_runtime_control_plane
+from services.integration_oauth_runtime import start_integration_oauth_server,stop_integration_oauth_server
 from bot_context import set_current_bot_key,set_current_user_id
 from handlers.start import start
 from handlers.menu import button_handler
@@ -35,7 +36,6 @@ import handlers.task as task_handler,handlers.reports as reports_handler,handler
 from services import calendar_runtime,calendar_runtime_extensions,calendar_reports_v2,calendar_report_legacy
 from services.database import init_db
 from services.task_capabilities import install_task_capabilities,task_option_enabled
-from webapp.runtime import start_webapp_server
 from logging_config import setup_logging
 
 setup_logging()
@@ -93,22 +93,6 @@ async def _jira_sync_job(context):
     profile=context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config");await run_jira_sync(bot_key=profile.key if profile else "default")
 async def _integration_sync_job(context):
     profile=context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config");await run_external_sync(bot_key=profile.key if profile else "default")
-async def _oauth_callback(request):
-    from aiohttp import web
-    from services.integration_service import complete_oauth
-    provider=request.match_info.get("provider");error=request.query.get("error")
-    if error:return web.Response(text=f"اتصال لغو شد: {error}",content_type="text/html",charset="utf-8")
-    code=request.query.get("code");state=request.query.get("state")
-    if not code or not state:return web.Response(text="اطلاعات اتصال ناقص است.",status=400,content_type="text/html",charset="utf-8")
-    try:complete_oauth(provider,code,state);return web.Response(text="<h2>اتصال با موفقیت انجام شد.</h2><p>می‌توانید به تلگرام برگردید و همگام‌سازی را اجرا کنید.</p>",content_type="text/html",charset="utf-8")
-    except Exception:
-        logger.exception("OAuth callback failed provider=%s operation=complete_oauth", provider)
-        return web.Response(text="<h2>اتصال ناموفق بود.</h2><p>جزئیات خطا ثبت شد. لطفاً دوباره تلاش کنید.</p>",status=500,content_type="text/html",charset="utf-8")
-async def _start_oauth_server(app):
-    base=os.getenv("INTEGRATION_REDIRECT_BASE_URL","").strip()
-    if not base:logger.info("External task OAuth server disabled: INTEGRATION_REDIRECT_BASE_URL is not set");return
-    from aiohttp import web
-    oauth_app=web.Application();oauth_app.router.add_get("/integrations/oauth/{provider}",_oauth_callback);runner=web.AppRunner(oauth_app);await runner.setup();host=os.getenv("INTEGRATION_HOST","0.0.0.0");port=int(os.getenv("INTEGRATION_PORT","8080"));site=web.TCPSite(runner,host,port);await site.start();app.bot_data["integration_oauth_runner"]=runner
 async def post_init(app:Application):
     await init_db();install_task_capabilities(app);profile=app.bot_data.get("bot_config")
     commands=[BotCommand("ai","دستیار هوشمند تحلیل تسک‌ها"),BotCommand("start","شروع ربات و منوی اصلی"),BotCommand("add","افزودن تسک جدید"),BotCommand("reports","گزارشات و آمار"),BotCommand("tasks","منوی تسک‌ها"),BotCommand("unassigned","وظایف بدون مسئول"),BotCommand("team","تیم و فضای مشترک"),BotCommand("search","جستجوی تسک"),BotCommand("templates","تمپلیت‌های آماده"),BotCommand("habit","مدیریت عادت‌ها"),BotCommand("donate","حمایت با Telegram Stars"),BotCommand("jira","اتصال به Jira"),BotCommand("jira_status","وضعیت اتصال Jira"),BotCommand("jira_disconnect","قطع اتصال Jira"),BotCommand("help","راهنمای کامل استفاده")]
@@ -122,7 +106,7 @@ async def post_init(app:Application):
                 if cmd.command=="templates" and not task_option_enabled(app,"allow_templates"):continue
                 filtered.append(cmd)
         commands=filtered
-    await app.bot.delete_my_commands();await app.bot.set_my_commands(commands);logger.info("Telegram command menu updated bot=%s features=%s commands=%s",profile.key if profile else "default",profile.features if profile else {},", ".join(f"/{cmd.command}" for cmd in commands));await _start_oauth_server(app);start_webapp_server()
+    await app.bot.delete_my_commands();await app.bot.set_my_commands(commands);logger.info("Telegram command menu updated bot=%s features=%s commands=%s",profile.key if profile else "default",profile.features if profile else {},", ".join(f"/{cmd.command}" for cmd in commands))
     if app.job_queue:
         if profile is None or profile.feature_enabled("tasks"):
             app.job_queue.run_repeating(morning_today_tasks,interval=60,first=10,name="morning_today_tasks")
@@ -221,6 +205,8 @@ def main():
         run_runtime_control_plane(
             build_application,
             initial_profiles=BOT_PROFILES,
+            startup_hook=start_integration_oauth_server,
+            shutdown_hook=stop_integration_oauth_server,
         )
     )
 if __name__=="__main__":main()
