@@ -421,8 +421,8 @@ adoption بهتر.
 ## D3 — Web-first Management UX
 Web برای control، reporting، configuration و analytics است.
 
-## D4 — System of Action Positioning
-TaskMG system-of-record را جایگزین نمی‌کند؛ execution را مالک می‌شود.
+## D4 — Patient Record + System of Action Positioning
+TaskMG Clinic می‌تواند Patient Record و Session history را در خود نگهداری کند و هم‌زمان execution/follow-up را مالک باشد. Integration با PMS/EMR خارجی optional است.
 
 ## D5 — Next Action Model
 Patient/Case می‌تواند همیشه action بعدی داشته باشد.
@@ -596,7 +596,7 @@ TaskMG سیستم مدیریت عملیات کلینیک است؛ follow-up بی
 بیشتر کلینیک‌ها نرم‌افزار نوبت و پرونده دارند، اما کارهایی که بین پذیرش، پزشک، دستیار و manager جابه‌جا می‌شوند هنوز در پیام، تماس و حافظه افراد هستند. TaskMG این اقدامات را به workflow قابل‌ردیابی تبدیل می‌کند؛ تیم از Telegram کار می‌کند و مدیر از Web backlog، overdue و وضعیت عملیات را می‌بیند.
 
 ## 60 ثانیه
-TaskMG جایگزین PMS یا EMR شما نیست. ما لایه اجرای عملیات هستیم. هر اتفاقی که نیاز به اقدام دارد—مثل follow-up treatment plan، callback، lab case، post-treatment check یا کار داخلی—به یک Next Action با owner، deadline، reminder و context تبدیل می‌شود. frontline می‌تواند سریع از Telegram کار کند و manager از Web کل backlog و bottleneck را ببیند. هدف این است که کلینیک از مدیریت شفاهی و person-dependent به workflow قابل اندازه‌گیری برسد.
+TaskMG Clinic می‌تواند مستقل Patient Record، Session/Visit history و عملیات کلینیک را مدیریت کند. اگر PMS/EMR دیگری دارید، integration اختیاری است. هر اتفاقی که نیاز به اقدام دارد—مثل follow-up treatment plan، callback، lab case، post-treatment check یا کار داخلی—به یک Next Action با owner، deadline، reminder و context تبدیل می‌شود. frontline می‌تواند سریع از Telegram کار کند و manager از Web کل backlog و bottleneck را ببیند. هدف این است که کلینیک از مدیریت شفاهی و person-dependent به workflow قابل اندازه‌گیری برسد.
 
 ---
 
