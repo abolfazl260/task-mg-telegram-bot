@@ -257,3 +257,19 @@ async def test_exception_releases_running_lock_and_allows_retry(monkeypatch):
     )
     assert await sync_scheduler.run_jira_sync("alpha") == {"success": True}
     assert calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_external_sync_forwards_provider_allowlist(monkeypatch):
+    captured = {}
+
+    def external_sync(bot_key, providers=None):
+        captured["bot_key"] = bot_key
+        captured["providers"] = providers
+        return []
+
+    monkeypatch.setattr(sync_scheduler.asyncio, "to_thread", _immediate_to_thread)
+    monkeypatch.setattr(sync_scheduler, "sync_all", external_sync)
+
+    assert await sync_scheduler.run_external_sync("alpha", providers=("microsoft",)) == []
+    assert captured == {"bot_key": "alpha", "providers": ("microsoft",)}

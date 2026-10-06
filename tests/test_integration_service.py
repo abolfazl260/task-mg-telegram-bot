@@ -127,3 +127,26 @@ def test_scheduled_sync_reads_one_scoped_task_set_per_connected_user(monkeypatch
     assert [user_id for user_id, _ in results] == users
     assert task_reads == users
     assert len(created) == len(users) * 2
+
+
+def test_sync_user_respects_allowed_provider_list(monkeypatch):
+    user_id = "42"
+    connections = {
+        (user_id, "microsoft", "default"): _connection(user_id, "microsoft"),
+        (user_id, "google", "default"): _connection(user_id, "google"),
+    }
+    created = []
+
+    monkeypatch.setattr(
+        integration_service,
+        "db_sync_all",
+        lambda table, where="", params=(): [
+            {"id": "task-a", "user_id": user_id, "status": "pending"}
+        ] if table == "tasks" else [],
+    )
+    _stub_provider_io(monkeypatch, connections, created)
+
+    results = integration_service.sync_user(user_id, providers=("microsoft",))
+
+    assert created == [("microsoft", "task-a")]
+    assert results == [("microsoft", 1, None)]

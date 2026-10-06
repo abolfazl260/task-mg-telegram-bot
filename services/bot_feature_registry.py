@@ -38,6 +38,8 @@ FEATURE_REGISTRY: dict[str, FeatureDefinition] = {
     "templates": FeatureDefinition("templates", "Templates", ("core",)),
     "bulk_import": FeatureDefinition("bulk_import", "Bulk Import", ("core",)),
     "integrations": FeatureDefinition("integrations", "Integrations", ("core",)),
+    "jira": FeatureDefinition("jira", "Jira", ("integrations",)),
+    "google_tasks": FeatureDefinition("google_tasks", "Google Tasks", ("integrations",)),
     "guest_mode": FeatureDefinition("guest_mode", "Guest Mode", ("core",)),
     "contact": FeatureDefinition("contact", "Contact", ("core",)),
     "donate": FeatureDefinition("donate", "Donate / Payments", ("core",)),

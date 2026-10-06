@@ -39,6 +39,8 @@ async def test_seed_default_simple_and_clinic_profiles_is_idempotent():
     assert rows["simple"]["status"] == "inactive"
     assert "tasks" in rows["simple"]["features"]
     assert "ai" not in rows["simple"]["features"]
+    assert "jira" not in rows["simple"]["features"]
+    assert "google_tasks" not in rows["simple"]["features"]
     assert rows["clinic"]["profile_type"] == "clinic"
     assert "assignment" in rows["clinic"]["features"]
     assert "teams" in rows["clinic"]["features"]
@@ -162,6 +164,11 @@ def test_feature_normalization_requires_core_and_dependencies():
     assert normalize_features(["tasks"]) == ["core", "tasks"]
     with pytest.raises(ValueError, match="assignment requires teams"):
         normalize_features(["core", "tasks", "assignment"])
+    with pytest.raises(ValueError, match="jira requires integrations"):
+        normalize_features(["core", "jira"])
+    assert normalize_features(["core", "integrations", "jira", "google_tasks"]) == [
+        "core", "integrations", "jira", "google_tasks"
+    ]
 
 
 @pytest.mark.asyncio

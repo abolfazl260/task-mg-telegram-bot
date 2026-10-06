@@ -47,6 +47,8 @@ def _profile(
     habits: bool = True,
     reports: bool = True,
     integrations: bool = True,
+    jira: bool = True,
+    google_tasks: bool = True,
 ) -> BotProfile:
     features = {name: False for name in DEFAULT_FEATURES}
     features.update(
@@ -57,6 +59,8 @@ def _profile(
             "habits": habits,
             "reports": reports,
             "integrations": integrations,
+            "jira": jira and integrations,
+            "google_tasks": google_tasks and integrations,
         }
     )
     return BotProfile(
@@ -190,7 +194,38 @@ async def test_job_registration_and_callbacks_keep_bot_profiles_isolated(
     await app_main._integration_sync_job(beta_context)
 
     jira_sync.assert_awaited_once_with(bot_key="alpha")
-    external_sync.assert_awaited_once_with(bot_key="beta")
+    external_sync.assert_awaited_once_with(bot_key="beta", providers=("microsoft", "google"))
+
+
+def test_jira_and_google_tasks_are_opt_in_by_default():
+    assert DEFAULT_FEATURES["jira"] is False
+    assert DEFAULT_FEATURES["google_tasks"] is False
+
+
+async def test_provider_flags_control_jobs_and_google_sync(monkeypatch, app_main):
+    profile = _profile("provider-flags", integrations=True, jira=False, google_tasks=False)
+    app = _FakeApp(profile)
+
+    monkeypatch.setattr(app_main, "init_db", AsyncMock())
+    monkeypatch.setattr(app_main, "install_task_capabilities", lambda _app: None)
+
+    await app_main.post_init(app)
+
+    assert "jira_sync" not in _job_names(app)
+    assert "external_task_sync" in _job_names(app)
+    assert {"jira", "jira_status", "jira_disconnect"}.isdisjoint(app.bot.command_sets[-1])
+
+    external_sync = AsyncMock()
+    monkeypatch.setattr(app_main, "run_external_sync", external_sync)
+    context = SimpleNamespace(
+        job=SimpleNamespace(data=profile),
+        application=SimpleNamespace(bot_data={"bot_config": profile}),
+    )
+    await app_main._integration_sync_job(context)
+    external_sync.assert_awaited_once_with(
+        bot_key="provider-flags",
+        providers=("microsoft",),
+    )
 
 
 async def test_profile_without_integrations_does_not_register_sync_jobs(

@@ -10,6 +10,7 @@ PROVIDERS = {
     "microsoft": "🪟 Microsoft To Do",
     "google": "🔵 Google Tasks",
 }
+PROVIDER_FEATURES = {"google": "google_tasks"}
 
 
 def _bot_key(context):
@@ -17,9 +18,29 @@ def _bot_key(context):
     return profile.key if profile else "default"
 
 
-async def integrations_keyboard(user_id, bot_key="default"):
+def _provider_enabled(context, provider):
+    feature = PROVIDER_FEATURES.get(provider)
+    if feature is None:
+        return True
+    profile = context.bot_data.get("bot_config") if context is not None else None
+    return profile is None or profile.feature_enabled(feature)
+
+
+def _provider_from_callback(data):
+    for prefix in ("int_connect_", "int_menu_", "int_lists_", "int_sync_", "int_disconnect_"):
+        if data.startswith(prefix):
+            return data[len(prefix):]
+    if data.startswith("int_setlist_"):
+        parts = data.split("_", 3)
+        return parts[2] if len(parts) >= 4 else None
+    return None
+
+
+async def integrations_keyboard(user_id, bot_key="default", context=None):
     rows = []
     for provider, label in PROVIDERS.items():
+        if not _provider_enabled(context, provider):
+            continue
         if await integration_service.connected(user_id, provider, bot_key):
             rows.append([InlineKeyboardButton(f"{label} ✅", callback_data=f"int_menu_{provider}")])
         else:
@@ -61,7 +82,7 @@ async def show_integrations(update, context):
     user_id = update.effective_user.id
     await update.callback_query.message.reply_text(
         "🔗 اتصال سرویس‌ها\n\nمی‌توانید حساب خود را به یکی از سرویس‌های مدیریت کار متصل کنید.\n\nبا اتصال، تسک‌های ربات با سرویس انتخاب‌شده همگام می‌شوند.",
-        reply_markup=await integrations_keyboard(user_id, _bot_key(context)),
+        reply_markup=await integrations_keyboard(user_id, _bot_key(context), context),
     )
 
 
@@ -71,6 +92,10 @@ async def integration_callback(update, context):
     data = query.data
     user_id = update.effective_user.id
     bot_key = _bot_key(context)
+    provider = _provider_from_callback(data)
+    if provider and not _provider_enabled(context, provider):
+        await query.message.reply_text("⛔ این اتصال برای این ربات در Back Office فعال نشده است.")
+        return
 
     if data == "integrations":
         await show_integrations(update, context)
@@ -147,4 +172,4 @@ async def integration_callback(update, context):
     if data.startswith("int_disconnect_"):
         provider = data.replace("int_disconnect_", "", 1)
         await integration_service.disconnect(user_id, provider, bot_key)
-        await query.message.reply_text("🔌 اتصال قطع شد.", reply_markup=await integrations_keyboard(user_id, bot_key))
+        await query.message.reply_text("🔌 اتصال قطع شد.", reply_markup=await integrations_keyboard(user_id, bot_key, context))

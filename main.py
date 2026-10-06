@@ -181,7 +181,9 @@ def _parse_report_time():
 async def _jira_sync_job(context):
     profile=context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config");await run_jira_sync(bot_key=profile.key if profile else "default")
 async def _integration_sync_job(context):
-    profile=context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config");await run_external_sync(bot_key=profile.key if profile else "default")
+    profile=context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config")
+    providers=("microsoft","google") if profile is None or profile.feature_enabled("google_tasks") else ("microsoft",)
+    await run_external_sync(bot_key=profile.key if profile else "default",providers=providers)
 
 def _job_registered(job_queue,name):
     getter=getattr(job_queue,"get_jobs_by_name",None)
@@ -200,7 +202,7 @@ _database_backup_registered = False
 async def post_init(app:Application):
     await init_db();install_task_capabilities(app);profile=app.bot_data.get("bot_config")
     commands=[BotCommand("ai","دستیار هوشمند تحلیل تسک‌ها"),BotCommand("clinic","فضای کار کلینیک"),BotCommand("start","شروع ربات و منوی اصلی"),BotCommand("add","افزودن تسک جدید"),BotCommand("reports","گزارشات و آمار"),BotCommand("tasks","منوی تسک‌ها"),BotCommand("unassigned","وظایف بدون مسئول"),BotCommand("team","تیم و فضای مشترک"),BotCommand("search","جستجوی تسک"),BotCommand("templates","تمپلیت‌های آماده"),BotCommand("habit","مدیریت عادت‌ها"),BotCommand("donate","حمایت با Telegram Stars"),BotCommand("jira","اتصال به Jira"),BotCommand("jira_status","وضعیت اتصال Jira"),BotCommand("jira_disconnect","قطع اتصال Jira"),BotCommand("help","راهنمای کامل استفاده")]
-    feature_by_command={"clinic":"healthcare","add":"tasks","tasks":"tasks","unassigned":"unassigned","team":"teams","search":"search","templates":"templates","reports":"reports","habit":"habits","donate":"donate","ai":"ai","jira":"integrations","jira_status":"integrations","jira_disconnect":"integrations"}
+    feature_by_command={"clinic":"healthcare","add":"tasks","tasks":"tasks","unassigned":"unassigned","team":"teams","search":"search","templates":"templates","reports":"reports","habit":"habits","donate":"donate","ai":"ai","jira":"jira","jira_status":"jira","jira_disconnect":"jira"}
     permission_by_command={"add":"tasks.create","tasks":"tasks.view","unassigned":"unassigned.view","team":"teams.view","search":"search.use","templates":"templates.use","reports":"reports.view","habit":"habits.manage","donate":"donate.use","ai":"ai.use","jira":"integrations.manage","jira_status":"integrations.manage","jira_disconnect":"integrations.manage"}
     if profile is not None:
         filtered=[]
@@ -244,7 +246,8 @@ async def post_init(app:Application):
             _database_backup_registered = True
         if profile is None or (profile.feature_enabled("integrations") and profile.permission_enabled("integrations.sync")):
             bot_offset=sum(ord(ch) for ch in (profile.key if profile else "default"))%60
-            _run_repeating_once(app.job_queue,_jira_sync_job,interval=60,first=30+bot_offset,name="jira_sync",data=profile)
+            if profile is None or profile.feature_enabled("jira"):
+                _run_repeating_once(app.job_queue,_jira_sync_job,interval=60,first=30+bot_offset,name="jira_sync",data=profile)
             _run_repeating_once(app.job_queue,_integration_sync_job,interval=300,first=60+bot_offset,name="external_task_sync",data=profile)
 
 def _feature(app,name):
@@ -277,7 +280,7 @@ def build_application(profile):
     if _feature(app,"habits") and _permission(app,"habits.manage"):app.add_handler(CommandHandler("habit",show_habit_menu))
     if _feature(app,"donate") and _permission(app,"donate.use"):app.add_handler(CommandHandler("donate",donate_command))
     if _feature(app,"ai") and _permission(app,"ai.use"):app.add_handler(CommandHandler("ai",ai_command))
-    if _feature(app,"integrations") and _permission(app,"integrations.manage"):
+    if _feature(app,"jira") and _permission(app,"integrations.manage"):
         app.add_handler(ConversationHandler(entry_points=[CommandHandler("jira",jira_start)],states={JIRA_TYPE:[MessageHandler(filters.TEXT & ~filters.COMMAND,jira_type)],JIRA_URL:[MessageHandler(filters.TEXT & ~filters.COMMAND,jira_url)],JIRA_IDENTITY:[MessageHandler(filters.TEXT & ~filters.COMMAND,jira_identity)],JIRA_CREDENTIAL:[MessageHandler(filters.TEXT & ~filters.COMMAND,jira_credential)],JIRA_PROJECT:[MessageHandler(filters.TEXT & ~filters.COMMAND,jira_project)]},fallbacks=[CommandHandler("cancel",jira_cancel)],name="jira_connection",persistent=False));app.add_handler(CommandHandler("jira_disconnect",jira_disconnect_command));app.add_handler(CommandHandler("jira_status",jira_status_command))
     app.add_handler(CommandHandler("help",help_command))
     if _feature(app,"tasks"):
@@ -317,7 +320,7 @@ def build_application(profile):
             app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.ALL | filters.LOCATION, save_task))
             app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_tag_text))
     if _feature(app,"integrations") and _permission(app,"integrations.manage"):
-        app.add_handler(CallbackQueryHandler(integration_callback,pattern="^integration_"))
+        app.add_handler(CallbackQueryHandler(integration_callback,pattern="^int_"))
     if _feature(app,"reports") and _permission(app,"reports.view"):
         app.add_handler(CallbackQueryHandler(reports_callback,pattern="^report_"))
         app.add_handler(CallbackQueryHandler(calendar_pdf_callback,pattern="^report_calendar_pdf$"))

@@ -65,13 +65,13 @@ def _sync_succeeded(kind: str, result) -> bool:
     return False
 
 
-def _run_sync(kind: str, bot_key: str):
+def _run_sync(kind: str, bot_key: str, providers=None):
     set_current_bot_key(bot_key)
     try:
         if kind == "jira":
             result = sync_all_connections(bot_key)
         else:
-            result = sync_all(bot_key)
+            result = sync_all(bot_key) if providers is None else sync_all(bot_key, providers=providers)
     except Exception:
         _release(bot_key, kind, False)
         raise
@@ -85,7 +85,9 @@ async def run_jira_sync(bot_key: str):
     return await asyncio.to_thread(_run_sync, "jira", bot_key)
 
 
-async def run_external_sync(bot_key: str):
+async def run_external_sync(bot_key: str, providers=None):
     if not _claim(bot_key, "external", _EXTERNAL_MIN_INTERVAL):
         return None
-    return await asyncio.to_thread(_run_sync, "external", bot_key)
+    if providers is None:
+        return await asyncio.to_thread(_run_sync, "external", bot_key)
+    return await asyncio.to_thread(_run_sync, "external", bot_key, providers)

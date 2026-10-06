@@ -108,9 +108,13 @@ def _create_external(row,task):
  p={'title':task.get('title') or 'بدون عنوان','notes':d}
  if task.get('deadline'):p['due']=_deadline_iso(task['deadline'],True)
  return _request_json(f"{GOOGLE_TASKS}/lists/{urllib.parse.quote(lid,safe='')}/tasks",token,'POST',p)
-def sync_user(user_id,bot_key='default',provider=None):
+def _sync_provider_names(provider=None,providers=None):
+ if provider is not None:return [provider] if provider in ('microsoft','google') else []
+ if providers is None:return ['microsoft','google']
+ return [name for name in providers if name in ('microsoft','google')]
+def sync_user(user_id,bot_key='default',provider=None,providers=None):
  results=[];tasks=None
- for name in ([provider] if provider else ['microsoft','google']):
+ for name in _sync_provider_names(provider,providers):
   row=get_connection(user_id,name,bot_key)
   if not row or int(row.get('enabled') or 0)!=1:continue
   try:
@@ -152,5 +156,7 @@ def sync_user(user_id,bot_key='default',provider=None):
    logger.exception('External sync failed provider=%s bot_key=%s user_id=%s operation=sync exception_type=%s',name,bot_key,user_id,type(exc).__name__)
    results.append((name,0,str(exc)))
  return results
-def sync_all(bot_key='default'):
- users=sorted({x['user_id'] for x in _read_integrations() if x.get('bot_key')==bot_key and int(x.get('enabled') or 0)==1});return [(u,sync_user(u,bot_key)) for u in users]
+def sync_all(bot_key='default',providers=None):
+ names=_sync_provider_names(providers=providers);allowed=set(names)
+ users=sorted({x['user_id'] for x in _read_integrations() if x.get('bot_key')==bot_key and int(x.get('enabled') or 0)==1 and x.get('provider') in allowed})
+ return [(u,sync_user(u,bot_key,providers=names)) for u in users]
