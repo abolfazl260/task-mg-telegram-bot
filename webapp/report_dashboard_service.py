@@ -386,12 +386,26 @@ def _sort_tasks(tasks, sort_key="newest"):
     return sorted(tasks, key=lambda x: (_duration_seconds(x), _parse_datetime(x.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc)), reverse=True)
 
 
+def _jalali_date(value: str | None) -> str:
+    """Return YYYY/MM/DD in Jalali for an ISO-like Gregorian date value."""
+    if not value:
+        return ""
+    raw = str(value).strip()
+    try:
+        parsed = date.fromisoformat(raw[:10])
+    except (ValueError, TypeError):
+        return ""
+    jy, jm, jd = gregorian_to_jalali(parsed.year, parsed.month, parsed.day)
+    return f"{jy:04d}/{jm:02d}/{jd:02d}"
+
+
 def _row(task):
+    deadline = task.get("deadline") or ""
     return {
         "id": task.get("id"), "title": task.get("title") or "بدون عنوان",
         "status": task.get("status") or "pending", "status_label": _status(task.get("status")),
         "priority": task.get("priority") or "medium", "priority_label": _priority(task.get("priority")),
-        "deadline": task.get("deadline") or "", "category": task.get("category") or "—",
+        "deadline": deadline, "deadline_jalali": _jalali_date(deadline), "category": task.get("category") or "—",
         "assignee": task.get("assignee_name") or task.get("assignee_username") or "بدون مسئول",
         "created_at": task.get("created_at") or "", "completed_at": task.get("completed_at") or "",
         "duration_seconds": _duration_seconds(task), "overdue_seconds": _overdue_seconds(task),
