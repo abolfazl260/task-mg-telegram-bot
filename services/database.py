@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS team_members (
     PRIMARY KEY(team_id,user_id)
 );
 CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY, bot_key TEXT NOT NULL DEFAULT 'default', user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    id TEXT PRIMARY KEY, bot_key TEXT NOT NULL DEFAULT 'default', work_item_type TEXT NOT NULL DEFAULT 'task', user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     title TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'medium', status TEXT NOT NULL DEFAULT 'pending', deadline TEXT NOT NULL DEFAULT '',
     category TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '',
     completed_at TEXT NOT NULL DEFAULT '', team_id TEXT REFERENCES teams(team_id) ON DELETE SET NULL,
@@ -147,6 +147,20 @@ CORE_SCHEMA = SCHEMA
 
 async def migrate_core_schema(conn) -> None:
     """Apply additive migrations required before post-schema indexes exist."""
+    async with conn.execute("PRAGMA table_info(tasks)") as cursor:
+        task_columns = {row[1] for row in await cursor.fetchall()}
+    if "work_item_type" not in task_columns:
+        await conn.execute(
+            "ALTER TABLE tasks ADD COLUMN work_item_type TEXT NOT NULL DEFAULT 'task'"
+        )
+    await conn.execute(
+        "UPDATE tasks SET work_item_type='task' "
+        "WHERE work_item_type IS NULL OR TRIM(work_item_type)=''"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tasks_work_item_type ON tasks(work_item_type)"
+    )
+
     async with conn.execute("PRAGMA table_info(task_comments)") as cursor:
         columns = {row[1] for row in await cursor.fetchall()}
 
