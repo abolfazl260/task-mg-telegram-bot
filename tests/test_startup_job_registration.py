@@ -1,12 +1,42 @@
 from __future__ import annotations
 
+import importlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from telegram.ext import CommandHandler
+import pytest
+from telegram.ext import CommandHandler, ConversationHandler
 
-import main as app_main
 from bot_platform import BotProfile, DEFAULT_FEATURES
+
+
+@pytest.fixture
+def app_main():
+    task_handler = importlib.import_module("handlers.task")
+    reports_handler = importlib.import_module("handlers.reports")
+    extra_reports_handler = importlib.import_module("handlers.extra_reports")
+    targets = [
+        (task_handler, "format_task_card"),
+        (task_handler, "build_full_report"),
+        (reports_handler, "report_all_tasks"),
+        (reports_handler, "report_by_priority"),
+        (reports_handler, "report_stuck"),
+        (reports_handler, "report_trend"),
+        (reports_handler, "report_calendar"),
+        (reports_handler, "report_week"),
+        (reports_handler, "report_heatmap"),
+        (reports_handler, "report_heatmap_week"),
+        (reports_handler, "report_today"),
+        (reports_handler, "reports_menu_keyboard"),
+        (extra_reports_handler, "report_compare_months"),
+    ]
+    originals = [(module, name, getattr(module, name)) for module, name in targets]
+    module = importlib.import_module("main")
+    try:
+        yield module
+    finally:
+        for target_module, name, original in originals:
+            setattr(target_module, name, original)
 
 
 def _profile(
@@ -85,7 +115,7 @@ def _job_names(app: _FakeApp) -> list[str]:
     return [job.name for job in app.job_queue.jobs]
 
 
-async def test_post_init_registers_expected_jobs_once_for_profile(monkeypatch):
+async def test_post_init_registers_expected_jobs_once_for_profile(monkeypatch, app_main):
     profile = _profile("alpha")
     app = _FakeApp(profile)
     init_db = AsyncMock()
@@ -116,7 +146,10 @@ async def test_post_init_registers_expected_jobs_once_for_profile(monkeypatch):
     assert jobs["external_task_sync"].data is profile
 
 
-async def test_job_registration_and_callbacks_keep_bot_profiles_isolated(monkeypatch):
+async def test_job_registration_and_callbacks_keep_bot_profiles_isolated(
+    monkeypatch,
+    app_main,
+):
     alpha = _profile("alpha")
     beta = _profile("beta")
     alpha_app = _FakeApp(alpha)
@@ -157,7 +190,10 @@ async def test_job_registration_and_callbacks_keep_bot_profiles_isolated(monkeyp
     external_sync.assert_awaited_once_with(bot_key="beta")
 
 
-async def test_profile_without_integrations_does_not_register_sync_jobs(monkeypatch):
+async def test_profile_without_integrations_does_not_register_sync_jobs(
+    monkeypatch,
+    app_main,
+):
     profile = _profile("no-integrations", integrations=False)
     app = _FakeApp(profile)
 
@@ -170,7 +206,10 @@ async def test_profile_without_integrations_does_not_register_sync_jobs(monkeypa
     assert "external_task_sync" not in _job_names(app)
 
 
-def test_build_application_keeps_profile_context_and_handler_sets_isolated(monkeypatch):
+def test_build_application_keeps_profile_context_and_handler_sets_isolated(
+    monkeypatch,
+    app_main,
+):
     enabled = _profile("enabled", integrations=True)
     restricted = _profile(
         "restricted",
@@ -197,15 +236,37 @@ def test_build_application_keeps_profile_context_and_handler_sets_isolated(monke
             for command in handler.commands
         }
 
+    def conversations(app):
+        return {
+            handler.name
+            for handlers in app.handlers.values()
+            for handler in handlers
+            if isinstance(handler, ConversationHandler)
+        }
+
     enabled_commands = commands(enabled_app)
     restricted_commands = commands(restricted_app)
 
-    assert {"start", "help", "add", "tasks", "jira", "jira_status", "jira_disconnect"} <= enabled_commands
+    assert {
+        "start",
+        "help",
+        "add",
+        "tasks",
+        "jira_status",
+        "jira_disconnect",
+    } <= enabled_commands
+    assert "jira_connection" in conversations(enabled_app)
     assert {"start", "help"} <= restricted_commands
-    assert {"add", "tasks", "jira", "jira_status", "jira_disconnect"}.isdisjoint(restricted_commands)
+    assert {
+        "add",
+        "tasks",
+        "jira_status",
+        "jira_disconnect",
+    }.isdisjoint(restricted_commands)
+    assert "jira_connection" not in conversations(restricted_app)
 
 
-def test_main_wires_profiles_factory_and_shared_lifecycle_hooks(monkeypatch):
+def test_main_wires_profiles_factory_and_shared_lifecycle_hooks(monkeypatch, app_main):
     profiles = [_profile("alpha"), _profile("beta")]
     called = {}
 
