@@ -29,7 +29,7 @@
 
 تقریباً تمام domain objectها باید tenant/clinic scope داشته باشند.
 
-## Principle 2 — Operational Patient Reference
+## Principle 2 — Patient as Typed Parent Work Item
 
 Patient object برای workflow است، نه پرونده بالینی جامع.
 
@@ -72,7 +72,7 @@ Core entities:
 - Staff / User
 - Role
 - Membership
-- PatientReference
+- Patient Work Item / Patient Record
 - Lead
 - AppointmentReference
 - ServiceReference
@@ -396,7 +396,7 @@ TaskMG scheduler کامل نیست؛ AppointmentReference لینک operational �
 
 ## Rules
 
-اگر external calendar/PMS source of truth است، زمان appointment از آن sync شود.
+اگر external calendar/PMS فعال است، source-of-truth policy باید configurable باشد. بدون integration، Session/Visit date/time در خود TaskMG منبع اصلی Clinic است.
 
 ---
 
@@ -1554,7 +1554,7 @@ Permission change و export حتماً audit شوند.
 3. User
 4. Role
 5. Membership
-6. PatientReference
+6. Patient Work Item
 7. Case
 8. Task
 9. FollowUp
