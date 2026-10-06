@@ -589,7 +589,7 @@ Product assumes HIPAA/GDPR/PIPEDA universally.
 
 ## Mitigation
 
-- patient reference model;
+- patient record model;
 - data minimization review;
 - clinical data boundary;
 - field approval.
