@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from services.database import fetch_all_sql, fetch_one_sql, transaction
-from services.healthcare.access import ROLE_PERMISSIONS, ClinicAccessError, Scope
+from services.healthcare.access import ClinicAccessError, ROLE_PERMISSIONS, Scope
 from services.healthcare.terminology import to_healthcare_record
 from services.operations.service import (
     OperationsConfig,
@@ -16,7 +16,6 @@ from services.operations.service import (
     new_id,
     now,
     text,
-    utc_date,
 )
 
 CASE_STATUSES = {"active", "waiting", "blocked", "completed", "closed", "cancelled"}
