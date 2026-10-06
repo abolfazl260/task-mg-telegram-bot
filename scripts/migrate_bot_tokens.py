@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Encrypt/rewrap managed Bot Profile tokens without printing secret values."""
 from __future__ import annotations
 
