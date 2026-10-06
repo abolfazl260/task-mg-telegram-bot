@@ -47,7 +47,7 @@ BOT_REQUEST_WORKFLOW_USERNAME=RequestApproval_Bot
 برای Bot Profileهایی که token آن‌ها در دیتابیس ذخیره می‌شود، keyring رمزنگاری را در محیط deployment تنظیم کنید:
 
 ```env
-BOT_TOKEN_ENCRYPTION_KEYS_JSON={"2026-10":"<fernet-key>"}
+BOT_TOKEN_ENCRYPTION_KEYS_JSON='{"2026-10":"<fernet-key>"}'
 BOT_TOKEN_ACTIVE_KEY_ID=2026-10
 ```
 
