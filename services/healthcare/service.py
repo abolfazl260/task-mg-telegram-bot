@@ -206,6 +206,7 @@ async def list_entities(
     kind: str,
     *,
     unit_id=None,
+    branch_id=None,
     owner_id=None,
     doctor_id=None,
     status=None,
@@ -217,6 +218,9 @@ async def list_entities(
 ):
     if kind not in TABLES:
         raise ValueError("invalid_entity")
+    if unit_id and branch_id and unit_id != branch_id:
+        raise ValueError("conflicting_branch")
+    unit_id = unit_id or branch_id
     pred, args = await scope.predicate(
         f"{kind}.view", doctor_context=DOCTOR_CONTEXT[kind]
     )
