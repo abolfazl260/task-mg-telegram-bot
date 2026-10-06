@@ -7,9 +7,9 @@ responsible for role names, labels, workflow templates and outcome dictionaries.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from collections.abc import Mapping
 from zoneinfo import ZoneInfo
 
 from services.database import fetch_one_sql, transaction
@@ -55,9 +55,9 @@ def utc_date(value: str) -> str:
 def audit(scope: WorkspaceScope, unit_id, action, entity_type, entity_id):
     """Return an audit INSERT statement safe to compose into a transaction."""
     return (
-        "INSERT INTO operational_audit("
-        "id,workspace_id,unit_id,actor_user_id,action,entity_type,entity_id,created_at"
-        ") VALUES(?,?,?,?,?,?,?,?)",
+        """INSERT INTO operational_audit(
+        id,workspace_id,unit_id,actor_user_id,action,entity_type,entity_id,created_at
+        ) VALUES(?,?,?,?,?,?,?,?)""",
         (
             new_id(),
             scope.workspace_id,
@@ -87,9 +87,9 @@ async def create_workspace(
     statements = [
         ("INSERT OR IGNORE INTO users(user_id) VALUES(?)", (str(actor_id),)),
         (
-            "INSERT INTO workspaces("
-            "id,bot_key,name,workspace_type,timezone"
-            ") VALUES(?,?,?,?,?)",
+            """INSERT INTO workspaces(
+            id,bot_key,name,workspace_type,timezone
+            ) VALUES(?,?,?,?,?)""",
             (
                 workspace_id,
                 text(bot_key),
@@ -99,17 +99,17 @@ async def create_workspace(
             ),
         ),
         (
-            "INSERT INTO workspace_memberships("
-            "id,workspace_id,user_id,role"
-            ") VALUES(?,?,?,?)",
+            """INSERT INTO workspace_memberships(
+            id,workspace_id,user_id,role
+            ) VALUES(?,?,?,?)""",
             (membership_id, workspace_id, str(actor_id), text(owner_role, max_length=100)),
         ),
     ]
     statements.extend(
         (
-            "INSERT INTO outcomes("
-            "id,workspace_id,key,label,requires_next_action,is_terminal"
-            ") VALUES(?,?,?,?,?,?)",
+            """INSERT INTO outcomes(
+            id,workspace_id,key,label,requires_next_action,is_terminal
+            ) VALUES(?,?,?,?,?,?)""",
             (
                 new_id(),
                 workspace_id,
@@ -123,9 +123,9 @@ async def create_workspace(
     )
     statements.append(
         (
-            "INSERT INTO operational_audit("
-            "id,workspace_id,unit_id,actor_user_id,action,entity_type,entity_id,created_at"
-            ") VALUES(?,?,?,?,?,?,?,?)",
+            """INSERT INTO operational_audit(
+            id,workspace_id,unit_id,actor_user_id,action,entity_type,entity_id,created_at
+            ) VALUES(?,?,?,?,?,?,?,?)""",
             (
                 new_id(),
                 workspace_id,
@@ -154,9 +154,9 @@ async def create_unit(
     await transaction(
         [
             (
-                "INSERT INTO workspace_units("
-                "id,workspace_id,name,unit_type"
-                ") VALUES(?,?,?,?)",
+                """INSERT INTO workspace_units(
+                id,workspace_id,name,unit_type
+                ) VALUES(?,?,?,?)""",
                 (
                     unit_id,
                     scope.workspace_id,
@@ -192,11 +192,11 @@ async def set_membership(
         [
             ("INSERT OR IGNORE INTO users(user_id) VALUES(?)", (str(user_id),)),
             (
-                "INSERT INTO workspace_memberships("
-                "id,workspace_id,user_id,unit_id,role,status"
-                ") VALUES(?,?,?,?,?,?) "
-                "ON CONFLICT(id) DO UPDATE SET "
-                "role=excluded.role,status=excluded.status",
+                """INSERT INTO workspace_memberships(
+                id,workspace_id,user_id,unit_id,role,status
+                ) VALUES(?,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET
+                role=excluded.role,status=excluded.status""",
                 (
                     membership_id,
                     scope.workspace_id,
@@ -253,10 +253,10 @@ async def create_reference(
     await transaction(
         [
             (
-                "INSERT INTO reference_entities("
-                "id,workspace_id,unit_id,reference_type,external_reference,"
-                "display_name,contact_value,primary_owner_user_id,created_at,updated_at"
-                ") VALUES(?,?,?,?,?,?,?,?,?,?)",
+                """INSERT INTO reference_entities(
+                id,workspace_id,unit_id,reference_type,external_reference,
+                display_name,contact_value,primary_owner_user_id,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
                 (
                     reference_id,
                     scope.workspace_id,
@@ -308,11 +308,11 @@ async def create_case(
     await transaction(
         [
             (
-                "INSERT INTO cases("
-                "id,workspace_id,unit_id,reference_id,case_type,title,"
-                "owner_user_id,primary_owner_user_id,expected_at,external_reference,"
-                "opened_at,created_at,updated_at"
-                ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                """INSERT INTO cases(
+                id,workspace_id,unit_id,reference_id,case_type,title,
+                owner_user_id,primary_owner_user_id,expected_at,external_reference,
+                opened_at,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     case_id,
                     scope.workspace_id,
@@ -361,10 +361,10 @@ async def create_action(
     task_id = new_id()
     statements = [
         (
-            "INSERT INTO tasks("
-            "id,bot_key,user_id,title,status,deadline,created_at,assignee_id,"
-            "workspace_id,unit_id,reference_id,case_id"
-            ") VALUES(?,?,?,?,'pending',?,?,?,?,?,?,?)",
+            """INSERT INTO tasks(
+            id,bot_key,user_id,title,status,deadline,created_at,assignee_id,
+            workspace_id,unit_id,reference_id,case_id
+            ) VALUES(?,?,?,?,'pending',?,?,?,?,?,?,?)""",
             (
                 task_id,
                 case["bot_key"],
@@ -385,8 +385,8 @@ async def create_action(
         statements.extend(
             [
                 (
-                    "UPDATE cases SET next_action_task_id=?,updated_at=? "
-                    "WHERE id=? AND workspace_id=?",
+                    """UPDATE cases SET next_action_task_id=?,updated_at=?
+                    WHERE id=? AND workspace_id=?""",
                     (task_id, now(), case_id, scope.workspace_id),
                 ),
                 audit(
