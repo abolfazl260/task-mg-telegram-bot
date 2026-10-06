@@ -4,7 +4,7 @@ The existing custom_bots table remains the authoritative persistence model.
 This module evolves that table in-place and keeps legacy callers compatible.
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import json
 import logging
