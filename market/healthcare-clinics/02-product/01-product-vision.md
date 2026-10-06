@@ -435,13 +435,17 @@ context تیمی.
 
 ---
 
-# 16. System of Action Model
+# 16. Patient Record + Action Model
 
-TaskMG نباید patient را به مجموعه‌ای از notes تبدیل کند.
+TaskMG Healthcare باید هم Patient Record ماندگار و هم Action Loop را در یک مدل واحد نگهداری کند.
 
-مدل اصلی:
+مدل Clinic روی Core:
 
-**Patient/Case → Current State → Next Action → Owner → Due → Outcome**
+**Patient (Parent Work Item / Task) → Session / Visit / Follow-up (Child Work Item / Subtask)**
+
+هر Patient علاوه بر child itemها، Attributeهای هویتی، تماس، پزشکی و بالینی خود را دارد. هر child item نیز Attribute schema مخصوص نوع خودش را دارد.
+
+برای actionهای اجرایی همچنان باید Current State، Next Action، Owner، Due و Outcome مشخص باشد.
 
 در هر لحظه برای یک case فعال باید بتوان پاسخ داد:
 
@@ -740,22 +744,29 @@ Vertical customization نباید هسته را fork کند.
 ساختار مطلوب:
 
 **Core Engine**
-- Task
-- Team
-- Roles
+- Typed Work Item / Task
+- Parent/Child hierarchy
+- Attribute Schema / Custom Fields
+- Dynamic forms/layouts
+- Team / Roles / Permissions
 - Workflow
 - Reminder
-- Report
+- Report Query/Definition Engine
+- Attachments
+- Audit
 - AI
 - Integrations
 
 +
 
-**Healthcare Domain Layer**
-- Patient
-- Patient Record / Clinical Record
-- Case
-- Next Action
+**Healthcare Vertical Profile**
+- Patient typed item
+- Patient attribute schema / clinical record
+- Session / Visit child item
+- Follow-up / Treatment Action child item
+- Clinic roles and permissions
+- Clinic-specific Web views/reports
+- Clinic Telegram flows
 - Clinic roles
 - Dental templates
 - Clinic metrics
