@@ -405,13 +405,14 @@ Pilot نباید برای ورود داده اولیه وابسته به migrati
 
 # 7. Not Now
 
-MVP عمداً شامل این موارد نیست:
+MVP Healthcare باید Patient Record و Clinical Data بیمار را پشتیبانی کند، از جمله داده‌های هویتی، حساسیت‌ها، بیماری‌های زمینه‌ای، داروها، تشخیص‌ها و clinical notes.
 
-- EMR/EHR
-- diagnosis
-- clinical decision support
-- prescription
-- medical imaging archive
+مواردی که در MVP به‌صورت خودکار ارائه نمی‌شوند:
+- autonomous diagnosis
+- autonomous clinical decision support
+- autonomous prescription
+- autonomous treatment recommendation
+- advanced PACS/imaging engine مگر در Issue مستقل
 - insurance claim
 - full accounting
 - full payroll
@@ -859,7 +860,7 @@ Metric:
 - فقط demo curiosity
 - buyer نامشخص
 - custom build زیاد
-- full EMR expectation
+- انتظار clinical automation یا migration بدون تعریف امنیت/permission
 - integration شرط روز اول بدون امکان
 - data risk خارج از capability
 
