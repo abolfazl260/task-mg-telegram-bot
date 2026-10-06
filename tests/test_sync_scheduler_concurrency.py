@@ -121,6 +121,22 @@ async def test_jira_and_external_sync_do_not_block_each_other(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_first_run_is_not_throttled_on_fresh_monotonic_clock(monkeypatch):
+    clock = {"now": 10.0}
+
+    monkeypatch.setattr(sync_scheduler.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(sync_scheduler.asyncio, "to_thread", _immediate_to_thread)
+    monkeypatch.setattr(
+        sync_scheduler,
+        "sync_all_connections",
+        lambda _bot_key: {"success": True},
+    )
+
+    assert await sync_scheduler.run_jira_sync("alpha") == {"success": True}
+    assert sync_scheduler._LAST_SUCCESS[("jira", "alpha")] == 10.0
+
+
+@pytest.mark.asyncio
 async def test_minimum_interval_skips_unnecessary_reruns(monkeypatch):
     clock = {"now": 1_000.0}
     calls = {"count": 0}
