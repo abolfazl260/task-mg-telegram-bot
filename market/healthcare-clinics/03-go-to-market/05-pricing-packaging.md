@@ -63,8 +63,8 @@ TaskMG نباید با full PMS price parity شروع کند، چون scope مت
 TaskMG:
 
 - ارزان‌ترین task manager نیست؛
-- full PMS هم نیست؛
-- یک operational workflow layer است.
+- Patient Record و Session management را در خود دارد؛
+- علاوه بر record keeping، یک operational workflow layer است.
 
 بنابراین price anchor باید بین:
 
@@ -143,7 +143,7 @@ Professional Services جدا از SaaS subscription باشد.
 - Web
 - tasks
 - roles
-- patient references
+- complete patient records
 - follow-up queue
 - basic templates
 - reminders
