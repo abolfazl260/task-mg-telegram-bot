@@ -137,50 +137,65 @@ def _safe_cell(value):
     return result
 
 
-async def export_operations(scope: Scope, kind: str, *, unit_id=None):
+async def export_operations(
+    scope: Scope,
+    kind: str,
+    *,
+    unit_id=None,
+    branch_id=None,
+):
+    """Export generic Core records using Healthcare-facing column names."""
+    if unit_id and branch_id and unit_id != branch_id:
+        raise ValueError("conflicting_branch")
+    selected_unit = unit_id or branch_id
     allowed = {
         "tasks": (
             "tasks",
             (
-                "id",
-                "case_id",
-                "reference_id",
-                "assignee_id",
-                "status",
-                "deadline",
-                "outcome_id",
+                ("id", "id"),
+                ("case_id", "case_id"),
+                ("reference_id", "patient_id"),
+                ("assignee_id", "assignee_id"),
+                ("status", "status"),
+                ("deadline", "deadline"),
+                ("outcome_id", "outcome_id"),
             ),
         ),
         "followups": (
             "followups",
             (
-                "id",
-                "case_id",
-                "reference_id",
-                "owner_user_id",
-                "due_at",
-                "attempt_number",
-                "status",
-                "outcome_id",
-                "completed_at",
+                ("id", "id"),
+                ("case_id", "case_id"),
+                ("reference_id", "patient_id"),
+                ("owner_user_id", "owner_user_id"),
+                ("due_at", "due_at"),
+                ("attempt_number", "attempt_number"),
+                ("status", "status"),
+                ("outcome_id", "outcome_id"),
+                ("completed_at", "completed_at"),
             ),
         ),
         "cases": (
             "cases",
             (
-                "id",
-                "reference_id",
-                "owner_user_id",
-                "primary_owner_user_id",
-                "status",
-                "current_stage",
-                "expected_at",
-                "next_action_task_id",
+                ("id", "id"),
+                ("reference_id", "patient_id"),
+                ("owner_user_id", "owner_user_id"),
+                ("primary_owner_user_id", "primary_doctor_user_id"),
+                ("status", "status"),
+                ("current_stage", "current_stage"),
+                ("expected_at", "expected_at"),
+                ("next_action_task_id", "next_action_task_id"),
             ),
         ),
         "outcomes": (
             "outcomes",
-            ("id", "key", "requires_next_action", "is_terminal"),
+            (
+                ("id", "id"),
+                ("key", "key"),
+                ("requires_next_action", "requires_next_action"),
+                ("is_terminal", "is_terminal"),
+            ),
         ),
     }
     if kind not in allowed:
@@ -188,26 +203,33 @@ async def export_operations(scope: Scope, kind: str, *, unit_id=None):
     table, columns = allowed[kind]
     pred, params = await scope.predicate("exports.create")
     if kind == "outcomes":
-        # No patient data in the tenant's outcome dictionary.
         pred, params = "e.workspace_id=?", (scope.workspace_id,)
-    elif unit_id:
+    elif selected_unit:
         pred += " AND e.unit_id=?"
-        params += (unit_id,)
+        params += (selected_unit,)
+
+    selection = ",".join(
+        f"e.{db_column} AS {public_column}"
+        for db_column, public_column in columns
+    )
     rows = await fetch_all_sql(
-        f"SELECT {','.join('e.' + col for col in columns)} FROM {table} e WHERE {pred} ORDER BY e.id LIMIT 5001",  # nosec B608
+        f"SELECT {selection} FROM {table} e WHERE {pred} "
+        "ORDER BY e.id LIMIT 5001",  # nosec B608
         params,
-    )  # nosec B608
+    )
     if len(rows) > 5000:
         raise ValueError("export_limit_exceeded")
+
+    headers = [public_column for _, public_column in columns]
     output = io.StringIO(newline="")
     writer = csv.writer(output)
-    writer.writerow(columns)
-    writer.writerows([_safe_cell(row[col]) for col in columns] for row in rows)
+    writer.writerow(headers)
+    writer.writerows([_safe_cell(row[column]) for column in headers] for row in rows)
     await transaction(
         [
             audit(
                 scope,
-                unit_id if kind != "outcomes" else None,
+                selected_unit if kind != "outcomes" else None,
                 "export.created",
                 kind,
                 new_id(),
