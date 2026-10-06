@@ -8,7 +8,6 @@ from zoneinfo import ZoneInfo
 
 from services.database import fetch_all_sql, fetch_one_sql, get_db, transaction
 from services.healthcare.access import Scope
-from services.healthcare.terminology import to_healthcare_record
 from services.healthcare.service import (
     DOCTOR_CONTEXT,
     audit,
@@ -21,6 +20,7 @@ from services.healthcare.service import (
     text,
     utc_date,
 )
+from services.healthcare.terminology import to_healthcare_record
 
 
 async def create_followup(
