@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from services.database import fetch_all_sql, fetch_one_sql, transaction
 from services.healthcare.access import ROLE_PERMISSIONS, ClinicAccessError, Scope
+from services.healthcare.terminology import to_healthcare_record
 
 CASE_STATUSES = {"active", "waiting", "blocked", "completed", "closed", "cancelled"}
 OUTCOMES = {
@@ -197,7 +198,7 @@ async def get_entity(scope: Scope, kind: str, entity_id: str, *, manage=False):
     )  # nosec B608
     if not row:
         raise ClinicAccessError("forbidden")
-    return row
+    return to_healthcare_record(row)
 
 
 async def list_entities(
@@ -253,7 +254,12 @@ async def list_entities(
         f"SELECT e.* FROM {TABLES[kind]} e WHERE {pred} ORDER BY e.created_at,e.id LIMIT ? OFFSET ?",  # nosec B608
         tuple(params) + (limit, offset),
     )  # nosec B608
-    return {"items": rows, "total": total["n"], "limit": limit, "offset": offset}
+    return {
+        "items": [to_healthcare_record(row) for row in rows],
+        "total": total["n"],
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 async def create_patient(
@@ -514,7 +520,7 @@ async def update_patient(
         else patient["display_name"],
         "phone": text(phone, max_length=50, required=False)
         if phone is not None
-        else patient["phone"],
+        else patient["contact_value"],
         "primary_owner_user_id": str(doctor_id)
         if doctor_id
         else patient["primary_owner_user_id"],
