@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from services import clinic_typed
+from services.date_picker import deadline_label, deadline_value
 from services.healthcare import followups, reports, service
 from services.healthcare.access import ClinicAccessError, Scope, actor_scopes
 from services.operations.service import create_workspace
@@ -111,7 +112,7 @@ async def clinic_menu(update, context):
                 [InlineKeyboardButton("خلاصه مدیریت", callback_data="clinic:metrics")]
             )
         await scope.predicate("followups.view", doctor_context="?=?")
-        await _render(update, labels.get("workspace", "فضای کار کلینیک"), rows)
+        await _render(update, dashboard, rows)
     except ClinicAccessError:
         await update.effective_message.reply_text("دسترسی مجاز به کلینیک پیدا نشد.")
 
@@ -146,6 +147,21 @@ async def handle_clinic_input(update, context):
         elif step == "patient_search":
             context.user_data.pop("clinic_input", None)
             await _patient_list(update, context, Scope(memberships[0]["organization_id"], str(update.effective_user.id)), 0, value)
+        elif step == "followup_title":
+            context.user_data["clinic_followup_title"] = value
+            context.user_data["clinic_input"] = "followup_date"
+            case_id = context.user_data["clinic_case_id"]
+            await update.effective_message.reply_text("📅 موعد پیگیری را انتخاب کنید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(deadline_label(i), callback_data=f"clinic:followup_date:{case_id}:{i}") for i in range(4)], [InlineKeyboardButton("تاریخ دلخواه شمسی", callback_data=f"clinic:followup_date:{case_id}:custom"), InlineKeyboardButton("لغو", callback_data=f"clinic:case:{case_id}")]]))
+        elif step == "followup_custom_date":
+            from utils.date_parse import parse_deadline_input
+            due = parse_deadline_input(value)
+            if not due: raise ValueError("invalid_date")
+            scope = Scope(memberships[0]["organization_id"], str(update.effective_user.id))
+            case_id = context.user_data.pop("clinic_case_id")
+            title = context.user_data.pop("clinic_followup_title")
+            await followups.create_followup(scope, case_id, str(update.effective_user.id), due, title=title)
+            context.user_data.pop("clinic_input", None)
+            await update.effective_message.reply_text("✅ پیگیری ثبت شد.")
         elif step == "typed_session_title":
             context.user_data["clinic_session_title"] = value
             context.user_data["clinic_input"] = "typed_session_date"
@@ -328,8 +344,31 @@ async def clinic_callback(update, context):
             patient = await service.get_entity(scope, "patients", case["reference_id"])
             status_labels = {"active": "🟡 در حال انجام", "waiting": "⏳ منتظر", "blocked": "🔴 مسدود", "completed": "✅ تکمیل‌شده", "closed": "⚪ بسته‌شده", "cancelled": "🚫 لغوشده"}
             text_body = f"📂 {case.get('title')}\n\nبیمار: {patient.get('display_name')}\nوضعیت پرونده: {status_labels.get(case.get('status'), case.get('status'))}\nمسئول: {case.get('primary_owner_user_id') or 'تعیین نشده'}"
-            rows = [[InlineKeyboardButton("🟡 در حال انجام", callback_data=f"clinic:case_status:{case['id']}:active"), InlineKeyboardButton("⏳ منتظر", callback_data=f"clinic:case_status:{case['id']}:waiting")], [InlineKeyboardButton("✅ تکمیل", callback_data=f"clinic:case_status:{case['id']}:completed"), InlineKeyboardButton("⚪ بستن", callback_data=f"clinic:case_status:{case['id']}:closed")], [InlineKeyboardButton("👤 بیمار", callback_data=f"clinic:patient:{patient['id']}"), InlineKeyboardButton("◀️ پرونده‌ها", callback_data="clinic:cases:0")]]
+            rows = [[InlineKeyboardButton("⏰ پیگیری‌ها", callback_data=f"clinic:case_followups:{case['id']}:0"), InlineKeyboardButton("➕ پیگیری جدید", callback_data=f"clinic:new_followup:{case['id']}")], [InlineKeyboardButton("🟡 در حال انجام", callback_data=f"clinic:case_status:{case['id']}:active"), InlineKeyboardButton("⏳ منتظر", callback_data=f"clinic:case_status:{case['id']}:waiting")], [InlineKeyboardButton("✅ تکمیل", callback_data=f"clinic:case_status:{case['id']}:completed"), InlineKeyboardButton("⚪ بستن", callback_data=f"clinic:case_status:{case['id']}:closed")], [InlineKeyboardButton("👤 بیمار", callback_data=f"clinic:patient:{patient['id']}"), InlineKeyboardButton("◀️ پرونده‌ها", callback_data="clinic:cases:0")]]
             return await _render(update, text_body, rows)
+        if parts[1] == "new_followup":
+            context.user_data["clinic_case_id"] = parts[2]
+            context.user_data["clinic_input"] = "followup_title"
+            return await query.message.reply_text("عنوان پیگیری را ارسال کنید:")
+        if parts[1] == "followup_date":
+            if context.user_data.get("clinic_input") != "followup_date": raise ValueError("followup_date_expired")
+            case_id, choice = parts[2], parts[3]
+            if choice == "custom":
+                context.user_data["clinic_case_id"] = case_id
+                context.user_data["clinic_input"] = "followup_custom_date"
+                return await query.message.reply_text("تاریخ شمسی را وارد کنید؛ مثال: ۱۴۰۵/۰۷/۱۵")
+            scope = await _scope(update, context)
+            title = context.user_data.pop("clinic_followup_title")
+            due = deadline_value(int(choice))
+            await followups.create_followup(scope, case_id, str(update.effective_user.id), due, title=title)
+            context.user_data.pop("clinic_case_id", None); context.user_data.pop("clinic_input", None)
+            return await query.message.reply_text("✅ پیگیری ثبت شد.")
+        if parts[1] == "case_followups":
+            scope = await _scope(update, context)
+            page = await followups.queue(scope, "upcoming", case_id=parts[2], limit=8, offset=int(parts[3]))
+            rows = [[InlineKeyboardButton(f"{x.get('due_at','')[:10]} · {x.get('title','پیگیری')} · {x.get('status')}", callback_data=f"clinic:followup:{x['id']}")] for x in page["items"]]
+            rows.append([InlineKeyboardButton("➕ پیگیری جدید", callback_data=f"clinic:new_followup:{parts[2]}"), InlineKeyboardButton("◀️ پرونده", callback_data=f"clinic:case:{parts[2]}")])
+            return await _render(update, f"⏰ پیگیری‌های پرونده ({page['total']})", rows)
         if parts[1] == "case_status":
             await service.set_case_status(scope, parts[2], parts[3])
             return await _render(update, "✅ وضعیت پرونده تغییر کرد.", [[InlineKeyboardButton("باز کردن پرونده", callback_data=f"clinic:case:{parts[2]}"), InlineKeyboardButton("◀️ پرونده‌ها", callback_data="clinic:cases:0")]])
