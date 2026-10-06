@@ -98,6 +98,13 @@ async def test_core_operations_support_non_healthcare_vertical(test_db):
     assert task["reference_id"] == reference["id"]
 
     db = await database.get_db()
+    await database.migrate_operations(db.conn)
+    async with db.conn.execute(
+        "SELECT workspace_type FROM workspaces WHERE id=?",
+        (workspace_id,),
+    ) as cur:
+        assert (await cur.fetchone())[0] == "sales"
+
     async with db.conn.execute(
         "SELECT role FROM workspace_memberships "
         "WHERE workspace_id=? AND user_id='200'",
