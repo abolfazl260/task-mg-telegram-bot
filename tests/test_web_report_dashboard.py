@@ -6,6 +6,8 @@ from webapp.report_dashboard_service import (
     resolve_period,
     _productivity_metrics,
     _heatmap_data,
+    _jalali_date,
+    _row,
     gregorian_to_jalali,
 )
 
@@ -31,6 +33,25 @@ def test_custom_period_normalizes_reversed_dates():
 def test_gregorian_to_jalali_conversion():
     assert gregorian_to_jalali(2026, 9, 5) == (1405, 6, 14)
     assert gregorian_to_jalali(2026, 3, 21) == (1405, 1, 1)
+
+
+def test_jalali_date_formats_iso_deadline_without_approximation():
+    assert _jalali_date("2026-08-04") == "1405/05/13"
+    assert _jalali_date("2026-03-21T09:30:00+00:00") == "1405/01/01"
+    assert _jalali_date("") == ""
+    assert _jalali_date("not-a-date") == ""
+
+
+def test_report_row_includes_precomputed_jalali_deadline():
+    row = _row({
+        "id": "task-1",
+        "title": "نمونه",
+        "status": "pending",
+        "priority": "medium",
+        "deadline": "2026-08-04",
+    })
+    assert row["deadline"] == "2026-08-04"
+    assert row["deadline_jalali"] == "1405/05/13"
 
 
 def test_productivity_metrics_lead_time_and_on_time_rates():
