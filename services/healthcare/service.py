@@ -16,7 +16,7 @@ from services.operations.service import (
     new_id,
     now,
     text,
-    utc_date,
+    utc_date as _utc_date,
 )
 
 CASE_STATUSES = {"active", "waiting", "blocked", "completed", "closed", "cancelled"}
@@ -38,6 +38,11 @@ HEALTHCARE_CONFIG = OperationsConfig(
     default_timezone="Asia/Tehran",
     outcomes=OUTCOMES,
 )
+
+def utc_date(value: str) -> str:
+    """Compatibility wrapper around the Core UTC-normalization primitive."""
+    return _utc_date(value)
+
 TABLES = {
     "patients": "reference_entities",
     "cases": "cases",
