@@ -1,4 +1,4 @@
-"""Route task comments through one durable Telegram-message reference flow."""
+"""Route Telegram task comments into the canonical task-comment repository."""
 
 import logging
 
@@ -53,103 +53,121 @@ async def _handle_task_comment_message(update, context):
         await message.reply_text("❌ خطا در ثبت کامنت. لطفاً دوباره تلاش کنید.")
 
 
-async def _patched_get_task_comments_async(task_id):
-    rows = await get_comment_messages_async(task_id)
-    return [
-        {
-            "author_id": str(row.get("author_id") or ""),
-            "author_name": row.get("author_name") or "کاربر",
-            "author_username": row.get("author_username") or "",
-            "created_at": row.get("created_at") or "",
-            "chat_id": str(row.get("chat_id") or ""),
-            "message_id": int(row.get("message_id") or 0),
-        }
-        for row in rows
-    ]
+async def _send_legacy_attachment(message, comment: dict) -> bool:
+    file_id = comment.get("file_id")
+    ctype = comment.get("type")
+    if not file_id:
+        return False
 
-
-async def _patched_comments_markdown(task_id: str) -> str:
-    comments = await _patched_get_task_comments_async(task_id)
-    if not comments:
-        return "💬 هنوز کامنتی برای این تسک ثبت نشده است."
-    lines = ["💬 کامنت‌ها", ""]
-    for i, comment in enumerate(comments, start=1):
-        author = comment.get("author_name") or "کاربر"
-        username = f" (@{comment.get('author_username')})" if comment.get("author_username") else ""
-        lines.append(f"{i}. 💬 پیام تلگرام — {author}{username}")
-        lines.append(f"   🕐 {comment.get('created_at') or '—'}")
-        lines.append("")
-    return "\n".join(lines).strip()
+    caption = (
+        f"{comment.get('author_name') or 'کاربر'}\n"
+        f"🕐 {comment.get('created_at') or '—'}\n"
+        f"{comment.get('caption') or comment.get('text') or comment.get('file_name') or ''}"
+    )[:1024]
+    try:
+        if ctype == "photo":
+            await message.reply_photo(file_id, caption=caption)
+        elif ctype == "voice":
+            await message.reply_voice(file_id, caption=caption)
+        elif ctype == "audio":
+            await message.reply_audio(file_id, caption=caption)
+        elif ctype == "video":
+            await message.reply_video(file_id, caption=caption)
+        elif ctype == "animation":
+            await message.reply_animation(file_id, caption=caption)
+        elif ctype == "sticker":
+            await message.reply_sticker(file_id)
+        elif ctype == "document":
+            await message.reply_document(file_id, caption=caption)
+        else:
+            return False
+        return True
+    except Exception:
+        logger.exception(
+            "task_comment_attachment_send_failed task_id=%s content_type=%s operation=send_attachment",
+            comment.get("task_id"),
+            ctype,
+        )
+        return False
 
 
 async def _patched_send_comment_attachments(message, task_id: str):
-    """Replay every original Telegram comment message in chronological order."""
-    comments = await _patched_get_task_comments_async(task_id)
+    """Replay Telegram-origin comments and preserve legacy file-id attachments."""
+    comments = await get_comment_messages_async(task_id)
     if not comments:
         return
 
     profile_key = get_current_bot_key() or "default"
-    bot = _BOTS.get(profile_key)
-    if bot is None:
-        logger.error("No active bot instance available for comment replay bot_key=%s task_id=%s", profile_key, task_id)
-        await message.reply_text("⚠️ امکان فراخوانی کامنت‌ها در این لحظه وجود ندارد. ربات را Restart کنید.")
-        return
-
     target_chat_id = message.chat_id
-    await bot.send_message(chat_id=target_chat_id, text="💬 جزئیات کامنت‌ها:")
+    announced = False
 
     for index, comment in enumerate(comments, start=1):
         chat_id = comment.get("chat_id")
         message_id = comment.get("message_id")
-        if not chat_id or not message_id:
-            logger.warning("Skipping comment without Telegram reference task_id=%s index=%s", task_id, index)
+        if chat_id and message_id:
+            if not announced:
+                active_bot = _BOTS.get(profile_key)
+                if active_bot is not None:
+                    await active_bot.send_message(chat_id=target_chat_id, text="💬 جزئیات کامنت‌ها:")
+                announced = True
+
+            source_bot = _BOTS.get(comment.get("bot_key")) or _BOTS.get(profile_key)
+            if source_bot is None:
+                logger.warning(
+                    "No active bot instance available for comment replay bot_key=%s task_id=%s",
+                    comment.get("bot_key"),
+                    task_id,
+                )
+                continue
+
+            source_chat_id = int(chat_id) if str(chat_id).lstrip("-").isdigit() else chat_id
+            try:
+                await source_bot.copy_message(
+                    chat_id=target_chat_id,
+                    from_chat_id=source_chat_id,
+                    message_id=message_id,
+                )
+                continue
+            except Exception:
+                logger.warning(
+                    "copy_message failed for task_id=%s chat_id=%s message_id=%s; trying forward_message",
+                    task_id,
+                    chat_id,
+                    message_id,
+                    exc_info=True,
+                )
+
+            try:
+                await source_bot.forward_message(
+                    chat_id=target_chat_id,
+                    from_chat_id=source_chat_id,
+                    message_id=message_id,
+                )
+            except Exception:
+                logger.exception(
+                    "Could not replay stored Telegram comment task_id=%s chat_id=%s message_id=%s",
+                    task_id,
+                    chat_id,
+                    message_id,
+                )
+                await source_bot.send_message(
+                    chat_id=target_chat_id,
+                    text=(
+                        f"⚠️ کامنت شماره {index} قابل فراخوانی نیست.\n"
+                        f"🕐 {comment.get('created_at') or '—'}\n"
+                        f"👤 {comment.get('author_name') or 'کاربر'}"
+                    ),
+                )
             continue
 
-        source_chat_id = int(chat_id) if str(chat_id).lstrip("-").isdigit() else chat_id
-        try:
-            await bot.copy_message(
-                chat_id=target_chat_id,
-                from_chat_id=source_chat_id,
-                message_id=message_id,
-            )
-            continue
-        except Exception:
-            logger.warning(
-                "copy_message failed for task_id=%s chat_id=%s message_id=%s; trying forward_message",
-                task_id,
-                chat_id,
-                message_id,
-                exc_info=True,
-            )
-
-        try:
-            await bot.forward_message(
-                chat_id=target_chat_id,
-                from_chat_id=source_chat_id,
-                message_id=message_id,
-            )
-        except Exception:
-            logger.exception(
-                "Could not replay stored Telegram comment task_id=%s chat_id=%s message_id=%s",
-                task_id,
-                chat_id,
-                message_id,
-            )
-            await bot.send_message(
-                chat_id=target_chat_id,
-                text=(
-                    f"⚠️ کامنت شماره {index} قابل فراخوانی نیست.\n"
-                    f"🕐 {comment.get('created_at') or '—'}\n"
-                    f"👤 {comment.get('author_name') or 'کاربر'}"
-                ),
-            )
+        await _send_legacy_attachment(message, comment)
 
 
 def _install():
     from handlers import task as task_module
 
-    task_module.get_task_comments_async = _patched_get_task_comments_async
-    task_module._comments_markdown = _patched_comments_markdown
+    # The canonical reader/formatter now live in task_service/comment_message_store.
+    # Only Telegram-specific replay still needs a channel adapter.
     task_module._send_comment_attachments = _patched_send_comment_attachments
 
     if getattr(Application, "_task_comment_message_router_patch", False):
