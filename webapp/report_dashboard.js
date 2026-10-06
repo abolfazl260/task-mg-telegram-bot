@@ -103,6 +103,27 @@
   .priority-box strong{font-size:28px!important}
   .productivity-grid{grid-template-columns:1fr!important}
 }
+/* Notion-inspired visual system: quiet canvas, clear hierarchy, restrained surfaces. */
+body{background:#f7f7f5!important;color:#37352f!important}
+main{max-width:1180px!important;padding:28px 24px 72px!important}
+.hero{background:#fff!important;color:#37352f!important;border:1px solid #e9e9e7!important;border-radius:12px!important;box-shadow:0 2px 8px rgba(15,23,42,.04)!important;padding:24px!important}
+.hero h1{font-size:30px!important;letter-spacing:-.8px!important;color:#292824!important}
+.hero p,.muted{color:#787774!important}
+.hero .badge{background:#f7f6f3!important;border:1px solid #e9e9e7!important;color:#787774!important;border-radius:6px!important}
+.hero-link{background:#37352f!important;border-color:#37352f!important;color:#fff!important;border-radius:6px!important;box-shadow:none!important}
+.stats{border-top:1px solid #e9e9e7!important;gap:0!important;margin-top:22px!important}
+.stat{background:transparent!important;border:0!important;border-left:1px solid #e9e9e7!important;border-radius:0!important;padding:18px!important}
+.stat strong{color:#37352f!important;font-size:28px!important}.stat span{color:#787774!important}
+.card,#reportFilters,#priorityTop,#productivityCard{background:#fff!important;border:1px solid #e9e9e7!important;border-radius:10px!important;box-shadow:0 2px 8px rgba(15,23,42,.035)!important}
+.section-title h2{color:#37352f!important;font-size:19px!important}
+#reportFilters>div:nth-of-type(2){background:#f7f6f3!important;border:1px solid #e9e9e7!important;border-radius:7px!important}
+#reportFilters .filter-period{color:#787774!important;border-radius:5px!important}.filter-period.active{background:#37352f!important;color:#fff!important;box-shadow:none!important}
+#reportFilters select,#reportFilters input{border-color:#deddd9!important;border-radius:6px!important;min-height:40px!important}
+#reportFilters #applyReportFilter{background:#37352f!important;border-color:#37352f!important;border-radius:6px!important;box-shadow:none!important}
+#reportFilters #exportCsv,#reportFilters #exportPdf,#clearReportFilters{border-color:#deddd9!important;border-radius:6px!important;color:#37352f!important}
+.priority-box,.prod-metric-box{border-radius:8px!important;box-shadow:none!important}.priority-box:hover,.prod-metric-box:hover{transform:none!important;box-shadow:none!important}
+.gh-heatmap-wrapper{background:#f7f6f3!important;border-color:#e9e9e7!important;border-radius:10px!important}
+.busiest-banner{border-color:#e9e9e7!important;border-radius:8px!important}.busy-pill{border-color:#e9e9e7!important;border-radius:6px!important;background:#f7f6f3!important}
 `;
   document.head.appendChild(style);
 
