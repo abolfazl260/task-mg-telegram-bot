@@ -72,7 +72,8 @@ class WorkspaceScope:
         *,
         context_predicate: str | None = "?=?",
     ):
-        pred, args = await self.predicate(
+        pred, args = await WorkspaceScope.predicate(
+            self,
             permission,
             "u",
             context_predicate=context_predicate,
