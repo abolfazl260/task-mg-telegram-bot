@@ -276,9 +276,9 @@ Role تعریف permission set است.
 
 ---
 
-# 10. PatientReference
+# 10. Patient / PatientRecord
 
-Operational reference بیمار.
+موجودیت اصلی بیمار و پرونده ماندگار او در TaskMG Healthcare. این مدل هم identity/contact و هم Clinical Data و context عملیاتی بیمار را نگهداری می‌کند.
 
 ## Fields
 
@@ -289,7 +289,15 @@ Operational reference بیمار.
 - display_name
 - phone optional/encrypted or protected as required
 - email optional
+- demographics / identity fields
 - primary_doctor_user_id optional
+- allergies
+- chronic_conditions
+- medications
+- diagnoses
+- clinical_notes
+- treatment-related fields / extensible clinical metadata
+- document/attachment references
 - status
 - created_at
 - updated_at
@@ -327,7 +335,7 @@ Patient Record می‌تواند شامل این داده‌ها باشد و ب�
 
 # 11. Lead
 
-Lead زمانی مفید است که person هنوز patient operational record کامل نیست.
+Lead زمانی مفید است که person هنوز به Patient Record رسمی تبدیل نشده است.
 
 ## Fields
 
