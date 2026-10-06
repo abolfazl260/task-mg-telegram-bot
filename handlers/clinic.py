@@ -35,6 +35,24 @@ async def _render(update, title, rows):
         await update.effective_message.reply_text(title, reply_markup=markup)
 
 
+async def _patient_list(update, context, scope, offset=0, search=None):
+    page = await service.list_entities(scope, "patients", search=search, limit=8, offset=max(0, int(offset)))
+    title = f"👥 بیماران\n{page['total']} بیمار"
+    if search:
+        title += f"\nنتیجه جست‌وجو برای: {search}"
+    rows = [[InlineKeyboardButton(f"{item.get('display_name', 'بدون نام')} · {item.get('status', 'active')}", callback_data=f"clinic:patient:{item['id']}")] for item in page["items"]]
+    if not rows:
+        rows.append([InlineKeyboardButton("➕ ثبت بیمار جدید", callback_data="clinic:new_patient")])
+        rows.append([InlineKeyboardButton("🔎 جست‌وجوی جدید", callback_data="clinic:patient_search")])
+    nav = []
+    if offset:
+        nav.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"clinic:patients:{max(0, offset-8)}"))
+    if offset + 8 < page["total"]:
+        nav.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"clinic:patients:{offset+8}"))
+    if nav: rows.append(nav)
+    rows.extend([[InlineKeyboardButton("🔎 جست‌وجو", callback_data="clinic:patient_search")], [InlineKeyboardButton("➕ ثبت بیمار جدید", callback_data="clinic:new_patient")], [InlineKeyboardButton("◀️ کلینیک", callback_data="clinic:menu")]])
+    await _render(update, title, rows)
+
 async def clinic_menu(update, context):
     try:
         profile = context.application.bot_data.get("bot_config")
@@ -73,30 +91,16 @@ async def clinic_menu(update, context):
             return await _render(update, "برای ثبت بیمار ابتدا یک شعبه کلینیک تعریف کنید.", rows)
         if not selected_branch or not any(str(b["id"]) == str(selected_branch) for b in branch_rows):
             return await _render(update, "شعبه کلینیک را انتخاب کنید:", [[InlineKeyboardButton(b["name"], callback_data=f"clinic:branch:{b['id']}")] for b in branch_rows])
+        metrics = await reports.metrics(scope, unit_id=selected_branch)
+        total_patients = (await service.list_entities(scope, "patients", unit_id=selected_branch, limit=1))["total"]
+        open_cases = int(metrics.get("cases", {}).get("total", 0) - metrics.get("cases", {}).get("completed", 0))
+        followups_today = int(metrics.get("followups", {}).get("total", 0))
+        overdue = int(metrics.get("followups", {}).get("overdue", 0))
+        dashboard = (f"🏥 {labels.get('workspace', 'کلینیک')}\n\n👥 بیماران: {total_patients}\n📂 پرونده‌های باز: {max(0, open_cases)}\n⏰ پیگیری‌های امروز: {followups_today}\n⚠️ عقب‌افتاده: {overdue}")
         rows = [
-            [
-                InlineKeyboardButton(
-                    "پیگیری‌های امروز", callback_data="clinic:queue:today:0"
-                ),
-                InlineKeyboardButton(
-                    "عقب‌افتاده", callback_data="clinic:queue:overdue:0"
-                ),
-            ],
-            [
-                InlineKeyboardButton("آینده", callback_data="clinic:queue:upcoming:0"),
-                InlineKeyboardButton(
-                    "جواب نداد", callback_data="clinic:queue:no_answer:0"
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    labels.get("patient", "بیمار"), callback_data="clinic:patients:0"
-                ),
-                InlineKeyboardButton(
-                    labels.get("case", "پرونده عملیاتی"), callback_data="clinic:cases:0"
-                ),
-            ],
-            [InlineKeyboardButton("🗓️ جلسات و پیگیری‌های تایپ‌شده", callback_data="clinic:typed:0")],
+            [InlineKeyboardButton("➕ ثبت بیمار", callback_data="clinic:new_patient"), InlineKeyboardButton("🔎 جست‌وجوی بیمار", callback_data="clinic:patient_search")],
+            [InlineKeyboardButton("👥 بیماران", callback_data="clinic:patients:0"), InlineKeyboardButton("📂 پرونده‌ها", callback_data="clinic:cases:0")],
+            [InlineKeyboardButton("⏰ پیگیری‌ها", callback_data="clinic:queue:today:0")],
         ]
         if any(
             m["role"] in {"owner", "manager", "admin"}
@@ -139,6 +143,9 @@ async def handle_clinic_input(update, context):
             context.user_data["clinic_patient_phone"] = "" if value == "-" else value
             context.user_data["clinic_input"] = "patient_reference"
             await update.effective_message.reply_text("کد پرونده/شناسه بیمار را ارسال کنید یا - بفرستید:")
+        elif step == "patient_search":
+            context.user_data.pop("clinic_input", None)
+            await _patient_list(update, context, Scope(memberships[0]["organization_id"], str(update.effective_user.id)), 0, value)
         elif step == "typed_session_title":
             context.user_data["clinic_session_title"] = value
             context.user_data["clinic_input"] = "typed_session_date"
@@ -170,7 +177,7 @@ async def handle_clinic_input(update, context):
             full_name = f"{context.user_data.pop('clinic_patient_name')} {context.user_data.pop('clinic_patient_family')}".strip()
             item = await service.create_patient(Scope(memberships[0]["organization_id"], str(update.effective_user.id)), unit_id, full_name, phone=context.user_data.pop("clinic_patient_phone", ""), external_reference=None if value == "-" else value)
             context.user_data.pop("clinic_input", None)
-            await update.effective_message.reply_text(f"✅ بیمار ثبت شد.\nشناسه: {item['id']}")
+            await update.effective_message.reply_text(f"✅ بیمار ثبت شد.\n👤 {item.get('display_name', full_name)}\n\nآیا می‌خواهید برای او پرونده عملیاتی ایجاد کنید؟", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("➕ ایجاد پرونده", callback_data=f"clinic:new_case:{item['id']}"), InlineKeyboardButton("باز کردن بیمار", callback_data=f"clinic:patient:{item['id']}")], [InlineKeyboardButton("بعداً", callback_data="clinic:menu")]]))
         return True
     except (ClinicAccessError, ValueError):
         context.user_data.pop("clinic_input", None)
@@ -276,36 +283,17 @@ async def clinic_callback(update, context):
                 )
             rows.append([InlineKeyboardButton("منو", callback_data="clinic:menu")])
             return await _render(update, f"صف پیگیری · {page['total']} مورد", rows)
-        if parts[1] in {"patients", "cases"}:
+        if parts[1] == "patients":
+            return await _patient_list(update, context, scope, max(0, int(parts[2])))
+        if parts[1] == "patient_search":
+            context.user_data["clinic_input"] = "patient_search"
+            return await query.message.reply_text("🔎 نام بیمار، شماره تماس یا شناسه پرونده را ارسال کنید:")
+        if parts[1] == "cases":
             kind, offset = parts[1], max(0, int(parts[2]))
-            page = await service.list_entities(scope, kind, limit=6, offset=offset)
-            lines = [
-                f"{item.get('display_name') or item.get('title')} · {item['status']}"
-                for item in page["items"]
-            ]
-            rows = []
-            if kind == "patients":
-                rows.extend([[InlineKeyboardButton(f"{item.get('display_name') or item.get('title')} · {item['status']}", callback_data=f"clinic:patient:{item['id']}")] for item in page["items"]])
-            if offset:
-                rows.append(
-                    [
-                        InlineKeyboardButton(
-                            "قبلی", callback_data=f"clinic:{kind}:{max(0, offset - 6)}"
-                        )
-                    ]
-                )
-            if offset + 6 < page["total"]:
-                rows.append(
-                    [
-                        InlineKeyboardButton(
-                            "بعدی", callback_data=f"clinic:{kind}:{offset + 6}"
-                        )
-                    ]
-                )
-            if kind == "patients":
-                rows.insert(0, [InlineKeyboardButton("➕ ثبت بیمار جدید", callback_data="clinic:new_patient")])
-            rows.append([InlineKeyboardButton("منو", callback_data="clinic:menu")])
-            return await _render(update, "\n".join(lines) or "موردی وجود ندارد.", rows)
+            page = await service.list_entities(scope, kind, limit=8, offset=offset)
+            rows = [[InlineKeyboardButton(f"{x.get('title')} · {x.get('status')}", callback_data=f"clinic:case:{x['id']}")] for x in page["items"]]
+            rows.append([InlineKeyboardButton("◀️ کلینیک", callback_data="clinic:menu")])
+            return await _render(update, f"📂 پرونده‌های عملیاتی\n{page['total']} مورد", rows)
         if parts[1] == "patient":
             patient = await service.get_entity(scope, "patients", parts[2])
             from services.database import fetch_all_sql

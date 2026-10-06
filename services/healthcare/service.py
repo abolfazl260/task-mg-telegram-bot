@@ -201,8 +201,8 @@ async def list_entities(
     if missing_next_action and kind == "cases":
         pred += " AND e.status='active' AND NOT EXISTS(SELECT 1 FROM tasks na WHERE na.id=e.next_action_task_id AND na.workspace_id=e.workspace_id AND na.case_id=e.id AND na.status IN ('pending','in_progress'))"
     if search and kind == "patients":
-        pred += " AND (e.display_name LIKE ? OR e.external_reference=?)"
-        params.extend((f"%{text(search)}%", search))
+        pred += " AND (e.display_name LIKE ? OR e.external_reference=? OR EXISTS (SELECT 1 FROM contact_points cp WHERE cp.entity_id=e.id AND cp.normalized_value LIKE ?))"
+        params.extend((f"%{text(search)}%", search, f"%{text(search)}%"))
     limit, offset = max(1, min(int(limit), 100)), max(0, int(offset))
     total = await fetch_one_sql(
         f"SELECT COUNT(*) AS n FROM {TABLES[kind]} e WHERE {pred}", tuple(params)  # nosec B608
