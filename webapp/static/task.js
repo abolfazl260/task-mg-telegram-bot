@@ -34,5 +34,6 @@
   }
   editBtn.addEventListener('click',()=>{form.hidden=false;editBtn.hidden=true;});
   form.addEventListener('submit',async e=>{e.preventDefault();stateEl.hidden=false;stateEl.textContent='در حال ذخیره تغییرات...';const payload={title:document.getElementById('edit-title').value.trim(),description:document.getElementById('edit-description').value,priority:document.getElementById('edit-priority').value,deadline:document.getElementById('edit-deadline').value,category:document.getElementById('edit-category').value,tags:document.getElementById('edit-tags').value};try{let r=await fetch(apiUrl(`/api/tasks/${encodeURIComponent(id)}`),{method:'PATCH',headers,body:JSON.stringify(payload)});if(!r.ok)throw Error(r.status);render((await r.json()).task);form.hidden=true;editBtn.hidden=false;stateEl.hidden=true;}catch(e){stateEl.textContent='ذخیره تغییرات انجام نشد.';console.error(e);}});
-  load();
+  const start=async()=>{const allowed=window.WebAppAuthGuard?await window.WebAppAuthGuard.ready:true;if(allowed)await load();};
+  start();
 })();
