@@ -56,13 +56,13 @@ async def _safe_edit(query, text, reply_markup=None, parse_mode=None):
 
 async def _quick_stats(user_id):
     db = await get_db()
-    async with db.conn.execute("SELECT COUNT(*) FROM tasks WHERE organization_id IS NULL AND user_id = ?", (str(user_id),)) as cursor:
+    async with db.conn.execute("SELECT COUNT(*) FROM tasks WHERE workspace_id IS NULL AND user_id = ?", (str(user_id),)) as cursor:
         created = int((await cursor.fetchone())[0] or 0)
-    async with db.conn.execute("SELECT COUNT(*) FROM tasks WHERE organization_id IS NULL AND user_id = ? AND status = 'done'", (str(user_id),)) as cursor:
+    async with db.conn.execute("SELECT COUNT(*) FROM tasks WHERE workspace_id IS NULL AND user_id = ? AND status = 'done'", (str(user_id),)) as cursor:
         done = int((await cursor.fetchone())[0] or 0)
-    async with db.conn.execute("SELECT COUNT(*) FROM tasks WHERE organization_id IS NULL AND user_id = ? AND status = 'in_progress'", (str(user_id),)) as cursor:
+    async with db.conn.execute("SELECT COUNT(*) FROM tasks WHERE workspace_id IS NULL AND user_id = ? AND status = 'in_progress'", (str(user_id),)) as cursor:
         in_progress = int((await cursor.fetchone())[0] or 0)
-    async with db.conn.execute("SELECT COUNT(*) FROM tasks WHERE organization_id IS NULL AND user_id = ? AND status = 'pending'", (str(user_id),)) as cursor:
+    async with db.conn.execute("SELECT COUNT(*) FROM tasks WHERE workspace_id IS NULL AND user_id = ? AND status = 'pending'", (str(user_id),)) as cursor:
         pending = int((await cursor.fetchone())[0] or 0)
     return f"📊 آمار کوتاه شما\n📝 ایجاد شده: {created}\n✅ انجام شده: {done}\n🚀 در حال انجام: {in_progress}\n⏳ در انتظار: {pending}"
 
