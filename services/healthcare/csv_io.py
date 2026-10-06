@@ -93,7 +93,7 @@ async def import_patients(scope: Scope, content: str, *, confirmed: bool):
                 item, pid, stamp = row["data"], new_id(), now()
                 try:
                     await db.conn.execute(
-                        "INSERT INTO reference_entities(id,workspace_id,unit_id,reference_type,external_reference,display_name,contact_value,primary_owner_user_id,created_at,updated_at) VALUES(?,?,?,'patient',?,?,?,?,?,?,?)",
+                        "INSERT INTO reference_entities(id,workspace_id,unit_id,reference_type,external_reference,display_name,contact_value,primary_owner_user_id,created_at,updated_at) VALUES(?,?,?,'patient',?,?,?,?,?,?)",
                         (
                             pid,
                             scope.workspace_id,
