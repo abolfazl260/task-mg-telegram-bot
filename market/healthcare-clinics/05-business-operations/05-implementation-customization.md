@@ -189,7 +189,7 @@ Standard Configuration باید بدون code انجام شود.
 
 ## Boundary
 
-clinical interpretation خارج از workflow automation.
+Clinical Data storage و Patient Record داخل Scope است؛ clinical interpretation/decision automation فقط با capability و governance مستقل فعال می‌شود.
 
 ---
 
@@ -562,7 +562,7 @@ MVP migration باید محدود باشد.
 
 ## Usually Avoid
 
-- years of historical clinical data
+- years of historical clinical data can be migrated when required, with staged mapping/validation/security controls
 - old closed tasks
 - full chart history
 
