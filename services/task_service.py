@@ -122,7 +122,7 @@ async def assign_task_async(task_id,assignee,actor_id,action="assigned"):
 async def get_unassigned_tasks_async(user_id): return [t for t in await get_active_tasks_async(user_id) if not t.get("assignee_id")]
 async def get_task_comments_async(task_id):
     from services.comment_message_store import get_comment_messages_async
-    return await get_comment_messages_async(task_id, invalid_content_logger=logger)
+    return await get_comment_messages_async(task_id, invalid_content_logger=logger, row_fetcher=fetch_all)
 
 async def add_task_comment_async(task_id,author,content):
     if not await get_task_by_id_async(task_id): return False
