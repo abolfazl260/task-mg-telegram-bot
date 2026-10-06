@@ -20,6 +20,11 @@ from services.bot_feature_registry import (
     normalize_features,
     registry_payload,
 )
+from services.bot_permission_registry import (
+    default_permission_policy,
+    normalize_permission_policy,
+    registry_payload as permission_registry_payload,
+)
 from services.database import get_db
 from services.secret_store import (
     SecretStoreError,
@@ -105,6 +110,41 @@ async def ensure_bot_management_schema() -> None:
         await db.conn.commit()
     if keyring_configured():
         await migrate_bot_token_storage()
+    await migrate_bot_permission_policies()
+
+
+async def migrate_bot_permission_policies() -> int:
+    """Populate explicit permission policies for legacy managed profiles."""
+    db = await get_db()
+    async with db.conn.execute(
+        "SELECT bot_key,features,permissions_json FROM custom_bots"
+    ) as cur:
+        rows = [dict(row) for row in await cur.fetchall()]
+
+    migrated = 0
+    async with db.lock:
+        for row in rows:
+            raw = str(row.get("permissions_json") or "").strip()
+            try:
+                parsed = json.loads(raw or "{}")
+            except json.JSONDecodeError:
+                parsed = {}
+            if parsed:
+                continue
+            features = [
+                item
+                for item in str(row.get("features") or "").split(",")
+                if item
+            ]
+            policy = default_permission_policy(features)
+            await db.conn.execute(
+                "UPDATE custom_bots SET permissions_json=?,updated_at=? WHERE bot_key=?",
+                (_json(policy, {}), _now(), row["bot_key"]),
+            )
+            migrated += 1
+        if migrated:
+            await db.conn.commit()
+    return migrated
 
 
 async def migrate_bot_token_storage(*, require_key: bool = False) -> dict[str, int]:
@@ -261,6 +301,10 @@ async def create_managed_bot(
     if requested_features is None and base_profile in DEFAULT_PROFILE_TEMPLATES:
         requested_features = DEFAULT_PROFILE_TEMPLATES[base_profile]["features"]
     features = normalize_features(requested_features)
+    permissions = normalize_permission_policy(
+        payload.get("permissions"),
+        features,
+    )
     username = str(payload.get("bot_username") or "").strip().lstrip("@")
     if token_info:
         actual_username = token_info["username"]
@@ -271,6 +315,8 @@ async def create_managed_bot(
     now = _now()
     db = await get_db()
     async with db.lock:
+        seeded_features = normalize_features(template["features"])
+        seeded_permissions = default_permission_policy(seeded_features)
         await db.conn.execute(
             """INSERT INTO custom_bots(
                 bot_key,owner_user_id,owner_name,owner_username,bot_token,bot_username,
@@ -286,7 +332,7 @@ async def create_managed_bot(
                 str(payload.get("profile_type") or "custom").strip() or "custom",
                 base_profile,
                 _json(payload.get("settings"), {}),
-                _json(payload.get("permissions"), {}),
+                _json(permissions, {}),
                 _json(payload.get("commands"), []),
                 _json(payload.get("workflow"), {}),
                 _json(payload.get("menu"), []),
@@ -323,6 +369,17 @@ async def update_managed_bot(
         payload.get("features") if "features" in payload
         else str(existing.get("features") or "").split(",")
     )
+    raw_permissions = (
+        payload.get("permissions")
+        if "permissions" in payload
+        else existing.get("permissions_json") or "{}"
+    )
+    if isinstance(raw_permissions, str):
+        try:
+            raw_permissions = json.loads(raw_permissions)
+        except json.JSONDecodeError as exc:
+            raise ValueError("invalid_permissions_json") from exc
+    permissions = normalize_permission_policy(raw_permissions, features)
     username = str(payload.get("bot_username", existing.get("bot_username") or "")).strip().lstrip("@")
     if token_info:
         actual_username = token_info["username"]
@@ -349,7 +406,7 @@ async def update_managed_bot(
                 str(payload.get("profile_type", existing.get("profile_type") or "custom")).strip(),
                 str(payload.get("base_profile", existing.get("base_profile") or "")).strip(),
                 _json(payload.get("settings", existing.get("settings_json") or "{}"), {}),
-                _json(payload.get("permissions", existing.get("permissions_json") or "{}"), {}),
+                _json(permissions, {}),
                 _json(payload.get("commands", existing.get("commands_json") or "[]"), []),
                 _json(payload.get("workflow", existing.get("workflow_json") or "{}"), {}),
                 _json(payload.get("menu", existing.get("menu_json") or "[]"), []),
@@ -469,9 +526,9 @@ async def seed_default_profiles() -> list[str]:
             ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 key, None, "", "", token, username,
-                ",".join(normalize_features(template["features"])), status, "template",
+                ",".join(seeded_features), status, "template",
                 now, now, template["name"], template["description"], key, key,
-                _json(settings, {}), "{}", _json(commands, []), _json(workflow, {}),
+                _json(settings, {}), _json(seeded_permissions, {}), _json(commands, []), _json(workflow, {}),
                 _json(menu, []), source, "", "",
             ),
         )
@@ -482,3 +539,7 @@ async def seed_default_profiles() -> list[str]:
 
 def feature_registry_payload() -> list[dict]:
     return registry_payload()
+
+
+def permissions_registry_payload() -> list[dict]:
+    return permission_registry_payload()
