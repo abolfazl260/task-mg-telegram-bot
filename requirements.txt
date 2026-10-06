@@ -10,4 +10,4 @@ arabic-reshaper>=3,<4
 python-bidi>=0.6,<1
 pytest>=9,<11
 pytest-asyncio>=1,<2
-cryptography>=46,<48
+cryptography>=50,<51
