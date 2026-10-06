@@ -82,7 +82,7 @@ Patient Coordinator یا Reception.
 
 حداقل:
 
-- patient reference؛
+- patient record؛
 - treatment category؛
 - responsible doctor؛
 - consultation date؛
@@ -263,7 +263,7 @@ case به lab ارسال شد.
 
 ## Required Context
 
-- patient reference؛
+- patient record؛
 - doctor؛
 - lab؛
 - send date؛
@@ -530,7 +530,7 @@ TaskMG clinical treatment plan را تعیین نمی‌کند.
 
 ## Case Fields
 
-- patient reference؛
+- patient record؛
 - doctor؛
 - workflow template؛
 - current stage؛
