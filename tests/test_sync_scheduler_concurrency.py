@@ -43,13 +43,16 @@ async def test_same_bot_and_sync_kind_cannot_overlap(monkeypatch):
     )
 
     first = asyncio.create_task(sync_scheduler.run_jira_sync("alpha"))
-    await started.wait()
+    await asyncio.wait_for(started.wait(), timeout=1)
 
     assert await sync_scheduler.run_jira_sync("alpha") is None
     assert ("jira", "alpha") in sync_scheduler._RUNNING
 
     release.set()
-    assert await first == {"success": True, "bot_key": "alpha"}
+    assert await asyncio.wait_for(first, timeout=1) == {
+        "success": True,
+        "bot_key": "alpha",
+    }
     assert ("jira", "alpha") not in sync_scheduler._RUNNING
 
 
@@ -73,7 +76,7 @@ async def test_different_bots_run_independently(monkeypatch):
     )
 
     alpha = asyncio.create_task(sync_scheduler.run_jira_sync("alpha"))
-    await started.wait()
+    await asyncio.wait_for(started.wait(), timeout=1)
 
     assert await sync_scheduler.run_jira_sync("beta") == {
         "success": True,
@@ -83,7 +86,7 @@ async def test_different_bots_run_independently(monkeypatch):
     assert ("jira", "beta") not in sync_scheduler._RUNNING
 
     release.set()
-    await alpha
+    await asyncio.wait_for(alpha, timeout=1)
 
 
 @pytest.mark.asyncio
@@ -107,14 +110,14 @@ async def test_jira_and_external_sync_do_not_block_each_other(monkeypatch):
     monkeypatch.setattr(sync_scheduler, "sync_all", lambda _bot_key: [])
 
     jira = asyncio.create_task(sync_scheduler.run_jira_sync("alpha"))
-    await started.wait()
+    await asyncio.wait_for(started.wait(), timeout=1)
 
     assert await sync_scheduler.run_external_sync("alpha") == []
     assert ("jira", "alpha") in sync_scheduler._RUNNING
     assert ("external", "alpha") not in sync_scheduler._RUNNING
 
     release.set()
-    await jira
+    await asyncio.wait_for(jira, timeout=1)
 
 
 @pytest.mark.asyncio
