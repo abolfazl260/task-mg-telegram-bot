@@ -1,0 +1,43 @@
+name: Clinic Typed Regression
+
+on:
+  push:
+    branches: [main, Stage]
+    paths:
+      - 'services/**'
+      - 'webapp/**'
+      - 'handlers/clinic.py'
+      - 'bots/clinic.json'
+      - 'tests/test_clinic_*.py'
+      - '.github/workflows/clinic-regression.yml'
+  pull_request:
+    branches: [main, Stage]
+    paths:
+      - 'services/**'
+      - 'webapp/**'
+      - 'handlers/clinic.py'
+      - 'bots/clinic.json'
+      - 'tests/test_clinic_*.py'
+      - '.github/workflows/clinic-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clinic-regression:
+    name: Clinic typed vertical regression
+    runs-on: ubuntu-latest
+    env:
+      TESTING: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Compile Clinic modules
+        run: python -m py_compile services/attachment_service.py services/report_definition_service.py services/clinic_typed.py services/clinic_migration.py services/clinic_setup.py services/clinic_typed_io.py services/clinic_dashboard.py webapp/clinic_api.py handlers/clinic.py
+      - name: Run deterministic Clinic regression suite
+        run: python -m pytest -q tests/test_attachments.py tests/test_clinic_typed.py tests/test_clinic_migration.py tests/test_clinic_dashboard.py tests/test_report_definitions.py tests/test_healthcare_domain.py tests/test_healthcare_channels.py

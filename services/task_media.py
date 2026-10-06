@@ -40,9 +40,20 @@ async def _ensure_schema():
     _SCHEMA_READY = True
 
 
-async def save_task_media_async(task_id: str, media_items: list[dict] | None):
+async def save_task_media_async(task_id: str, media_items: list[dict] | None, actor_id=None):
+    from services.work_item_access import authorized_task
+    from services.attachment_service import attach_file_async
+    if not media_items:
+        return
+    await authorized_task(task_id, actor_id, write=True)
     await _ensure_schema()
     for item in media_items or []:
+        if item.get('file_id'):
+            meta = item.get('metadata') or {}
+            await attach_file_async(task_id, actor_id, file_id=item['file_id'],
+                filename=meta.get('file_name', ''), media_type=meta.get('mime_type', item.get('type', 'document')),
+                size_bytes=meta.get('file_size', 0), metadata={'caption': item.get('caption', ''), 'telegram_type': item.get('type', '')})
+            continue
         await execute(
             f"""INSERT INTO {_TABLE}
             (bot_key, task_id, media_type, file_id, latitude, longitude, caption, metadata_json, created_at)
@@ -61,7 +72,10 @@ async def save_task_media_async(task_id: str, media_items: list[dict] | None):
         )
 
 
-async def get_task_media_async(task_id: str):
+async def get_task_media_async(task_id: str, actor_id=None):
+    from services.work_item_access import authorized_task
+    from services.attachment_service import list_attachments_async
+    await authorized_task(task_id, actor_id)
     await _ensure_schema()
     rows = await fetch_all(
         _TABLE,
@@ -83,4 +97,8 @@ async def get_task_media_async(task_id: str):
             "metadata": metadata,
             "created_at": row.get("created_at") or "",
         })
+    for attachment in await list_attachments_async(task_id, actor_id):
+        metadata = attachment.get('metadata') or {}
+        result.append({'type': metadata.get('telegram_type', 'document'), 'file_id': attachment['file_id'],
+                       'caption': metadata.get('caption', ''), 'metadata': metadata, 'created_at': attachment['created_at']})
     return result

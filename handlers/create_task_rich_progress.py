@@ -370,7 +370,7 @@ def install_create_task_rich_progress(task_module):
         task_id = await task_module._finalize_task(uid, task)
         try:
             from services.task_media import save_task_media_async
-            await save_task_media_async(task_id, _description_media(context))
+            await save_task_media_async(task_id, _description_media(context), update.effective_user.id)
         except Exception:
             logger.exception("Failed to persist task attachments task_id=%s", task_id)
 

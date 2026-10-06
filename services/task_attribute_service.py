@@ -14,7 +14,7 @@ from typing import Any
 
 from bot_context import get_current_bot_key
 from services.database import execute, fetch_all, fetch_all_sql, fetch_one, fetch_one_sql, transaction
-from services.task_service import get_task_by_id_async, user_can_modify_task_async
+from services.work_item_access import authorized_task, field_allowed
 from services.work_item_type_service import validate_work_item_type_async
 
 DATA_TYPES = {
@@ -232,17 +232,19 @@ async def _resolve_definition_async(task: dict, field_key: str, definition_id: s
             (task.get("bot_key") or "default", task.get("workspace_id"), task.get("work_item_type") or "task", field_key),
         )
         definition = rows[0] if rows else None
-    if not definition or definition.get("active") != 1:
+    if (not definition or definition.get("active") != 1
+        or definition.get("bot_key") != (task.get("bot_key") or "default")
+        or definition.get("workspace_id") != task.get("workspace_id")
+        or definition.get("work_item_type") != (task.get("work_item_type") or "task")
+        or definition.get("field_key") != field_key):
         raise ValueError("attribute_definition_not_found")
     return definition
 
 
 async def set_task_attribute_async(task_id, field_key, value, actor_id, *, definition_id: str | None = None, ordinal: int = 0, actor_roles=None):
-    task = await get_task_by_id_async(task_id)
-    if not task or not await user_can_modify_task_async(actor_id, task):
-        raise PermissionError("attribute_permission_denied")
+    task = await authorized_task(task_id, actor_id, write=True)
     definition = await _resolve_definition_async(task, field_key, definition_id)
-    if not _role_allowed(definition, actor_id, task, "edit", actor_roles):
+    if not await field_allowed(definition, task, actor_id, action="edit"):
         raise PermissionError("attribute_field_edit_denied")
     if not definition.get("repeatable") and int(ordinal) != 0:
         raise ValueError("attribute_not_repeatable")
@@ -270,9 +272,10 @@ async def set_task_attribute_async(task_id, field_key, value, actor_id, *, defin
 
 
 async def get_task_attributes_async(task_id, actor_id, *, actor_roles=None):
-    task = await get_task_by_id_async(task_id)
-    if not task or not await user_can_modify_task_async(actor_id, task):
-        raise PermissionError("attribute_permission_denied")
+    try:
+        task = await authorized_task(task_id, actor_id)
+    except PermissionError as exc:
+        raise PermissionError("attribute_permission_denied") from exc
     rows = await fetch_all_sql(
         """SELECT d.*,v.ordinal,v.value_text,v.value_number,v.value_boolean,v.value_date,v.value_datetime,v.value_json,v.definition_version
            FROM task_attribute_values v JOIN task_attribute_definitions d ON d.id=v.definition_id
@@ -281,7 +284,7 @@ async def get_task_attributes_async(task_id, actor_id, *, actor_roles=None):
     )
     result = []
     for row in rows:
-        if not _role_allowed(row, actor_id, task, "view", actor_roles):
+        if not await field_allowed(row, task, actor_id):
             continue
         dtype = row["data_type"]
         if dtype in {"text", "long_text", "phone", "email", "url", "select", "user_reference", "task_reference"}:
@@ -307,9 +310,10 @@ async def get_task_attributes_async(task_id, actor_id, *, actor_roles=None):
 
 
 async def validate_required_attributes_async(task_id, actor_id):
-    task = await get_task_by_id_async(task_id)
-    if not task or not await user_can_modify_task_async(actor_id, task):
-        raise PermissionError("attribute_permission_denied")
+    try:
+        task = await authorized_task(task_id, actor_id)
+    except PermissionError as exc:
+        raise PermissionError("attribute_permission_denied") from exc
     definitions = await list_attribute_definitions_async(
         work_item_type=task.get("work_item_type") or "task", bot_key=task.get("bot_key") or "default",
         workspace_id=task.get("workspace_id"),

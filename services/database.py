@@ -222,6 +222,81 @@ CREATE INDEX IF NOT EXISTS idx_contact_points_task ON task_contact_points(task_i
 CREATE INDEX IF NOT EXISTS idx_contact_points_normalized ON task_contact_points(normalized_value, type);
 CREATE INDEX IF NOT EXISTS idx_task_attribute_audit_task ON task_attribute_audit(task_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_points_primary ON task_contact_points(task_id, type) WHERE is_primary=1 AND status='active';
+
+-- Attachments are metadata-only references to the configured file backend.  The
+-- parent task is the authorization boundary; attribute links are optional.
+CREATE TABLE IF NOT EXISTS task_attachments (
+    id TEXT PRIMARY KEY,
+    bot_key TEXT NOT NULL DEFAULT 'default',
+    workspace_id TEXT,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    attribute_definition_id TEXT REFERENCES task_attribute_definitions(id) ON DELETE SET NULL,
+    attribute_ordinal INTEGER NOT NULL DEFAULT 0 CHECK(attribute_ordinal >= 0),
+    file_id TEXT NOT NULL,
+    storage_key TEXT NOT NULL DEFAULT '',
+    filename TEXT NOT NULL DEFAULT '',
+    media_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    size_bytes INTEGER NOT NULL DEFAULT 0 CHECK(size_bytes >= 0),
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    archived_at TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(bot_key, id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_attachments_task ON task_attachments(task_id, archived_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_task_attachments_attribute ON task_attachments(attribute_definition_id, task_id, archived_at);
+
+CREATE TABLE IF NOT EXISTS report_definitions (
+    id TEXT PRIMARY KEY,
+    bot_key TEXT NOT NULL DEFAULT 'default',
+    workspace_id TEXT,
+    name TEXT NOT NULL,
+    title TEXT NOT NULL,
+    source_item_type TEXT NOT NULL,
+    filters_json TEXT NOT NULL DEFAULT '{}',
+    group_by TEXT NOT NULL DEFAULT '',
+    date_field TEXT NOT NULL DEFAULT 'created_at',
+    metric TEXT NOT NULL DEFAULT 'count',
+    label TEXT NOT NULL DEFAULT '',
+    role_permissions_json TEXT NOT NULL DEFAULT '[]',
+    branch_scope TEXT NOT NULL DEFAULT 'any',
+    drill_down_json TEXT NOT NULL DEFAULT '{}',
+    version INTEGER NOT NULL DEFAULT 1,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(bot_key, workspace_id, name, version)
+);
+CREATE INDEX IF NOT EXISTS idx_report_definitions_scope ON report_definitions(bot_key, workspace_id, active, source_item_type);
+
+CREATE TABLE IF NOT EXISTS typed_work_item_data (
+    task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+    data_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_typed_work_item_data_updated ON typed_work_item_data(updated_at);
+
+CREATE TABLE IF NOT EXISTS typed_migration_runs (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK(status IN ('running','completed','rolled_back','failed')),
+    backup_reference TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS typed_migration_map (
+    run_id TEXT NOT NULL REFERENCES typed_migration_runs(id) ON DELETE CASCADE,
+    workspace_id TEXT NOT NULL,
+    legacy_kind TEXT NOT NULL,
+    legacy_id TEXT NOT NULL,
+    typed_task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    PRIMARY KEY(run_id, legacy_kind, legacy_id),
+    UNIQUE(workspace_id, legacy_kind, legacy_id)
+);
+CREATE INDEX IF NOT EXISTS idx_typed_migration_task ON typed_migration_map(typed_task_id);
 """
 
 CORE_SCHEMA = SCHEMA
