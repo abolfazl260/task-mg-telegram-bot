@@ -32,19 +32,19 @@ async def create_followup(
     followup_type="callback",
 ):
     case = await case_for_action(scope, case_id)
-    await scope.branch(case["branch_id"], "followups.manage")
-    await require_staff(scope, case["branch_id"], owner_id)
+    await scope.branch(case["unit_id"], "followups.manage")
+    await require_staff(scope, case["unit_id"], owner_id)
     fid, tid, due = new_id(), new_id(), utc_date(due_at)
     await transaction(
         [
             task_insert(scope, case, tid, title, owner_id, due),
             (
-                "INSERT INTO clinic_followups(id,organization_id,branch_id,patient_id,case_id,task_id,followup_type,owner_user_id,due_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO followups(id,workspace_id,unit_id,reference_id,case_id,task_id,followup_type,owner_user_id,due_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (
                     fid,
-                    scope.organization_id,
-                    case["branch_id"],
-                    case["patient_id"],
+                    scope.workspace_id,
+                    case["unit_id"],
+                    case["reference_id"],
                     case_id,
                     tid,
                     text(followup_type, max_length=100),
@@ -54,11 +54,11 @@ async def create_followup(
                 ),
             ),
             (
-                "UPDATE clinic_cases SET next_action_task_id=?,updated_at=? WHERE id=? AND organization_id=?",
-                (tid, now(), case_id, scope.organization_id),
+                "UPDATE cases SET next_action_task_id=?,updated_at=? WHERE id=? AND workspace_id=?",
+                (tid, now(), case_id, scope.workspace_id),
             ),
-            audit(scope, case["branch_id"], "followup.created", "followup", fid),
-            audit(scope, case["branch_id"], "next_action.created", "task", tid),
+            audit(scope, case["unit_id"], "followup.created", "followup", fid),
+            audit(scope, case["unit_id"], "next_action.created", "task", tid),
         ]
     )
     return await get_entity(scope, "followups", fid)
@@ -76,13 +76,13 @@ async def record_outcome(
     case = await case_for_action(scope, followup["case_id"])
     await get_entity(scope, "tasks", followup["task_id"], manage=True)
     outcome = await fetch_one_sql(
-        "SELECT * FROM clinic_outcomes WHERE organization_id=? AND key=?",
-        (scope.organization_id, outcome_key),
+        "SELECT * FROM outcomes WHERE workspace_id=? AND key=?",
+        (scope.workspace_id, outcome_key),
     )
     if case.get("workflow_instance_id"):
         workflow = await fetch_one_sql(
-            "SELECT i.current_stage,v.definition_json FROM clinic_workflow_instances i JOIN clinic_workflow_versions v ON v.id=i.version_id AND v.organization_id=i.organization_id WHERE i.organization_id=? AND i.id=?",
-            (scope.organization_id, case["workflow_instance_id"]),
+            "SELECT i.current_stage,v.definition_json FROM workflow_instances i JOIN workflow_versions v ON v.id=i.version_id AND v.workspace_id=i.workspace_id WHERE i.workspace_id=? AND i.id=?",
+            (scope.workspace_id, case["workflow_instance_id"]),
         )
         stage = next(
             s
@@ -100,7 +100,7 @@ async def record_outcome(
     due = utc_date(next_due_at) if next_due_at else None
     owner_id = str(next_owner_id or followup["owner_user_id"])
     if due:
-        await require_staff(scope, case["branch_id"], owner_id)
+        await require_staff(scope, case["unit_id"], owner_id)
     db = await get_db()
     async with db.lock:
         await db.conn.execute("BEGIN IMMEDIATE")
@@ -108,8 +108,8 @@ async def record_outcome(
             # Read again under the write lock: retries/overlap must never create
             # another successor or replace an already recorded result.
             async with db.conn.execute(
-                "SELECT * FROM clinic_followups WHERE id=? AND organization_id=?",
-                (followup_id, scope.organization_id),
+                "SELECT * FROM followups WHERE id=? AND workspace_id=?",
+                (followup_id, scope.workspace_id),
             ) as cur:
                 current = dict(await cur.fetchone())
             if current["outcome_id"]:
@@ -121,8 +121,8 @@ async def record_outcome(
             stamp = now()
             statements = [
                 (
-                    "UPDATE tasks SET outcome_id=?,status='done',completed_at=? WHERE id=? AND organization_id=?",
-                    (outcome["id"], stamp, current["task_id"], scope.organization_id),
+                    "UPDATE tasks SET outcome_id=?,status='done',completed_at=? WHERE id=? AND workspace_id=?",
+                    (outcome["id"], stamp, current["task_id"], scope.workspace_id),
                 ),
             ]
             if due:
@@ -130,12 +130,12 @@ async def record_outcome(
                     [
                         task_insert(scope, case, tid, "پیگیری بعدی", owner_id, due),
                         (
-                            "INSERT INTO clinic_followups(id,organization_id,branch_id,patient_id,case_id,task_id,followup_type,owner_user_id,due_at,attempt_number,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                            "INSERT INTO followups(id,workspace_id,unit_id,reference_id,case_id,task_id,followup_type,owner_user_id,due_at,attempt_number,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                             (
                                 fid,
-                                scope.organization_id,
-                                case["branch_id"],
-                                case["patient_id"],
+                                scope.workspace_id,
+                                case["unit_id"],
+                                case["reference_id"],
                                 case["id"],
                                 tid,
                                 current["followup_type"],
@@ -146,30 +146,30 @@ async def record_outcome(
                             ),
                         ),
                         (
-                            "UPDATE clinic_cases SET next_action_task_id=?,updated_at=? WHERE id=? AND organization_id=?",
-                            (tid, stamp, case["id"], scope.organization_id),
+                            "UPDATE cases SET next_action_task_id=?,updated_at=? WHERE id=? AND workspace_id=?",
+                            (tid, stamp, case["id"], scope.workspace_id),
                         ),
                         audit(
-                            scope, case["branch_id"], "next_action.created", "task", tid
+                            scope, case["unit_id"], "next_action.created", "task", tid
                         ),
                     ]
                 )
             statements.extend(
                 [
                     (
-                        "UPDATE clinic_followups SET status=?,outcome_id=?,next_followup_id=?,completed_at=? WHERE id=? AND organization_id=?",
+                        "UPDATE followups SET status=?,outcome_id=?,next_followup_id=?,completed_at=? WHERE id=? AND workspace_id=?",
                         (
                             "rescheduled" if due else "completed",
                             outcome["id"],
                             fid,
                             stamp,
                             followup_id,
-                            scope.organization_id,
+                            scope.workspace_id,
                         ),
                     ),
                     audit(
                         scope,
-                        case["branch_id"],
+                        case["unit_id"],
                         f"followup.{outcome_key}",
                         "followup",
                         followup_id,
@@ -189,7 +189,7 @@ async def queue(
     scope: Scope,
     view="today",
     *,
-    branch_id=None,
+    unit_id=None,
     owner_id=None,
     doctor_id=None,
     limit=25,
@@ -201,7 +201,7 @@ async def queue(
     )
     params = list(args)
     org = await fetch_one_sql(
-        "SELECT timezone FROM clinic_organizations WHERE id=?", (scope.organization_id,)
+        "SELECT timezone FROM workspaces WHERE id=?", (scope.workspace_id,)
     )
     zone = ZoneInfo(org["timezone"])
     current = (at or datetime.now(timezone.utc)).astimezone(zone)
@@ -225,20 +225,20 @@ async def queue(
         pred += " AND e.status='rescheduled'"
     else:
         raise ValueError("invalid_queue_view")
-    for column, value in (("branch_id", branch_id), ("owner_user_id", owner_id)):
+    for column, value in (("unit_id", unit_id), ("owner_user_id", owner_id)):
         if value:
             pred += f" AND e.{column}=?"
             params.append(str(value))
     if doctor_id:
-        pred += " AND c.primary_doctor_user_id=?"
+        pred += " AND c.primary_owner_user_id=?"
         params.append(str(doctor_id))
-    joins = "FROM clinic_followups e JOIN clinic_cases c ON c.id=e.case_id AND c.organization_id=e.organization_id AND c.branch_id=e.branch_id LEFT JOIN clinic_outcomes o ON o.id=e.outcome_id AND o.organization_id=e.organization_id"
+    joins = "FROM followups e JOIN cases c ON c.id=e.case_id AND c.workspace_id=e.workspace_id AND c.unit_id=e.unit_id LEFT JOIN outcomes o ON o.id=e.outcome_id AND o.workspace_id=e.workspace_id"
     total = await fetch_one_sql(
         f"SELECT COUNT(*) AS n {joins} WHERE {pred}", tuple(params)
     )
     limit, offset = max(1, min(int(limit), 100)), max(0, int(offset))
     rows = await fetch_all_sql(
-        f"SELECT e.*,o.key AS outcome_key,c.primary_doctor_user_id {joins} WHERE {pred} ORDER BY e.due_at,e.id LIMIT ? OFFSET ?",
+        f"SELECT e.*,o.key AS outcome_key,c.primary_owner_user_id {joins} WHERE {pred} ORDER BY e.due_at,e.id LIMIT ? OFFSET ?",
         tuple(params) + (limit, offset),
     )
     return {"items": rows, "total": total["n"], "limit": limit, "offset": offset}
