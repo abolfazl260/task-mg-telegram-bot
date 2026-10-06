@@ -15,6 +15,7 @@ from services.database import (
     transaction,
 )
 from services.team_service import acan_edit, aget_team, ais_member
+from services.work_item_type_service import validate_work_item_type_async
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,8 @@ async def save_task_async(data):
     if not user_id: raise ValueError("task user_id is required")
     await _ensure_user_async(user_id)
     if v[12]: await _ensure_user_async(v[12])
-    await execute("""INSERT INTO tasks(id,bot_key,user_id,title,priority,status,deadline,category,tags,description,created_at,completed_at,team_id,assignee_id,assignee_name,assignee_username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(task_id,_bot(),user_id,v[2] or "",v[3] or "medium",v[4] or "pending",v[5] or "",v[6] or "",v[7] or "",v[8] or "",v[9] or "",v[10] or "",v[11] or None,v[12] or None,v[13] or "",v[14] or ""))
+    item_type = await validate_work_item_type_async(None, _bot())
+    await execute("""INSERT INTO tasks(id,bot_key,work_item_type,user_id,title,priority,status,deadline,category,tags,description,created_at,completed_at,team_id,assignee_id,assignee_name,assignee_username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(task_id,_bot(),item_type,user_id,v[2] or "",v[3] or "medium",v[4] or "pending",v[5] or "",v[6] or "",v[7] or "",v[8] or "",v[9] or "",v[10] or "",v[11] or None,v[12] or None,v[13] or "",v[14] or ""))
     return task_id
 
 async def update_task_status_async(task_id,new_status,actor_id):
@@ -54,14 +56,15 @@ async def update_task_status_async(task_id,new_status,actor_id):
     if not task or not await user_can_modify_task_async(actor_id,task): return False
     await execute("UPDATE tasks SET status=?,completed_at=? WHERE id=?",(new_status,_now() if new_status=="done" else "",task_id)); return True
 
-async def create_task_async(user_id,title,priority,deadline,category,tags,description="",team_id="",assignee=None):
+async def create_task_async(user_id,title,priority,deadline,category,tags,description="",team_id="",assignee=None,work_item_type=None):
     if priority not in VALID_PRIORITIES: raise ValueError("invalid priority")
+    item_type = await validate_work_item_type_async(work_item_type, _bot())
     await _ensure_user_async(user_id); tid=_new_task_id()
     if team_id and not category:
         team=await aget_team(team_id); category=team.get("name","") if team else category
     aid=str((assignee or {}).get("user_id") or "") or None
     if aid: await _ensure_user_async(aid)
-    now=_now(); statements=[("""INSERT INTO tasks(id,bot_key,user_id,title,priority,status,deadline,category,tags,description,created_at,team_id,assignee_id,assignee_name,assignee_username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(tid,_bot(),str(user_id),title,priority,"pending",deadline or "",category or "",tags or "",description or "",now,team_id or None,aid,(assignee or {}).get("display_name") or "",(assignee or {}).get("username") or ""))]
+    now=_now(); statements=[("""INSERT INTO tasks(id,bot_key,work_item_type,user_id,title,priority,status,deadline,category,tags,description,created_at,team_id,assignee_id,assignee_name,assignee_username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(tid,_bot(),item_type,str(user_id),title,priority,"pending",deadline or "",category or "",tags or "",description or "",now,team_id or None,aid,(assignee or {}).get("display_name") or "",(assignee or {}).get("username") or ""))]
     if assignee: statements.append(("""INSERT INTO task_assignment_history(task_id,actor_id,action,old_assignee_name,new_assignee_name,created_at) VALUES(?,?,?,?,?,?)""",(tid,str(user_id),"assigned","",(assignee or {}).get("display_name") or "",now)))
     await transaction(statements); return tid
 
@@ -76,11 +79,16 @@ async def update_task_async(task_id,user_id,**changes):
     await execute(f"UPDATE tasks SET {assignments} WHERE id=?",tuple(values.values())+(task_id,))
     return True
 
-async def _visible_async(user_id,team_id=None,active=False):
+async def _visible_async(user_id,team_id=None,active=False,work_item_type=None):
+    item_type = await validate_work_item_type_async(work_item_type, _bot()) if work_item_type else None
     if team_id:
         if not await ais_member(team_id,user_id): return []
         where="workspace_id IS NULL AND team_id=?"+((" AND status IN ('pending','in_progress')") if active else "")
-        return await fetch_all("tasks",where,(team_id,))
+        params=[team_id]
+        if item_type:
+            where += " AND work_item_type=?"
+            params.append(item_type)
+        return await fetch_all("tasks",where,tuple(params))
 
     uid = str(user_id)
     active_only = 1 if active else 0
@@ -90,20 +98,28 @@ async def _visible_async(user_id,team_id=None,active=False):
             WHERE t.workspace_id IS NULL AND (t.team_id IS NULL OR t.team_id='')
               AND t.user_id=?
               AND (?=0 OR t.status IN ('pending','in_progress'))
+              AND (? IS NULL OR t.work_item_type=?)
             UNION ALL
             SELECT t.*
             FROM tasks AS t
             JOIN team_members AS tm ON tm.team_id=t.team_id
             WHERE t.workspace_id IS NULL AND tm.user_id=?
-              AND (?=0 OR t.status IN ('pending','in_progress'))""",
-        (uid, active_only, uid, active_only),
+              AND (?=0 OR t.status IN ('pending','in_progress'))
+              AND (? IS NULL OR t.work_item_type=?)""",
+        (uid, active_only, item_type, item_type, uid, active_only, item_type, item_type),
     )
 
-async def get_active_tasks_async(user_id,team_id=None): return await _visible_async(user_id,team_id,True)
-async def get_all_user_tasks_async(user_id,team_id=None): return await _visible_async(user_id,team_id,False)
-async def get_team_tasks_async(team_id,user_id,active_only=True):
+async def get_active_tasks_async(user_id,team_id=None,work_item_type=None): return await _visible_async(user_id,team_id,True,work_item_type)
+async def get_all_user_tasks_async(user_id,team_id=None,work_item_type=None): return await _visible_async(user_id,team_id,False,work_item_type)
+async def get_team_tasks_async(team_id,user_id,active_only=True,work_item_type=None):
     if not await ais_member(team_id,user_id): return []
-    return await fetch_all("tasks","workspace_id IS NULL AND team_id=?"+(" AND status IN ('pending','in_progress')" if active_only else ""),(team_id,))
+    item_type = await validate_work_item_type_async(work_item_type, _bot()) if work_item_type else None
+    where="workspace_id IS NULL AND team_id=?"+(" AND status IN ('pending','in_progress')" if active_only else "")
+    params=[team_id]
+    if item_type:
+        where += " AND work_item_type=?"
+        params.append(item_type)
+    return await fetch_all("tasks",where,tuple(params))
 async def get_task_by_id_async(task_id): return await fetch_one("tasks","workspace_id IS NULL AND id=?",(task_id,))
 async def user_can_modify_task_async(user_id,task): return bool(task and not task.get("workspace_id") and (await acan_edit(task.get("team_id"),user_id) if task.get("team_id") else str(task.get("user_id"))==str(user_id)))
 async def change_task_status_async(task_id,new_status,actor_id): return await update_task_status_async(task_id,new_status,actor_id)
