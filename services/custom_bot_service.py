@@ -1,9 +1,13 @@
 from __future__ import annotations
 import secrets
 
-from services.bot_feature_registry import FEATURE_REGISTRY, normalize_features as _normalize_features
+from services.bot_feature_registry import (
+    FEATURE_REGISTRY,
+    normalize_features as _normalize_features,
+)
 from services.bot_management_service import TOKEN_RE
-from services.database import sync_all, sync_one, sync_execute
+from services.database import sync_all, sync_execute, sync_one
+from services.secret_store import decrypt_secret, encrypt_secret, rewrap_secret
 
 FEATURE_OPTIONS = {
     key: definition.label
@@ -22,8 +26,18 @@ def init_custom_bots():
 
 def read_custom_bots(include_tokens=False):
     rows = sync_all("custom_bots")
-    if not include_tokens:
-        for row in rows:
+    for row in rows:
+        stored = str(row.get("bot_token") or "")
+        if include_tokens:
+            replacement, changed = rewrap_secret(stored)
+            if changed:
+                sync_execute(
+                    "UPDATE custom_bots SET bot_token=? WHERE bot_key=?",
+                    (replacement, row["bot_key"]),
+                )
+                stored = replacement
+            row["bot_token"] = decrypt_secret(stored)
+        else:
             row["bot_token"] = ""
     return rows
 
@@ -51,7 +65,13 @@ def create_custom_bot_request(user, token, features, bot_username=""):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     owner = str(user.id)
     selected = normalize_features(features)
-    row = sync_one("custom_bots", "owner_user_id=? AND bot_token=?", (owner, token))
+    row = next(
+        (
+            item for item in read_custom_bots(include_tokens=True)
+            if str(item.get("owner_user_id") or "") == owner and item.get("bot_token") == token
+        ),
+        None,
+    )
     if row:
         sync_execute(
             "UPDATE custom_bots SET owner_name=?,owner_username=?,bot_username=?,features=?,status=?,pricing_plan=?,updated_at=? WHERE bot_key=?",
@@ -76,7 +96,7 @@ def create_custom_bot_request(user, token, features, bot_username=""):
                 owner,
                 user.full_name or "",
                 user.username or "",
-                token,
+                encrypt_secret(token),
                 bot_username.strip().lstrip("@"),
                 ",".join(selected),
                 "active",

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import json
+
 import pytest
 import pytest_asyncio
 
@@ -9,10 +12,16 @@ from services.bot_management_service import (
     create_managed_bot,
     get_managed_bot,
     list_managed_bots,
+    migrate_bot_token_storage,
     seed_default_profiles,
     set_bot_status,
     update_managed_bot,
 )
+from services.secret_store import encrypted_key_id
+
+
+def _key(byte: int) -> str:
+    return base64.urlsafe_b64encode(bytes([byte]) * 32).decode("ascii")
 
 
 async def _valid_token(token: str) -> dict:
@@ -25,6 +34,8 @@ async def _valid_token(token: str) -> dict:
 async def isolated_db(tmp_path, monkeypatch):
     await database.close_all_dbs()
     monkeypatch.setattr(database, "DB_PATH", tmp_path / "bot_management.db")
+    monkeypatch.setenv("BOT_TOKEN_ENCRYPTION_KEYS_JSON", json.dumps({"test": _key(1)}))
+    monkeypatch.setenv("BOT_TOKEN_ACTIVE_KEY_ID", "test")
     await database.init_db()
     yield
     await database.close_all_dbs()
@@ -197,3 +208,115 @@ def test_legacy_json_profile_preserves_task_option_feature_semantics(tmp_path, m
     assert profile.features["comments"] is True
     assert profile.features["categories"] is True
     assert profile.features["voice"] is False
+
+
+
+@pytest.mark.asyncio
+async def test_managed_token_is_encrypted_at_rest():
+    secret = "123456:abcdefghijklmnopqrstuvwxyzABCDE66666"
+    await create_managed_bot(
+        {
+            "bot_key": "encrypted_bot",
+            "display_name": "Encrypted",
+            "bot_token": secret,
+            "status": "inactive",
+            "features": ["core", "tasks"],
+        },
+        1,
+        token_validator=_valid_token,
+    )
+    db = await database.get_db()
+    async with db.conn.execute(
+        "SELECT bot_token FROM custom_bots WHERE bot_key='encrypted_bot'"
+    ) as cur:
+        stored = (await cur.fetchone())[0]
+
+    assert stored.startswith("enc:v1:test:")
+    assert secret not in stored
+    internal = await get_managed_bot("encrypted_bot", include_token=True)
+    assert internal["bot_token"] == secret
+    public = await get_managed_bot("encrypted_bot")
+    assert public["token_storage_status"] == "encrypted"
+    assert public["token_masked"].endswith("6666")
+
+
+@pytest.mark.asyncio
+async def test_legacy_plaintext_token_is_migrated_when_keyring_exists():
+    secret = "123456:abcdefghijklmnopqrstuvwxyzABCDE77777"
+    db = await database.get_db()
+    await db.conn.execute(
+        """INSERT INTO custom_bots(
+            bot_key,owner_user_id,owner_name,owner_username,bot_token,bot_username,
+            features,status,pricing_plan,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+        ("legacy_secret", None, "", "", secret, "legacy_bot", "core,tasks", "inactive", "managed", "", ""),
+    )
+    await db.conn.commit()
+
+    result = await migrate_bot_token_storage(require_key=True)
+    assert result["encrypted"] == 1
+
+    async with db.conn.execute(
+        "SELECT bot_token FROM custom_bots WHERE bot_key='legacy_secret'"
+    ) as cur:
+        stored = (await cur.fetchone())[0]
+    assert stored.startswith("enc:v1:test:")
+    assert secret not in stored
+    assert (await get_managed_bot("legacy_secret", include_token=True))["bot_token"] == secret
+
+
+@pytest.mark.asyncio
+async def test_key_rotation_rewraps_persisted_token(monkeypatch):
+    secret = "123456:abcdefghijklmnopqrstuvwxyzABCDE88888"
+    await create_managed_bot(
+        {
+            "bot_key": "rotate_bot",
+            "display_name": "Rotate",
+            "bot_token": secret,
+            "status": "inactive",
+            "features": ["core", "tasks"],
+        },
+        1,
+        token_validator=_valid_token,
+    )
+    monkeypatch.setenv(
+        "BOT_TOKEN_ENCRYPTION_KEYS_JSON",
+        json.dumps({"test": _key(1), "next": _key(2)}),
+    )
+    monkeypatch.setenv("BOT_TOKEN_ACTIVE_KEY_ID", "next")
+
+    result = await migrate_bot_token_storage(require_key=True)
+    assert result["rotated"] == 1
+
+    db = await database.get_db()
+    async with db.conn.execute(
+        "SELECT bot_token FROM custom_bots WHERE bot_key='rotate_bot'"
+    ) as cur:
+        stored = (await cur.fetchone())[0]
+    assert encrypted_key_id(stored) == "next"
+    assert (await get_managed_bot("rotate_bot", include_token=True))["bot_token"] == secret
+
+
+
+@pytest.mark.asyncio
+async def test_internal_read_automatically_migrates_legacy_plaintext():
+    secret = "123456:abcdefghijklmnopqrstuvwxyzABCDE12121"
+    db = await database.get_db()
+    await db.conn.execute(
+        """INSERT INTO custom_bots(
+            bot_key,owner_user_id,owner_name,owner_username,bot_token,bot_username,
+            features,status,pricing_plan,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+        ("read_migrate", None, "", "", secret, "read_migrate_bot", "core,tasks", "inactive", "managed", "", ""),
+    )
+    await db.conn.commit()
+
+    row = await get_managed_bot("read_migrate", include_token=True)
+    assert row["bot_token"] == secret
+
+    async with db.conn.execute(
+        "SELECT bot_token FROM custom_bots WHERE bot_key='read_migrate'"
+    ) as cur:
+        stored = (await cur.fetchone())[0]
+    assert stored.startswith("enc:v1:test:")
+    assert secret not in stored

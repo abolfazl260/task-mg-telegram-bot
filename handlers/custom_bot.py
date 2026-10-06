@@ -80,7 +80,20 @@ async def handle_custom_bot_text(update: Update, context: ContextTypes.DEFAULT_T
     if not await _custom_bot_call(validate_bot_token, token):
         await update.message.reply_text("⚠️ فرمت توکن معتبر نیست. لطفاً توکن Bot API دریافتی از @BotFather را دوباره ارسال کنید.")
         return True
-    request = await _custom_bot_call(create_custom_bot_request, update.effective_user, token, _selected(context))
+    try:
+        request = await _custom_bot_call(
+            create_custom_bot_request,
+            update.effective_user,
+            token,
+            _selected(context),
+        )
+    except ValueError as exc:
+        if str(exc).startswith("bot_token_"):
+            await update.message.reply_text(
+                "⚠️ ذخیره امن توکن در حال حاضر پیکربندی نشده است. لطفاً با مدیر سیستم تماس بگیرید."
+            )
+            return True
+        raise
     context.user_data.pop("step", None)
     context.user_data.pop("custom_bot_features", None)
     await update.message.reply_text(
