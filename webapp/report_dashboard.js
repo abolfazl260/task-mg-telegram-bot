@@ -835,7 +835,7 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
             ${rows.map((x, i) => `
               <tr>
                 <td class="row-no">${i + 1}</td>
-                <td>${formatDate(x.deadline, mode)}</td>
+                <td>${formatDate(x.deadline, mode, x.deadline_jalali)}</td>
                 <td class="task-title">${esc(x.title)}</td>
                 <td>${esc(x.status_label)}</td>
                 <td>${priority(x.priority)}</td>
@@ -848,13 +848,15 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
     window.calendarData = d;
   }
 
-  function formatDate(v, mode) {
+  function formatDate(v, mode, jalaliValue = '') {
     if (!v) return '—';
     const m = String(v).match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
     if (!m) return esc(v);
     if (mode !== 'jalali') return `${m[1]}/${String(m[2]).padStart(2, '0')}/${String(m[3]).padStart(2, '0')}`;
-    return `شمسی ${+m[1] - 621}/${String(m[2]).padStart(2, '0')}/${String(m[3]).padStart(2, '0')}`;
+    return jalaliValue ? `شمسی ${esc(jalaliValue)}` : '—';
   }
+
+  window.renderCalendar = renderCalendar;
 
   function ensureTasksLink() {
     const badge = document.querySelector('.hero .badge');
