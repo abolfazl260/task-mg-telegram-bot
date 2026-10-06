@@ -149,7 +149,7 @@ async def create_unit(
     permission: str = "units.manage",
     unit_type: str = "branch",
 ) -> str:
-    await scope.predicate(permission, "w", context_predicate="?=?", unit_column="id")
+    await scope.predicate(permission)
     unit_id = new_id()
     await transaction(
         [
@@ -179,12 +179,7 @@ async def set_membership(
     active: bool = True,
     permission: str = "memberships.manage",
 ) -> str:
-    await scope.predicate(
-        permission,
-        "w",
-        context_predicate="?=?",
-        unit_column="id",
-    )
+    await scope.predicate(permission)
     if unit_id:
         await scope.unit(unit_id, permission)
     existing = await fetch_one_sql(
