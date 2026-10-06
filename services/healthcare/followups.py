@@ -191,12 +191,16 @@ async def queue(
     view="today",
     *,
     unit_id=None,
+    branch_id=None,
     owner_id=None,
     doctor_id=None,
     limit=25,
     offset=0,
     at=None,
 ):
+    if unit_id and branch_id and unit_id != branch_id:
+        raise ValueError("conflicting_branch")
+    unit_id = unit_id or branch_id
     pred, args = await scope.predicate(
         "followups.view", doctor_context=DOCTOR_CONTEXT["followups"]
     )
