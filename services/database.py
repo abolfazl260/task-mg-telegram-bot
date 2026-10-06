@@ -55,7 +55,9 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE TABLE IF NOT EXISTS task_comments (
     id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
     author_id TEXT REFERENCES users(user_id) ON DELETE SET NULL, author_name TEXT NOT NULL DEFAULT '', author_username TEXT NOT NULL DEFAULT '',
-    content_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT ''
+    content_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT '',
+    bot_key TEXT NOT NULL DEFAULT 'default', source TEXT NOT NULL DEFAULT 'core', source_key TEXT,
+    telegram_chat_id TEXT, telegram_message_id INTEGER
 );
 CREATE TABLE IF NOT EXISTS task_assignment_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -130,7 +132,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks(deadline);
 CREATE INDEX IF NOT EXISTS idx_tasks_team_id ON tasks(team_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee_id ON tasks(assignee_id);
-CREATE INDEX IF NOT EXISTS idx_comments_task_id ON task_comments(task_id);
+CREATE INDEX IF NOT EXISTS idx_comments_task_id ON task_comments(task_id);\nCREATE UNIQUE INDEX IF NOT EXISTS idx_comments_source_key ON task_comments(source_key);
 CREATE INDEX IF NOT EXISTS idx_assignment_task_id ON task_assignment_history(task_id);
 CREATE INDEX IF NOT EXISTS idx_members_user_id ON team_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_habits_user_id ON habits(user_id);
