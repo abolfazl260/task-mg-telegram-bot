@@ -89,11 +89,12 @@
       return;
     }
     el.innerHTML = `<div class="managed-bot-table-wrap"><table class="managed-bot-table">
-      <thead><tr><th>Bot</th><th>Profile</th><th>Status</th><th>Features</th><th>Token</th><th>Updated</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Bot</th><th>Profile</th><th>Desired</th><th>Runtime</th><th>Features</th><th>Token</th><th>Updated</th><th>Actions</th></tr></thead>
       <tbody>${rows.map(bot => `<tr>
         <td><strong>${esc2(bot.display_name || bot.bot_key)}</strong><small>${esc2(bot.bot_username ? "@" + bot.bot_username : bot.bot_key)}</small></td>
         <td>${esc2(bot.profile_type || bot.base_profile || "custom")}</td>
         <td><span class="status-pill ${bot.status === "active" ? "ok" : "off"}">${esc2(bot.status)}</span></td>
+        <td title="${esc2(bot.runtime_error || "")}"><span class="status-pill ${bot.runtime_status === "running" ? "ok" : (bot.runtime_status === "stopped" ? "off" : "")}">${esc2(bot.runtime_status || "unknown")}</span><small>${esc2(bot.last_runtime_reload ? "reloaded " + bot.last_runtime_reload : (bot.last_runtime_start ? "started " + bot.last_runtime_start : ""))}</small></td>
         <td>${Number(bot.enabled_feature_count || 0)}</td>
         <td><code>${esc2(bot.token_masked || "Not configured")}</code></td>
         <td>${esc2(bot.updated_at || "—")}</td>
