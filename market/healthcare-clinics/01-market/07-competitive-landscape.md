@@ -41,11 +41,11 @@ Buyer ممکن است بگوید:
 **«نرم‌افزار کلینیک دارم؛ چرا ابزار دیگری؟»**
 
 ### Strategic Response
-TaskMG نباید با PMS در record keeping رقابت کند.
+TaskMG Clinic باید Patient Record و Session history را در خود نگهداری کند و می‌تواند برای این داده‌ها سیستم اصلی کلینیک باشد.
 
 Positioning:
-**System of Record = PMS**  
-**System of Action = TaskMG**
+**Patient Record + System of Action = TaskMG Clinic**  
+**PMS/EMR = optional integration when the clinic already uses one**
 
 ---
 
