@@ -215,7 +215,7 @@ Frontend hiding is not authorization.
 
 ## Reception
 
-- necessary patient references
+- necessary patient records
 - callbacks
 - appointment-related operational tasks
 
