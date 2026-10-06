@@ -10,7 +10,7 @@ from services.database import fetch_all_sql, fetch_one_sql, get_db, transaction
 from services.healthcare.access import ClinicAccessError, Scope
 from services.healthcare.service import audit, new_id, now, require_staff, text
 
-COLUMNS = {"external_id", "display_name", "phone", "doctor_id", "unit_id"}
+COLUMNS = {"external_id", "display_name", "phone", "doctor_id", "branch_id"}
 MAX_ROWS = 500
 
 
@@ -20,7 +20,7 @@ async def preview_patients(scope: Scope, content: str):
     reader = csv.DictReader(io.StringIO(content.lstrip("\ufeff")))
     if (
         not reader.fieldnames
-        or not {"external_id", "display_name", "unit_id"}.issubset(reader.fieldnames)
+        or not {"external_id", "display_name", "branch_id"}.issubset(reader.fieldnames)
         or set(reader.fieldnames) - COLUMNS
         or len(reader.fieldnames) != len(set(reader.fieldnames))
     ):
@@ -36,7 +36,7 @@ async def preview_patients(scope: Scope, content: str):
             item = {
                 "external_id": text(row["external_id"], max_length=100),
                 "display_name": text(row["display_name"], max_length=200),
-                "unit_id": text(row["unit_id"], max_length=100),
+                "unit_id": text(row["branch_id"], max_length=100),
                 "phone": text(row.get("phone", ""), max_length=50, required=False),
                 "doctor_id": text(
                     row.get("doctor_id", ""), max_length=100, required=False
