@@ -252,7 +252,7 @@ class BotRuntimeManager:
 
         try:
             await self._start_profile(profile, event="reloaded")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - reload failure triggers rollback
             await self._rollback_profile(
                 old,
                 reload_error=_safe_error("reload_failed", exc),
@@ -301,7 +301,7 @@ class BotRuntimeManager:
                     await self.reconcile(initial_profiles)
                 else:
                     await self.reconcile()
-            except Exception:  # noqa: BLE001 - keep running bots alive on loader failure
+            except Exception:
                 logger.exception("bot_runtime_reconcile_failed")
             first = False
             try:
