@@ -491,8 +491,9 @@ async def unassigned_tasks(update, context):
     else: context.user_data['unassigned_offset']=0
 
 async def take_assignment(update, context):
-    query=update.callback_query; await query.answer(); task_id=query.data.replace('take_',''); task=await get_task_by_id_async(task_id)
+    query=update.callback_query; await query.answer(); task_id=query.data.replace('take_','',1); task=await get_task_by_id_async(task_id)
     if not task: await query.message.reply_text('تسک پیدا نشد.'); return
+    if not await user_can_modify_task_async(update.effective_user.id, task): await query.message.reply_text('شما مجاز به برعهده گرفتن این تسک نیستید.'); return
     if task.get('assignee_id'): await query.message.reply_text('این تسک قبلاً مسئول دارد.'); return
     context.user_data['take_task_id']=task_id; await query.message.reply_text(f"آیا این وظیفه را برای خودتان انتخاب می\u200cکنید؟\n\nوظیفه:\n{task.get('title')}",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('✅ بله، مسئول می\u200cشوم',callback_data='take_confirm')],[InlineKeyboardButton('❌ لغو',callback_data='take_cancel')]]))
 
@@ -518,17 +519,21 @@ def _history_text(task):
 async def assignment_manage_callback(update, context):
     query=update.callback_query; await query.answer(); data=query.data; uid=update.effective_user.id
     if data.startswith('owner_'):
-        task_id=data.replace('owner_',''); task=await get_task_by_id_async(task_id)
-        if not task: await query.message.reply_text('تسک پیدا نشد.'); return
+        task_id=data.replace('owner_','',1); task=await get_task_by_id_async(task_id)
+        if not task or not await _can_view_task(uid, task): await query.message.reply_text('تسک پیدا نشد یا دسترسی ندارید.'); return
         current=task.get('assignee_name') or '❌ تعیین نشده'; kb=[[InlineKeyboardButton('🔄 تغییر مسئول',callback_data=f'chg_start_{task_id}')],[InlineKeyboardButton('🙋 برعهده گرفتن',callback_data=f'take_{task_id}')],[InlineKeyboardButton('❌ حذف مسئول',callback_data=f'asg_remove_{task_id}')],[InlineKeyboardButton('📜 تاریخچه',callback_data=f'asg_history_{task_id}')]]; await query.message.reply_text(f'📋 اطلاعات مسئول\n\nمسئول فعلی:\n🖼 {current}\n\nعملیات:',reply_markup=InlineKeyboardMarkup(kb)); return
     if data.startswith('asg_history_'):
-        task=await get_task_by_id_async(data.replace('asg_history_','')); await query.message.reply_text(_history_text(task) if task else 'تسک پیدا نشد.'); return
+        task_id=data.replace('asg_history_','',1); task=await get_task_by_id_async(task_id)
+        if not task or not await _can_view_task(uid, task): await query.message.reply_text('تسک پیدا نشد یا دسترسی ندارید.'); return
+        await query.message.reply_text(_history_text(task)); return
     if data.startswith('asg_remove_'):
         task_id=data.replace('asg_remove_',''); task=await get_task_by_id_async(task_id)
         if not await user_can_modify_task_async(uid,task): await query.message.reply_text('شما مجاز به تغییر مسئول نیستید.'); return
         await assign_task_async(task_id,None,uid,'removed'); await query.message.reply_text('✅ مسئول حذف شد.'); return
     if data.startswith('chg_start_'):
-        task_id=data.replace('chg_start_',''); context.user_data['change_task_id']=task_id; await query.message.reply_text('👤 انتخاب مسئول جدید',reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🔎 جستجوی کاربر',callback_data='chg_search')],[InlineKeyboardButton('👥 انتخاب از اعضای تیم',callback_data='chg_teams')]])); return
+        task_id=data.replace('chg_start_','',1); task=await get_task_by_id_async(task_id)
+        if not await user_can_modify_task_async(uid, task): await query.message.reply_text('شما مجاز به تغییر مسئول نیستید.'); return
+        context.user_data['change_task_id']=task_id; await query.message.reply_text('👤 انتخاب مسئول جدید',reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🔎 جستجوی کاربر',callback_data='chg_search')],[InlineKeyboardButton('👥 انتخاب از اعضای تیم',callback_data='chg_teams')]])); return
     if data=='chg_search': context.user_data['step']='change_assignment_search'; await query.message.reply_text('نام یا نام خانوادگی کاربر را وارد کنید:'); return
     if data=='chg_teams':
         kb=[[InlineKeyboardButton(f"📌 {i['team']['name']}",callback_data=f"chg_team_{i['team']['team_id']}")] for i in await aget_user_teams(uid)]; await query.message.reply_text('انتخاب گروه مشترک:',reply_markup=InlineKeyboardMarkup(kb)); return
