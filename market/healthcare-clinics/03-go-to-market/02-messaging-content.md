@@ -326,7 +326,7 @@ Content:
 - permission-aware
 - human-in-the-loop
 - minimum data
-- no diagnosis
+- no autonomous diagnosis by AI
 
 ---
 
@@ -412,7 +412,7 @@ Topics:
 
 ## Consideration
 
-«PMS vs Operations Workflow Platform»
+«PMS/EMR Integration vs TaskMG Patient Record + Operations Platform»
 
 ## Intent
 
