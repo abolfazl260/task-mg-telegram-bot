@@ -7,7 +7,6 @@ from services.bot_feature_registry import (
 )
 from services.bot_management_service import TOKEN_RE
 from services.database import sync_all, sync_execute, sync_one
-from services.secret_store import decrypt_secret, encrypt_secret, rewrap_secret
 
 FEATURE_OPTIONS = {
     key: definition.label
@@ -26,18 +25,8 @@ def init_custom_bots():
 
 def read_custom_bots(include_tokens=False):
     rows = sync_all("custom_bots")
-    for row in rows:
-        stored = str(row.get("bot_token") or "")
-        if include_tokens:
-            replacement, changed = rewrap_secret(stored)
-            if changed:
-                sync_execute(
-                    "UPDATE custom_bots SET bot_token=? WHERE bot_key=?",
-                    (replacement, row["bot_key"]),
-                )
-                stored = replacement
-            row["bot_token"] = decrypt_secret(stored)
-        else:
+    if not include_tokens:
+        for row in rows:
             row["bot_token"] = ""
     return rows
 
@@ -96,7 +85,7 @@ def create_custom_bot_request(user, token, features, bot_username=""):
                 owner,
                 user.full_name or "",
                 user.username or "",
-                encrypt_secret(token),
+                token,
                 bot_username.strip().lstrip("@"),
                 ",".join(selected),
                 "active",
