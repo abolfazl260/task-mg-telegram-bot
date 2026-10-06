@@ -518,7 +518,7 @@ async def update_patient(
         "display_name": text(display_name, max_length=200)
         if display_name is not None
         else patient["display_name"],
-        "phone": text(phone, max_length=50, required=False)
+        "contact_value": text(phone, max_length=50, required=False)
         if phone is not None
         else patient["contact_value"],
         "primary_owner_user_id": str(doctor_id)
