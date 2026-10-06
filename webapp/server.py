@@ -145,29 +145,52 @@ class WebAppHandler(BaseHTTPRequestHandler):
             raise WebAppTaskAccessError("tasks_feature_disabled")
         user=self._authenticate(bot_key)
         if path=="/api/me" and method=="GET": return self._json(200,{"user":user.__dict__,"bot_key":bot_key})
-        if path=="/api/tasks" and method=="GET": return self._json(200,{"tasks":self.server.webapp_runtime.submit(list_tasks(user.id,bot_key))})
+        if path=="/api/tasks" and method=="GET":
+            if not profile.permission_enabled("tasks.view"):
+                raise WebAppTaskAccessError("tasks_view_permission_denied")
+            return self._json(200,{"tasks":self.server.webapp_runtime.submit(list_tasks(user.id,bot_key))})
         if path=="/api/tasks" and method=="POST":
+            if not profile.permission_enabled("tasks.create"):
+                raise WebAppTaskAccessError("tasks_create_permission_denied")
             data=_json_body(self); title=str(data.get("title") or "").strip()
             if not title or len(title)>500: return self._json(400,{"error":"invalid_title"})
             feature_fields={"priority":"priority","deadline":"deadline","category":"categories","tags":"tags"}
+            field_permissions={"priority":"priority.set","deadline":"deadline.set","category":"categories.manage","tags":"tags.manage"}
             for field,feature in feature_fields.items():
-                if field in data and data.get(field) not in (None,"",[]) and not profile.feature_enabled(feature):
-                    raise WebAppTaskAccessError(f"{feature}_feature_disabled")
+                if field in data and data.get(field) not in (None,"",[]):
+                    if not profile.feature_enabled(feature):
+                        raise WebAppTaskAccessError(f"{feature}_feature_disabled")
+                    if not profile.permission_enabled(field_permissions[field]):
+                        raise WebAppTaskAccessError(f"{field_permissions[field].replace('.','_')}_permission_denied")
+            if data.get("team_id") and not profile.permission_enabled("assignment.manage"):
+                raise WebAppTaskAccessError("assignment_manage_permission_denied")
             tid=self.server.webapp_runtime.submit(create_task(user.id,bot_key,title=title,priority=str(data.get("priority") or "medium"),deadline=str(data.get("deadline") or ""),category=str(data.get("category") or ""),tags=data.get("tags") if isinstance(data.get("tags"),str) else ", ".join(map(str,data.get("tags") or [])),description=str(data.get("description") or ""),team_id=str(data.get("team_id") or "")))
             return self._json(201,{"task":self.server.webapp_runtime.submit(get_task(user.id,tid,bot_key))})
         if path.startswith("/api/tasks/"):
             task_id=path.rsplit("/",1)[-1]
             if not task_id: return self._json(400,{"error":"invalid_task_id"})
             if method=="GET":
+                if not profile.permission_enabled("tasks.view"):
+                    raise WebAppTaskAccessError("tasks_view_permission_denied")
                 task=self.server.webapp_runtime.submit(get_task(user.id,task_id,bot_key)); return self._json(200,{"task":task}) if task else self._json(404,{"error":"task_not_found"})
             if method=="PATCH":
-                data=_json_body(self); task=self.server.webapp_runtime.submit(get_task(user.id,task_id,bot_key))
+                data=_json_body(self)
+                if not profile.permission_enabled("tasks.update"):
+                    raise WebAppTaskAccessError("tasks_update_permission_denied")
+                task=self.server.webapp_runtime.submit(get_task(user.id,task_id,bot_key))
                 if not task: return self._json(404,{"error":"task_not_found"})
-                if "status" in data: self.server.webapp_runtime.submit(change_status(user.id,task_id,str(data["status"]),bot_key))
+                if "status" in data:
+                    if not profile.permission_enabled("tasks.status"):
+                        raise WebAppTaskAccessError("tasks_status_permission_denied")
+                    self.server.webapp_runtime.submit(change_status(user.id,task_id,str(data["status"]),bot_key))
                 feature_fields={"priority":"priority","deadline":"deadline","category":"categories","tags":"tags"}
+                field_permissions={"priority":"priority.set","deadline":"deadline.set","category":"categories.manage","tags":"tags.manage"}
                 for field,feature in feature_fields.items():
-                    if field in data and not profile.feature_enabled(feature):
-                        raise WebAppTaskAccessError(f"{feature}_feature_disabled")
+                    if field in data:
+                        if not profile.feature_enabled(feature):
+                            raise WebAppTaskAccessError(f"{feature}_feature_disabled")
+                        if not profile.permission_enabled(field_permissions[field]):
+                            raise WebAppTaskAccessError(f"{field_permissions[field].replace('.','_')}_permission_denied")
                 allowed={k:data[k] for k in ("title","description","priority","deadline","category","tags") if k in data}
                 if "tags" in allowed and isinstance(allowed["tags"],list): allowed["tags"]=", ".join(map(str,allowed["tags"]))
                 if allowed: self.server.webapp_runtime.submit(update_task(user.id,task_id,bot_key,**allowed))
