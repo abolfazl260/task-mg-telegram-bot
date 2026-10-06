@@ -146,6 +146,9 @@ CREATE TABLE IF NOT EXISTS task_attribute_definitions (
     version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
     created_at TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT '',
+    sensitive INTEGER NOT NULL DEFAULT 0 CHECK(sensitive IN (0,1)),
+    view_roles_json TEXT NOT NULL DEFAULT '[]',
+    edit_roles_json TEXT NOT NULL DEFAULT '[]',
     UNIQUE(bot_key, workspace_id, work_item_type, field_key, version)
 );
 CREATE TABLE IF NOT EXISTS task_attribute_values (
@@ -163,6 +166,12 @@ CREATE TABLE IF NOT EXISTS task_attribute_values (
     created_at TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT '',
     UNIQUE(task_id, definition_id, ordinal)
+);
+CREATE TABLE IF NOT EXISTS task_attribute_audit (
+    id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    definition_id TEXT NOT NULL REFERENCES task_attribute_definitions(id) ON DELETE CASCADE,
+    actor_id TEXT NOT NULL, action TEXT NOT NULL, old_value_hash TEXT NOT NULL DEFAULT '', new_value_hash TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS task_contact_points (
     id TEXT PRIMARY KEY,
@@ -211,6 +220,7 @@ CREATE TABLE IF NOT EXISTS task_view_schemas (
 CREATE INDEX IF NOT EXISTS idx_task_view_schemas_lookup ON task_view_schemas(bot_key,workspace_id,work_item_type,schema_kind,active,version);
 CREATE INDEX IF NOT EXISTS idx_contact_points_task ON task_contact_points(task_id, type, status);
 CREATE INDEX IF NOT EXISTS idx_contact_points_normalized ON task_contact_points(normalized_value, type);
+CREATE INDEX IF NOT EXISTS idx_task_attribute_audit_task ON task_attribute_audit(task_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_points_primary ON task_contact_points(task_id, type) WHERE is_primary=1 AND status='active';
 """
 
@@ -268,6 +278,12 @@ async def migrate_core_schema(conn) -> None:
     END;
     """
     await conn.executescript(parent_trigger.format(operation="insert", verb="INSERT") + parent_trigger.format(operation="update", verb="UPDATE"))
+    async with conn.execute("PRAGMA table_info(task_attribute_definitions)") as cursor:
+        attribute_columns = {row[1] for row in await cursor.fetchall()}
+    for name, statement in (("sensitive", "ALTER TABLE task_attribute_definitions ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0"), ("view_roles_json", "ALTER TABLE task_attribute_definitions ADD COLUMN view_roles_json TEXT NOT NULL DEFAULT '[]'"), ("edit_roles_json", "ALTER TABLE task_attribute_definitions ADD COLUMN edit_roles_json TEXT NOT NULL DEFAULT '[]'")):
+        if name in attribute_columns:
+            continue
+        await conn.execute(statement)
     await conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS task_attribute_definitions (
@@ -277,6 +293,7 @@ async def migrate_core_schema(conn) -> None:
             required INTEGER NOT NULL DEFAULT 0 CHECK(required IN (0,1)),
             repeatable INTEGER NOT NULL DEFAULT 0 CHECK(repeatable IN (0,1)),
             default_value_json TEXT, validation_json TEXT NOT NULL DEFAULT '{}',
+            sensitive INTEGER NOT NULL DEFAULT 0, view_roles_json TEXT NOT NULL DEFAULT '[]', edit_roles_json TEXT NOT NULL DEFAULT '[]',
             searchable INTEGER NOT NULL DEFAULT 0 CHECK(searchable IN (0,1)),
             filterable INTEGER NOT NULL DEFAULT 0 CHECK(filterable IN (0,1)),
             sortable INTEGER NOT NULL DEFAULT 0 CHECK(sortable IN (0,1)),
@@ -286,6 +303,10 @@ async def migrate_core_schema(conn) -> None:
             created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '',
             UNIQUE(bot_key, workspace_id, work_item_type, field_key, version)
         );
+        CREATE TABLE IF NOT EXISTS task_attribute_audit (
+            id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, definition_id TEXT NOT NULL REFERENCES task_attribute_definitions(id) ON DELETE CASCADE, actor_id TEXT NOT NULL, action TEXT NOT NULL, old_value_hash TEXT NOT NULL DEFAULT '', new_value_hash TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_task_attribute_audit_task ON task_attribute_audit(task_id, created_at);
         CREATE TABLE IF NOT EXISTS task_attribute_values (
             id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
             definition_id TEXT NOT NULL REFERENCES task_attribute_definitions(id) ON DELETE RESTRICT,
