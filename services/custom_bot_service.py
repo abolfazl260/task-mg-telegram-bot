@@ -1,9 +1,12 @@
 from __future__ import annotations
 import secrets
 
-from services.bot_feature_registry import FEATURE_REGISTRY, normalize_features as _normalize_features
+from services.bot_feature_registry import (
+    FEATURE_REGISTRY,
+    normalize_features as _normalize_features,
+)
 from services.bot_management_service import TOKEN_RE
-from services.database import sync_all, sync_one, sync_execute
+from services.database import sync_all, sync_execute, sync_one
 from services.secret_store import decrypt_secret, encrypt_secret, rewrap_secret
 
 FEATURE_OPTIONS = {
