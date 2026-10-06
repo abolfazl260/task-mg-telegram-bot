@@ -6,7 +6,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from handlers import task as task_handler
-from services import database, task_service
+from services import comment_message_store, database, task_service
+
+
+@pytest.fixture(autouse=True)
+def reset_comment_message_schema(monkeypatch):
+    monkeypatch.setattr(comment_message_store, "_SCHEMA_READY", False)
 
 
 class FakeMessage:
