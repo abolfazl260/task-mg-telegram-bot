@@ -148,13 +148,13 @@ async def handle_clinic_input(update, context):
             patient_id = context.user_data.pop("clinic_patient_id")
             title = context.user_data.pop("clinic_session_title")
             scheduled = None if value == "-" else value
-            await clinic_typed.create_child_async(scope, patient_id, "session", title, scheduled_at=scheduled)
+            await service.create_case(scope, patient_id, title, str(update.effective_user.id), expected_at=scheduled)
             context.user_data.pop("clinic_input", None)
             await update.effective_message.reply_text("✅ جلسه بیمار ایجاد شد.")
         elif step == "typed_case_title":
             scope = Scope(memberships[0]["organization_id"], str(update.effective_user.id))
             patient_id = context.user_data.pop("clinic_patient_id")
-            await clinic_typed.create_child_async(scope, patient_id, "case", value)
+            await service.create_case(scope, patient_id, value, str(update.effective_user.id))
             context.user_data.pop("clinic_input", None)
             await update.effective_message.reply_text("✅ پرونده عملیاتی بیمار ایجاد شد.")
         elif step == "typed_reschedule":
@@ -305,12 +305,11 @@ async def clinic_callback(update, context):
             rows.append([InlineKeyboardButton("منو", callback_data="clinic:menu")])
             return await _render(update, "\n".join(lines) or "موردی وجود ندارد.", rows)
         if parts[1] == "patient":
-            item = await clinic_typed._item(parts[2], str(update.effective_user.id))
-            children = await clinic_typed.list_children_async(parts[2], str(update.effective_user.id), limit=10)
-            lines = [f"👤 {item.get('title')}\nوضعیت: {item.get('status')}" ]
-            if item.get("reference_id"): lines.append(f"شناسه پرونده: {item['reference_id']}")
-            lines.append("\n".join(f"• {x['work_item_type']}: {x['title']} · {x['status']}" for x in children["items"]) or "هنوز جلسه یا پرونده عملیاتی ثبت نشده است.")
-            context.user_data["clinic_patient_id"] = parts[2]
+            patient = await service.get_entity(scope, "patients", parts[2])
+            from services.database import fetch_all_sql
+            cases = await fetch_all_sql("SELECT id,title,status,expected_at FROM cases WHERE workspace_id=? AND reference_id=? ORDER BY created_at DESC LIMIT 10", (scope.workspace_id, parts[2]))
+            lines = [f"👤 {patient.get('display_name')}\nوضعیت: {patient.get('status')}"]
+            lines.append("\n".join(f"• {x['title']} · {x['status']}" for x in cases) or "هنوز پرونده عملیاتی یا جلسه‌ای ثبت نشده است.")
             return await _render(update, "\n".join(lines), [[InlineKeyboardButton("➕ ایجاد جلسه", callback_data=f"clinic:new_session:{parts[2]}"), InlineKeyboardButton("📁 ایجاد پرونده عملیاتی", callback_data=f"clinic:new_case:{parts[2]}")], [InlineKeyboardButton("بازگشت", callback_data="clinic:patients:0")]])
         if parts[1] == "new_session":
             context.user_data["clinic_patient_id"] = parts[2]
