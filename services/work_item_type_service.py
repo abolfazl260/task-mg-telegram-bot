@@ -44,7 +44,7 @@ def _string_list(value, field_name: str) -> list[str]:
     if value is None:
         return []
     if not isinstance(value, list):
-        raise ValueError(f"invalid_work_item_type_profile:{field_name}")
+        raise ValueError(f"invalid_work_item_type_profile:{field_name}")  # noqa: TRY004
     result: list[str] = []
     for item in value:
         text = str(item or "").strip()
@@ -55,7 +55,7 @@ def _string_list(value, field_name: str) -> list[str]:
 
 def _normalize_definition(raw: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(raw, dict):
-        raise ValueError("invalid_work_item_type_profile:type_definition")
+        raise ValueError("invalid_work_item_type_profile:type_definition")  # noqa: TRY004
     key = str(raw.get("key") or "").strip().lower()
     if not TYPE_KEY_RE.match(key):
         raise ValueError("invalid_work_item_type_profile:type_key")
@@ -87,7 +87,7 @@ def normalize_work_item_type_profile(settings: dict | None) -> dict[str, Any]:
     if raw_profile in (None, {}):
         raw_profile = _DEFAULT_PROFILE
     if not isinstance(raw_profile, dict):
-        raise ValueError("invalid_work_item_type_profile")
+        raise ValueError("invalid_work_item_type_profile")  # noqa: TRY004
 
     raw_types = raw_profile.get("types")
     if isinstance(raw_types, dict):
