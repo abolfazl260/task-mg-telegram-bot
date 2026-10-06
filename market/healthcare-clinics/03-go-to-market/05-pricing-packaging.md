@@ -569,7 +569,7 @@ Recommendation اولیه:
 | Capability | Starter | Clinic | Multi-Branch |
 |---|---|---|---|
 | Tasks | ✓ | ✓ | ✓ |
-| Patient Reference | ✓ | ✓ | ✓ |
+| Patient Record | ✓ | ✓ | ✓ |
 | Follow-up Queue | ✓ | ✓ | ✓ |
 | Basic Templates | ✓ | ✓ | ✓ |
 | Advanced Workflows | Limited | ✓ | ✓ |
