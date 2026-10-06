@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from bot_context import get_current_bot_key
 from services.database import _run as db_run
@@ -11,16 +12,21 @@ from services.database import (
     fetch_all,
     fetch_all_sql,
     fetch_one,
+    fetch_one_sql,
     get_db,
     transaction,
 )
 from services.team_service import acan_edit, aget_team, ais_member
-from services.work_item_type_service import validate_work_item_type_async
+from services.work_item_type_service import (
+    get_work_item_type_profile_async,
+    validate_work_item_type_async,
+)
 
 logger = logging.getLogger(__name__)
 
 VALID_STATUSES = {"pending", "in_progress", "done", "cancelled"}
 VALID_PRIORITIES = {"low", "medium", "high"}
+MAX_HIERARCHY_DEPTH = 10
 
 def _now(): return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
 def _bot(): return get_current_bot_key() or "default"
@@ -29,6 +35,61 @@ def _new_task_id(): return str(uuid.uuid4())
 async def _ensure_user_async(uid):
     uid=str(uid or "")
     if uid: await execute("INSERT OR IGNORE INTO users(user_id,timezone,date_format,messages_count) VALUES(?,?,?,0)",(uid,"UTC","jalali"))
+
+
+async def _hierarchy_parent_async(task_id: str | None):
+    if not task_id:
+        return None
+    return await fetch_one("tasks", "id=?", (str(task_id),))
+
+
+async def _validate_parent_async(parent_task_id: str | None, child_type: str, actor_id: str,
+                                 *, child_task_id: str | None = None):
+    """Validate scope, authorization, type compatibility and bounded depth."""
+    if not parent_task_id:
+        return None
+    parent = await _hierarchy_parent_async(parent_task_id)
+    if not parent:
+        raise ValueError("parent_task_not_found")
+    if child_task_id and str(parent_task_id) == str(child_task_id):
+        raise ValueError("hierarchy_cycle")
+    if not await user_can_modify_task_async(actor_id, parent):
+        raise PermissionError("parent_task_permission_denied")
+    if not await _can_be_child_async(parent, child_type):
+        raise ValueError("invalid_child_type")
+
+    profile = await get_work_item_type_profile_async(_bot())
+    child_definition = profile["types"].get(child_type)
+    if child_definition is None:
+        raise ValueError("invalid_work_item_type")
+    allowed_parents = child_definition.get("allowed_parent_types") or []
+    if allowed_parents and parent.get("work_item_type") not in allowed_parents:
+        raise ValueError("invalid_parent_type")
+
+    # Walk ancestors in the service layer so moves cannot introduce cycles and
+    # the maximum depth remains bounded even on older SQLite installations.
+    depth = 1
+    cursor = parent
+    seen = {str(child_task_id)} if child_task_id else set()
+    while cursor and cursor.get("parent_task_id"):
+        current_id = str(cursor["parent_task_id"])
+        if current_id in seen:
+            raise ValueError("hierarchy_cycle")
+        seen.add(current_id)
+        depth += 1
+        if depth >= MAX_HIERARCHY_DEPTH:
+            raise ValueError("hierarchy_depth_exceeded")
+        cursor = await _hierarchy_parent_async(current_id)
+    return parent
+
+
+async def _can_be_child_async(parent: dict[str, Any], child_type: str) -> bool:
+    profile = await get_work_item_type_profile_async(_bot())
+    definition = profile["types"].get(parent.get("work_item_type"))
+    if definition is None:
+        return False
+    allowed = definition.get("allowed_child_types") or []
+    return not allowed or child_type in allowed
 
 # Tasks are shared user data. bot_key is retained only as provenance/configuration metadata;
 # it must never be used to isolate a user's tasks between bots.
@@ -56,17 +117,96 @@ async def update_task_status_async(task_id,new_status,actor_id):
     if not task or not await user_can_modify_task_async(actor_id,task): return False
     await execute("UPDATE tasks SET status=?,completed_at=? WHERE id=?",(new_status,_now() if new_status=="done" else "",task_id)); return True
 
-async def create_task_async(user_id,title,priority,deadline,category,tags,description="",team_id="",assignee=None,work_item_type=None):
+async def create_task_async(user_id,title,priority,deadline,category,tags,description="",team_id="",assignee=None,work_item_type=None,parent_task_id=None):
     if priority not in VALID_PRIORITIES: raise ValueError("invalid priority")
     item_type = await validate_work_item_type_async(work_item_type, _bot())
     await _ensure_user_async(user_id); tid=_new_task_id()
+    await _validate_parent_async(parent_task_id, item_type, str(user_id))
     if team_id and not category:
         team=await aget_team(team_id); category=team.get("name","") if team else category
     aid=str((assignee or {}).get("user_id") or "") or None
     if aid: await _ensure_user_async(aid)
-    now=_now(); statements=[("""INSERT INTO tasks(id,bot_key,work_item_type,user_id,title,priority,status,deadline,category,tags,description,created_at,team_id,assignee_id,assignee_name,assignee_username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(tid,_bot(),item_type,str(user_id),title,priority,"pending",deadline or "",category or "",tags or "",description or "",now,team_id or None,aid,(assignee or {}).get("display_name") or "",(assignee or {}).get("username") or ""))]
+    now=_now(); statements=[("""INSERT INTO tasks(id,bot_key,work_item_type,parent_task_id,user_id,title,priority,status,deadline,category,tags,description,created_at,team_id,assignee_id,assignee_name,assignee_username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(tid,_bot(),item_type,parent_task_id or None,str(user_id),title,priority,"pending",deadline or "",category or "",tags or "",description or "",now,team_id or None,aid,(assignee or {}).get("display_name") or "",(assignee or {}).get("username") or ""))]
     if assignee: statements.append(("""INSERT INTO task_assignment_history(task_id,actor_id,action,old_assignee_name,new_assignee_name,created_at) VALUES(?,?,?,?,?,?)""",(tid,str(user_id),"assigned","",(assignee or {}).get("display_name") or "",now)))
     await transaction(statements); return tid
+
+
+async def create_child_task_async(parent_task_id, user_id, title, priority="medium", deadline="",
+                                  category="", tags="", description="", team_id="",
+                                  assignee=None, work_item_type=None):
+    """Create a typed child while keeping the regular task API available."""
+    return await create_task_async(
+        user_id, title, priority, deadline, category, tags, description,
+        team_id, assignee, work_item_type, parent_task_id,
+    )
+
+
+async def get_parent_task_async(task_id):
+    task = await get_task_by_id_async(task_id)
+    if not task or not task.get("parent_task_id"):
+        return None
+    return await get_task_by_id_async(task["parent_task_id"])
+
+
+async def list_child_tasks_async(parent_task_id, actor_id, *, limit=50, offset=0,
+                                 include_archived=True):
+    parent = await get_task_by_id_async(parent_task_id)
+    if not parent or not await user_can_modify_task_async(actor_id, parent):
+        return []
+    try:
+        limit = max(1, min(int(limit), 100))
+        offset = max(0, int(offset))
+    except (TypeError, ValueError):
+        raise ValueError("invalid_pagination")
+    archived_clause = "" if include_archived else " AND archived_at IS NULL"
+    return await fetch_all_sql(
+        f"SELECT * FROM tasks WHERE parent_task_id=?{archived_clause} ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?",
+        (str(parent_task_id), limit, offset),
+    )
+
+
+async def count_child_tasks_async(parent_task_id, actor_id, *, include_archived=True):
+    parent = await get_task_by_id_async(parent_task_id)
+    if not parent or not await user_can_modify_task_async(actor_id, parent):
+        return {"total": 0, "active": 0, "done": 0, "archived": 0}
+    archived_clause = "" if include_archived else " AND archived_at IS NULL"
+    row = await fetch_one_sql(
+        f"""SELECT COUNT(*) AS total,
+            SUM(CASE WHEN status NOT IN ('done','cancelled') AND archived_at IS NULL THEN 1 ELSE 0 END) AS active,
+            SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done,
+            SUM(CASE WHEN archived_at IS NOT NULL THEN 1 ELSE 0 END) AS archived
+            FROM tasks WHERE parent_task_id=?{archived_clause}""",
+        (str(parent_task_id),),
+    )
+    return {key: int(row.get(key) or 0) for key in ("total", "active", "done", "archived")}
+
+
+async def move_child_task_async(task_id, parent_task_id, actor_id):
+    task = await get_task_by_id_async(task_id)
+    if not task or not await user_can_modify_task_async(actor_id, task):
+        return False
+    if parent_task_id is not None:
+        parent = await _validate_parent_async(parent_task_id, task.get("work_item_type") or "task", str(actor_id), child_task_id=task_id)
+        if parent and (parent.get("workspace_id") != task.get("workspace_id") or (parent.get("workspace_id") is None and str(parent.get("user_id")) != str(task.get("user_id")))):
+            raise ValueError("parent_task_scope_mismatch")
+    await execute("UPDATE tasks SET parent_task_id=? WHERE id=?", (parent_task_id, task_id))
+    return True
+
+
+async def archive_task_async(task_id, actor_id):
+    task = await get_task_by_id_async(task_id)
+    if not task or not await user_can_modify_task_async(actor_id, task):
+        return False
+    await execute("UPDATE tasks SET archived_at=? WHERE id=?", (_now(), task_id))
+    return True
+
+
+async def unarchive_task_async(task_id, actor_id):
+    task = await get_task_by_id_async(task_id)
+    if not task or not await user_can_modify_task_async(actor_id, task):
+        return False
+    await execute("UPDATE tasks SET archived_at=NULL WHERE id=?", (task_id,))
+    return True
 
 async def update_task_async(task_id,user_id,**changes):
     task=await get_task_by_id_async(task_id)
@@ -171,6 +311,13 @@ def get_all_user_ids(): return _run(get_all_user_ids_async())
 def assign_task(*a,**k): return _run(assign_task_async(*a,**k))
 def get_unassigned_tasks(*a,**k): return _run(get_unassigned_tasks_async(*a,**k))
 def get_task_comments(*a,**k): return _run(get_task_comments_async(*a,**k))
+def get_parent_task(*a,**k): return _run(get_parent_task_async(*a,**k))
+def create_child_task(*a,**k): return _run(create_child_task_async(*a,**k))
+def list_child_tasks(*a,**k): return _run(list_child_tasks_async(*a,**k))
+def count_child_tasks(*a,**k): return _run(count_child_tasks_async(*a,**k))
+def move_child_task(*a,**k): return _run(move_child_task_async(*a,**k))
+def archive_task(*a,**k): return _run(archive_task_async(*a,**k))
+def unarchive_task(*a,**k): return _run(unarchive_task_async(*a,**k))
 def add_task_comment(*a,**k): return _run(add_task_comment_async(*a,**k))
 def link_user_category_to_team(*a,**k): return _run(link_user_category_to_team_async(*a,**k))
 def link_team_name_category_for_owner(*a,**k): return _run(link_team_name_category_for_owner_async(*a,**k))
