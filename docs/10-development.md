@@ -46,6 +46,8 @@ python -m pytest --cov=. --cov-config=.coveragerc --cov-report=term-missing
 
 تنظیمات scope پوشش در `.coveragerc` نگهداری می‌شود. تست‌ها و اسکریپت‌های نگه‌داری از denominator پوشش runtime حذف شده‌اند.
 
+CI در حال حاضر حداقل پوشش **41٪** را از طریق `COVERAGE_MIN` در workflow اعمال می‌کند. این عدد از baseline واقعی 42.1٪ در زمان اضافه‌شدن gate انتخاب شده و باید با افزایش پوشش، به‌تدریج بالاتر برده شود.
+
 برای تغییرات مرتبط با دیتابیس، تست Migration و Schema نیز باید اجرا شود.
 
 ## مستندات
