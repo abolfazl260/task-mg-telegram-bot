@@ -39,6 +39,17 @@ def wrap_save_task(original):
         if not task_permission_enabled(context,"tasks.create"):
             await update.effective_message.reply_text("⛔️ ایجاد تسک برای این ربات مجاز نیست.")
             return
+        message=update.effective_message
+        has_attachment=bool(
+            message and (
+                getattr(message,"photo",None)
+                or getattr(message,"video",None)
+                or getattr(message,"document",None)
+            )
+        )
+        if has_attachment and not task_permission_enabled(context,"attachments.manage"):
+            await message.reply_text("⛔️ افزودن پیوست برای این ربات مجاز نیست.")
+            return
         step=context.user_data.get("step");task=context.user_data.get("new_task")
         if not task:return await original(update,context)
         if step=="title" and (not task_option_enabled(context,"allow_priority") or not task_permission_enabled(context,"priority.set")):
