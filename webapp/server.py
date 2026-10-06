@@ -33,7 +33,6 @@ from .admin_api import (
     update_bot_management,
     validate_bot_management_token,
 )
-from services.permission_service import is_admin
 from services.healthcare.access import ClinicAccessError
 from .clinic_api import dispatch as clinic_dispatch
 
