@@ -315,8 +315,6 @@ async def create_managed_bot(
     now = _now()
     db = await get_db()
     async with db.lock:
-        seeded_features = normalize_features(template["features"])
-        seeded_permissions = default_permission_policy(seeded_features)
         await db.conn.execute(
             """INSERT INTO custom_bots(
                 bot_key,owner_user_id,owner_name,owner_username,bot_token,bot_username,
@@ -517,6 +515,8 @@ async def seed_default_profiles() -> list[str]:
                     token = encrypt_secret(token)
                     status = "active"
                     source = "migrated_json"
+        seeded_features = normalize_features(template["features"])
+        seeded_permissions = default_permission_policy(seeded_features)
         await db.conn.execute(
             """INSERT INTO custom_bots(
                 bot_key,owner_user_id,owner_name,owner_username,bot_token,bot_username,
