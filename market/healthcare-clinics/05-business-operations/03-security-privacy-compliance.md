@@ -75,37 +75,49 @@ TaskMG نباید بدون ارزیابی رسمی بگوید:
 
 ## Policy
 
-MVP باید تا حد ممکن روی Class B/C بماند و Class D را حداقل کند.
+Healthcare به‌صورت رسمی Class D را نیز نگهداری می‌کند. Class D باید با کنترل سخت‌گیرانه‌تر شامل least privilege، permission مستقل، audit، retention، secure export، backup protection و incident controls مدیریت شود. Data minimization به معنی حذف Clinical Data از محصول نیست؛ به معنی جلوگیری از دسترسی/کپی/پردازش غیرضروری است.
 
 ---
 
-# 4. Medical Data Boundary
+# 4. Patient Record & Clinical Data Boundary
 
-## TaskMG باید ذخیره کند
+## TaskMG Healthcare باید بتواند ذخیره و مدیریت کند
 
-- patient operational reference
+- patient identity / demographics
+- contact information
+- allergies
+- chronic conditions
+- medications
+- diagnoses
+- medical / clinical history
+- clinical notes
+- treatment-related information
+- medical documents / attachments
+- imaging metadata/files where enabled
+- doctor/branch relationships
 - workflow status
 - next action
 - owner
 - due date
 - operational outcome
-- external system reference
+- external system references
 
-## TaskMG نباید به‌صورت پیش‌فرض ذخیره کند
+## Access Rule
 
-داده‌های زیر بخشی از Patient Record قابل پشتیبانی هستند و باید کنترل امنیتی قوی‌تری داشته باشند:
-- full medical/clinical record
-- diagnosis history
-- medication history
-- allergies/chronic conditions
-- clinical notes/documents
-- imaging archive در صورت فعال‌سازی نیازمند storage/access policy اختصاصی است
-- detailed clinical narrative باید با permission و audit نگهداری شود
-- autonomous treatment recommendation engine نیازمند capability و governance مستقل است
+وجود Patient Record به معنی دسترسی یکسان همه Roleها نیست. Clinical Data باید permission-aware باشد و در صورت نیاز permissionهای read/manage جدا از `patients.view/manage` داشته باشد.
+
+## AI / Clinical Decision Boundary
+
+ذخیره Clinical Data داخل Scope است. موارد زیر capability جداگانه‌اند و بدون طراحی، ارزیابی و approval مستقل فعال نمی‌شوند:
+
+- autonomous diagnosis
+- autonomous prescription
+- autonomous treatment recommendation
+- autonomous modification of clinical plan
 
 ## Principle
 
-**Reference clinical systems; do not replicate them without a validated need.**
+**Store the patient record safely; expose only what each role needs; audit sensitive access and changes; integrate with external PMS/EMR when useful.**
 
 ---
 
