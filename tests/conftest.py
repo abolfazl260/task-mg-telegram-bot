@@ -21,7 +21,8 @@ async def test_db(monkeypatch):
             self.conn.row_factory = aiosqlite.Row
             await self.conn.execute("PRAGMA foreign_keys=ON")
         if not self.initialized:
-            await self.conn.executescript(database.SCHEMA)
+            await self.conn.executescript(database.CORE_SCHEMA)
+            await database.migrate_operations(self.conn)
             await self.conn.commit()
             self.initialized = True
         return self.conn

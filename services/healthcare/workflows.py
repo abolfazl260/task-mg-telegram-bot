@@ -154,14 +154,14 @@ async def publish(scope: Scope, template_key: str, definition: dict):
     await transaction(
         [
             (
-                "INSERT INTO clinic_workflow_versions(id,organization_id,template_key,version,definition_json,created_at) SELECT ?,?,?,COALESCE(MAX(version),0)+1,?,? FROM clinic_workflow_versions WHERE organization_id=? AND template_key=?",
+                "INSERT INTO workflow_versions(id,workspace_id,template_key,version,definition_json,created_at) SELECT ?,?,?,COALESCE(MAX(version),0)+1,?,? FROM workflow_versions WHERE workspace_id=? AND template_key=?",
                 (
                     vid,
-                    scope.organization_id,
+                    scope.workspace_id,
                     key,
                     json.dumps(definition, ensure_ascii=False),
                     now(),
-                    scope.organization_id,
+                    scope.workspace_id,
                     key,
                 ),
             ),
@@ -169,8 +169,8 @@ async def publish(scope: Scope, template_key: str, definition: dict):
         ]
     )
     return await fetch_one_sql(
-        "SELECT * FROM clinic_workflow_versions WHERE organization_id=? AND id=?",
-        (scope.organization_id, vid),
+        "SELECT * FROM workflow_versions WHERE workspace_id=? AND id=?",
+        (scope.workspace_id, vid),
     )
 
 
@@ -182,14 +182,14 @@ async def seed_defaults(scope: Scope):
         await transaction(
             [
                 (
-                    "INSERT INTO clinic_workflow_versions(id,organization_id,template_key,version,definition_json,created_at) SELECT ?,?,?,1,?,? WHERE NOT EXISTS(SELECT 1 FROM clinic_workflow_versions WHERE organization_id=? AND template_key=?)",
+                    "INSERT INTO workflow_versions(id,workspace_id,template_key,version,definition_json,created_at) SELECT ?,?,?,1,?,? WHERE NOT EXISTS(SELECT 1 FROM workflow_versions WHERE workspace_id=? AND template_key=?)",
                     (
                         vid,
-                        scope.organization_id,
+                        scope.workspace_id,
                         key,
                         json.dumps(definition, ensure_ascii=False),
                         now(),
-                        scope.organization_id,
+                        scope.workspace_id,
                         key,
                     ),
                 ),
@@ -201,16 +201,16 @@ async def seed_defaults(scope: Scope):
 async def list_templates(scope: Scope):
     await scope.predicate("cases.view", doctor_context="?=?")
     return await fetch_all_sql(
-        "SELECT v.* FROM clinic_workflow_versions v WHERE organization_id=? AND version=(SELECT MAX(w.version) FROM clinic_workflow_versions w WHERE w.organization_id=v.organization_id AND w.template_key=v.template_key) ORDER BY template_key",
-        (scope.organization_id,),
+        "SELECT v.* FROM workflow_versions v WHERE workspace_id=? AND version=(SELECT MAX(w.version) FROM workflow_versions w WHERE w.workspace_id=v.workspace_id AND w.template_key=v.template_key) ORDER BY template_key",
+        (scope.workspace_id,),
     )
 
 
 async def _owner(scope, branch, owner_id, role):
     await require_staff(scope, branch, owner_id)
     if not await fetch_one_sql(
-        "SELECT 1 FROM clinic_memberships WHERE organization_id=? AND user_id=? AND status='active' AND (branch_id IS NULL OR branch_id=?) AND role IN (?, 'owner','admin','manager')",
-        (scope.organization_id, str(owner_id), branch, role),
+        "SELECT 1 FROM workspace_memberships WHERE workspace_id=? AND user_id=? AND status='active' AND (unit_id IS NULL OR unit_id=?) AND role IN (?, 'owner','admin','manager')",
+        (scope.workspace_id, str(owner_id), branch, role),
     ):
         raise ValueError("workflow_owner_role_required")
 
@@ -223,12 +223,12 @@ def _action_statements(scope, case, stage, owner_id, workflow_id):
     return [
         task_insert(scope, case, tid, stage["title"], owner_id, due, workflow_id),
         (
-            "INSERT INTO clinic_followups(id,organization_id,branch_id,patient_id,case_id,task_id,followup_type,owner_user_id,due_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO followups(id,workspace_id,unit_id,reference_id,case_id,task_id,followup_type,owner_user_id,due_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (
                 fid,
-                scope.organization_id,
-                case["branch_id"],
-                case["patient_id"],
+                scope.workspace_id,
+                case["unit_id"],
+                case["reference_id"],
                 case["id"],
                 tid,
                 stage["key"],
@@ -238,20 +238,20 @@ def _action_statements(scope, case, stage, owner_id, workflow_id):
             ),
         ),
         (
-            "UPDATE clinic_cases SET current_stage=?,next_action_task_id=?,updated_at=? WHERE id=? AND organization_id=?",
-            (stage["key"], tid, now(), case["id"], scope.organization_id),
+            "UPDATE cases SET current_stage=?,next_action_task_id=?,updated_at=? WHERE id=? AND workspace_id=?",
+            (stage["key"], tid, now(), case["id"], scope.workspace_id),
         ),
-        audit(scope, case["branch_id"], "next_action.created", "task", tid),
+        audit(scope, case["unit_id"], "next_action.created", "task", tid),
     ]
 
 
 async def start(scope: Scope, case_id: str, version_id: str, owner_id: str):
     await get_entity(scope, "cases", case_id, manage=True)
     case = await case_for_action(scope, case_id)
-    await scope.branch(case["branch_id"], "followups.manage")
+    await scope.branch(case["unit_id"], "followups.manage")
     version = await fetch_one_sql(
-        "SELECT * FROM clinic_workflow_versions WHERE organization_id=? AND id=?",
-        (scope.organization_id, version_id),
+        "SELECT * FROM workflow_versions WHERE workspace_id=? AND id=?",
+        (scope.workspace_id, version_id),
     )
     if not version or case["workflow_instance_id"]:
         raise ValueError("invalid_workflow_instance")
@@ -259,16 +259,16 @@ async def start(scope: Scope, case_id: str, version_id: str, owner_id: str):
     stage = next(
         s for s in definition["stages"] if s["key"] == definition["initial_stage"]
     )
-    await _owner(scope, case["branch_id"], owner_id, stage["owner_role"])
+    await _owner(scope, case["unit_id"], owner_id, stage["owner_role"])
     wid = new_id()
     await transaction(
         [
             (
-                "INSERT INTO clinic_workflow_instances(id,organization_id,branch_id,case_id,version_id,current_stage,created_at) VALUES(?,?,?,?,?,?,?)",
+                "INSERT INTO workflow_instances(id,workspace_id,unit_id,case_id,version_id,current_stage,created_at) VALUES(?,?,?,?,?,?,?)",
                 (
                     wid,
-                    scope.organization_id,
-                    case["branch_id"],
+                    scope.workspace_id,
+                    case["unit_id"],
                     case_id,
                     version_id,
                     stage["key"],
@@ -276,11 +276,11 @@ async def start(scope: Scope, case_id: str, version_id: str, owner_id: str):
                 ),
             ),
             (
-                "UPDATE clinic_cases SET workflow_instance_id=? WHERE id=? AND organization_id=?",
-                (wid, case_id, scope.organization_id),
+                "UPDATE cases SET workflow_instance_id=? WHERE id=? AND workspace_id=?",
+                (wid, case_id, scope.workspace_id),
             ),
             *_action_statements(scope, case, stage, owner_id, wid),
-            audit(scope, case["branch_id"], "workflow.started", "workflow", wid),
+            audit(scope, case["unit_id"], "workflow.started", "workflow", wid),
         ]
     )
     return await get_entity(scope, "cases", case_id)
@@ -291,14 +291,14 @@ async def transition(
 ):
     await get_entity(scope, "cases", case_id, manage=True)
     case = await case_for_action(scope, case_id)
-    await scope.branch(case["branch_id"], "followups.manage")
+    await scope.branch(case["unit_id"], "followups.manage")
     db = await get_db()
     async with db.lock:
         await db.conn.execute("BEGIN IMMEDIATE")
         try:
             instance = await fetch_one_sql(
-                "SELECT i.*,v.definition_json FROM clinic_workflow_instances i JOIN clinic_workflow_versions v ON v.id=i.version_id AND v.organization_id=i.organization_id WHERE i.organization_id=? AND i.case_id=?",
-                (scope.organization_id, case_id),
+                "SELECT i.*,v.definition_json FROM workflow_instances i JOIN workflow_versions v ON v.id=i.version_id AND v.workspace_id=i.workspace_id WHERE i.workspace_id=? AND i.case_id=?",
+                (scope.workspace_id, case_id),
             )
             if not instance or instance["current_stage"] != expected_stage:
                 raise ValueError("workflow_stage_conflict")
@@ -308,20 +308,20 @@ async def transition(
                 raise ValueError("invalid_workflow_transition")
             # Outstanding actions must be completed with their own outcome first.
             pending = await fetch_one_sql(
-                "SELECT 1 FROM tasks WHERE organization_id=? AND workflow_instance_id=? AND status IN ('pending','in_progress')",
-                (scope.organization_id, instance["id"]),
+                "SELECT 1 FROM tasks WHERE workspace_id=? AND workflow_instance_id=? AND status IN ('pending','in_progress')",
+                (scope.workspace_id, instance["id"]),
             )
             if pending:
                 raise ValueError("workflow_action_pending")
             stage = stages[target_stage]
-            await _owner(scope, case["branch_id"], owner_id, stage["owner_role"])
+            await _owner(scope, case["unit_id"], owner_id, stage["owner_role"])
             statements = [
                 (
-                    "UPDATE clinic_workflow_instances SET current_stage=? WHERE id=? AND organization_id=?",
-                    (target_stage, instance["id"], scope.organization_id),
+                    "UPDATE workflow_instances SET current_stage=? WHERE id=? AND workspace_id=?",
+                    (target_stage, instance["id"], scope.workspace_id),
                 ),
                 *_action_statements(scope, case, stage, owner_id, instance["id"]),
-                audit(scope, case["branch_id"], "case.stage_changed", "case", case_id),
+                audit(scope, case["unit_id"], "case.stage_changed", "case", case_id),
             ]
             for sql, params in statements:
                 await db.conn.execute(sql, params)

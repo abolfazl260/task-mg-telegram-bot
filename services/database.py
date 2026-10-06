@@ -10,8 +10,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from services.healthcare.schema import SCHEMA as HEALTHCARE_SCHEMA
-from services.healthcare.schema import TASK_COLUMNS
+from services.operations.schema import migrate as migrate_operations
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = (BASE_DIR / "data" / "data.db").resolve()
@@ -49,9 +48,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     completed_at TEXT NOT NULL DEFAULT '', team_id TEXT REFERENCES teams(team_id) ON DELETE SET NULL,
     assignee_id TEXT REFERENCES users(user_id) ON DELETE SET NULL, assignee_name TEXT NOT NULL DEFAULT '', assignee_username TEXT NOT NULL DEFAULT '',
     jira_key TEXT NOT NULL DEFAULT '', jira_sync_hash TEXT NOT NULL DEFAULT '',
-    organization_id TEXT REFERENCES clinic_organizations(id), branch_id TEXT REFERENCES clinic_branches(id),
-    patient_id TEXT REFERENCES patient_references(id), case_id TEXT REFERENCES clinic_cases(id),
-    outcome_id TEXT REFERENCES clinic_outcomes(id), workflow_instance_id TEXT REFERENCES clinic_workflow_instances(id)
+    workspace_id TEXT REFERENCES workspaces(id), unit_id TEXT REFERENCES workspace_units(id),
+    reference_id TEXT REFERENCES reference_entities(id), case_id TEXT REFERENCES cases(id),
+    outcome_id TEXT REFERENCES outcomes(id), workflow_instance_id TEXT REFERENCES workflow_instances(id)
 );
 CREATE TABLE IF NOT EXISTS task_comments (
     id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -142,25 +141,6 @@ CREATE INDEX IF NOT EXISTS idx_business_messages_connection ON business_messages
 """
 
 CORE_SCHEMA = SCHEMA
-SCHEMA += HEALTHCARE_SCHEMA
-
-
-async def migrate_healthcare(conn):
-    """Idempotent additive migration, preserving all existing unscoped tasks."""
-    await conn.execute("BEGIN IMMEDIATE")
-    try:
-        async with conn.execute("PRAGMA table_info(tasks)") as cursor:
-            columns = {row[1] for row in await cursor.fetchall()}
-        for name, definition in TASK_COLUMNS.items():
-            if name not in columns:
-                # Identifiers and SQL types are fixed in TASK_COLUMNS, not input.
-                await conn.execute(f"ALTER TABLE tasks ADD COLUMN {name} {definition}")  # nosec B608
-        await conn.commit()
-    except BaseException:
-        await conn.rollback()
-        raise
-    await conn.executescript(HEALTHCARE_SCHEMA)
-    await conn.commit()
 
 
 class Database:
@@ -180,7 +160,7 @@ class Database:
             await self.conn.execute("PRAGMA synchronous=NORMAL")
         if not self.initialized:
             await self.conn.executescript(CORE_SCHEMA)
-            await migrate_healthcare(self.conn)
+            await migrate_operations(self.conn)
             await self.conn.commit()
             self.initialized = True
         return self.conn

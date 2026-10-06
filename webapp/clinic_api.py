@@ -24,7 +24,7 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
         return 201, {"organization_id": oid}
     oid = (query.get("organization_id") or [""])[0]
     if not oid or not await fetch_one_sql(
-        "SELECT 1 FROM clinic_organizations WHERE id=? AND bot_key=?",
+        "SELECT 1 FROM workspaces WHERE id=? AND bot_key=?",
         (oid, profile.key),
     ):
         raise ClinicAccessError("forbidden")
@@ -36,7 +36,7 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
             )
             return 200, {
                 "items": await fetch_all_sql(
-                    f"SELECT b.* FROM clinic_branches b WHERE {pred} ORDER BY b.name",  # nosec B608
+                    f"SELECT b.* FROM workspace_units b WHERE {pred} ORDER BY b.name",  # nosec B608
                     args,
                 )
             }  # nosec B608
@@ -69,7 +69,7 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
         return 200, {"items": await workflows.seed_defaults(scope)}
     if path == "/api/clinic/metrics" and method == "GET":
         return 200, await reports.metrics(
-            scope, branch_id=(query.get("branch_id") or [None])[0]
+            scope, unit_id=(query.get("branch_id") or [None])[0]
         )
     if path == "/api/clinic/import/preview" and method == "POST":
         return 200, await csv_io.preview_patients(scope, data.get("csv"))
@@ -81,32 +81,33 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
         return 200, await csv_io.export_operations(
             scope,
             (query.get("kind") or ["tasks"])[0],
-            branch_id=(query.get("branch_id") or [None])[0],
+            unit_id=(query.get("branch_id") or [None])[0],
         )
     parts = path.removeprefix("/api/clinic/").split("/")
     kind = parts[0]
     if kind not in service.TABLES:
         return 404, {"error": "not_found"}
     if len(parts) == 1 and method == "GET":
+        filter_map = {
+            "branch_id": "unit_id",
+            "owner_id": "owner_id",
+            "doctor_id": "doctor_id",
+            "status": "status",
+            "stage": "stage",
+            "search": "search",
+            "limit": "limit",
+            "offset": "offset",
+        }
         filters = {
-            key: (query[key] or [""])[0]
-            for key in (
-                "branch_id",
-                "owner_id",
-                "doctor_id",
-                "status",
-                "stage",
-                "search",
-                "limit",
-                "offset",
-            )
-            if key in query
+            internal: (query[external] or [""])[0]
+            for external, internal in filter_map.items()
+            if external in query
         }
         if kind == "followups" and "view" in query:
             filters = {
                 key: value
                 for key, value in filters.items()
-                if key in {"branch_id", "owner_id", "doctor_id", "limit", "offset"}
+                if key in {"unit_id", "owner_id", "doctor_id", "limit", "offset"}
             }
             return 200, await followups.queue(
                 scope, (query["view"] or ["today"])[0], **filters
@@ -135,7 +136,7 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
                 case_type=data.get("case_type", "callback"),
                 doctor_id=data.get("doctor_id"),
                 expected_at=data.get("expected_at"),
-                appointment_reference=data.get("appointment_reference", ""),
+                external_reference=data.get("appointment_reference", ""),
             )
         elif kind == "tasks":
             item = await service.create_action(

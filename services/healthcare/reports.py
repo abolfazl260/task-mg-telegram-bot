@@ -10,26 +10,29 @@ from services.healthcare.access import Scope
 from services.healthcare.service import audit, now
 
 
-async def metrics(scope: Scope, *, branch_id=None):
+async def metrics(scope: Scope, *, unit_id=None, branch_id=None):
+    if unit_id and branch_id and unit_id != branch_id:
+        raise ValueError("conflicting_branch")
+    unit_id = unit_id or branch_id
     pred, params = await scope.predicate("reports.view")
-    if branch_id:
-        pred += " AND e.branch_id=?"
-        params += (branch_id,)
+    if unit_id:
+        pred += " AND e.unit_id=?"
+        params += (unit_id,)
     stamp = now()
     tasks = await fetch_one_sql(
         f"SELECT COUNT(*) AS total, SUM(CASE WHEN e.assignee_id IS NOT NULL THEN 1 ELSE 0 END) AS with_owner, SUM(CASE WHEN e.deadline!='' THEN 1 ELSE 0 END) AS with_due, SUM(CASE WHEN e.status='done' THEN 1 ELSE 0 END) AS completed, SUM(CASE WHEN e.status IN ('pending','in_progress') AND e.deadline!='' AND e.deadline<? THEN 1 ELSE 0 END) AS overdue FROM tasks e WHERE {pred}",  # nosec B608
         (stamp,) + params,
     )  # nosec B608
     cases = await fetch_one_sql(
-        f"SELECT COUNT(*) AS total, SUM(CASE WHEN e.status='blocked' THEN 1 ELSE 0 END) AS blocked, SUM(CASE WHEN e.status='active' AND NOT EXISTS(SELECT 1 FROM tasks t WHERE t.id=e.next_action_task_id AND t.case_id=e.id AND t.organization_id=e.organization_id AND t.status IN ('pending','in_progress')) THEN 1 ELSE 0 END) AS missing_next_action, SUM(CASE WHEN e.expected_at<? AND e.status NOT IN ('completed','closed','cancelled') THEN 1 ELSE 0 END) AS expected_overdue FROM clinic_cases e WHERE {pred}",  # nosec B608
+        f"SELECT COUNT(*) AS total, SUM(CASE WHEN e.status='blocked' THEN 1 ELSE 0 END) AS blocked, SUM(CASE WHEN e.status='active' AND NOT EXISTS(SELECT 1 FROM tasks t WHERE t.id=e.next_action_task_id AND t.case_id=e.id AND t.workspace_id=e.workspace_id AND t.status IN ('pending','in_progress')) THEN 1 ELSE 0 END) AS missing_next_action, SUM(CASE WHEN e.expected_at<? AND e.status NOT IN ('completed','closed','cancelled') THEN 1 ELSE 0 END) AS expected_overdue FROM cases e WHERE {pred}",  # nosec B608
         (stamp,) + params,
     )  # nosec B608
     counts = await fetch_one_sql(
-        f"SELECT COUNT(*) AS total, SUM(CASE WHEN e.completed_at IS NOT NULL THEN 1 ELSE 0 END) AS completed, SUM(CASE WHEN e.status IN ('due','in_progress') AND e.due_at<? THEN 1 ELSE 0 END) AS overdue FROM clinic_followups e WHERE {pred}",  # nosec B608
+        f"SELECT COUNT(*) AS total, SUM(CASE WHEN e.completed_at IS NOT NULL THEN 1 ELSE 0 END) AS completed, SUM(CASE WHEN e.status IN ('due','in_progress') AND e.due_at<? THEN 1 ELSE 0 END) AS overdue FROM followups e WHERE {pred}",  # nosec B608
         (stamp,) + params,
     )  # nosec B608
     delays = await fetch_all_sql(
-        f"SELECT e.due_at,e.completed_at FROM clinic_followups e WHERE {pred} AND e.completed_at IS NOT NULL",  # nosec B608
+        f"SELECT e.due_at,e.completed_at FROM followups e WHERE {pred} AND e.completed_at IS NOT NULL",  # nosec B608
         params,
     )  # nosec B608
     delay_seconds = [
@@ -58,10 +61,10 @@ async def metrics(scope: Scope, *, branch_id=None):
         [
             audit(
                 scope,
-                branch_id,
+                unit_id,
                 "dashboard.viewed",
-                "organization",
-                scope.organization_id,
+                "workspace",
+                scope.workspace_id,
             )
         ]
     )
