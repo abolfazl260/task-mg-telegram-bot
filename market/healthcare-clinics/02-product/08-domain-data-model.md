@@ -31,7 +31,7 @@
 
 ## Principle 2 — Patient as Typed Parent Work Item
 
-Patient object برای workflow است، نه پرونده بالینی جامع.
+Patient یک top-level typed Work Item است و Patient Record کامل—شامل attributes هویتی، تماس و Clinical Data—روی همان item نگهداری می‌شود.
 
 ## Principle 3 — Case for Multi-step Work
 
@@ -1607,18 +1607,16 @@ Integration objects می‌توانند foundation داشته باشند حتی 
 - audit کامل باشد؛
 - integration mapping قابل اضافه‌شدن باشد؛
 - pagination/index strategy مشخص باشد؛
-- هیچ نیاز MVP به clinical record replication نداشته باشد.
+- Patient Record و Clinical Data موردنیاز Clinic را در خود TaskMG نگهداری کند و integration خارجی فقط optional باشد.
 
 ---
 
 # 67. تصمیم مدل داده فعلی
 
-مرکز مدل داده نباید Patient Record باشد.
+مرکز مدل Clinic باید Patient Work Item / Patient Record باشد.
 
-مرکز مدل باید این زنجیره باشد:
+مدل هدف:
 
-**Patient Reference → Case → Workflow → Action → Outcome → Next Action**
+**Patient (Parent Work Item) → Session / Visit / Follow-up (Child Work Item/Subtask) → Status / Outcome / Next Action**
 
-این مدل با Positioning محصول هم‌راستاست:
-
-**TaskMG اطلاعات پزشکی را مالک نمی‌شود؛ اجرای عملیات را مالک می‌شود.**
+Case/Treatment Case در صورت نیاز یک child item type دیگر است. TaskMG اطلاعات Patient/Clinical Record را نگهداری می‌کند و اجرای عملیات را نیز مدیریت می‌کند.
