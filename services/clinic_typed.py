@@ -67,16 +67,16 @@ async def create_patient_async(scope: Scope, branch_id: str, display_name: str, 
 
 async def create_child_async(scope: Scope, parent_task_id: str, item_type: str, title: str, *, scheduled_at: str | None = None, doctor_id: str | None = None, branch_id: str | None = None, fields: dict | None = None) -> dict:
     parent = await authorized_task(parent_task_id, str(scope.actor_id), write=True, workspace_id=scope.workspace_id)
-    if parent.get("work_item_type") not in {"patient", "session"}:
+    if parent.get("work_item_type") not in {"patient", "session", "case"}:
         raise ValueError("parent_must_be_patient_or_session")
     if branch_id and branch_id != parent.get("unit_id"):
         raise ValueError("branch_scope_mismatch")
     await _validate_branch(scope, parent["unit_id"], "tasks.manage")
     item_type = str(item_type).strip().lower()
     # Follow-up and action are internal Clinic children, not profile creation types.
-    if item_type not in {"followup", "action"}:
+    if item_type not in {"followup", "action", "case"}:
         item_type = await validate_work_item_type_async(item_type, parent["bot_key"])
-    if item_type not in {"session", "followup", "action"}:
+    if item_type not in {"session", "followup", "action", "case"}:
         raise ValueError("invalid_clinic_child_type")
     item_id = uuid.uuid4().hex
     payload = dict(fields or {})
