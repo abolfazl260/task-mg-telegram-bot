@@ -295,3 +295,28 @@ async def test_key_rotation_rewraps_persisted_token(monkeypatch):
         stored = (await cur.fetchone())[0]
     assert encrypted_key_id(stored) == "next"
     assert (await get_managed_bot("rotate_bot", include_token=True))["bot_token"] == secret
+
+
+
+@pytest.mark.asyncio
+async def test_internal_read_automatically_migrates_legacy_plaintext():
+    secret = "123456:abcdefghijklmnopqrstuvwxyzABCDE12121"
+    db = await database.get_db()
+    await db.conn.execute(
+        """INSERT INTO custom_bots(
+            bot_key,owner_user_id,owner_name,owner_username,bot_token,bot_username,
+            features,status,pricing_plan,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+        ("read_migrate", None, "", "", secret, "read_migrate_bot", "core,tasks", "inactive", "managed", "", ""),
+    )
+    await db.conn.commit()
+
+    row = await get_managed_bot("read_migrate", include_token=True)
+    assert row["bot_token"] == secret
+
+    async with db.conn.execute(
+        "SELECT bot_token FROM custom_bots WHERE bot_key='read_migrate'"
+    ) as cur:
+        stored = (await cur.fetchone())[0]
+    assert stored.startswith("enc:v1:test:")
+    assert secret not in stored
