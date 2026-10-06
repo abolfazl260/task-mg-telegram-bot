@@ -7,7 +7,7 @@ import asyncio, json, mimetypes, os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, unquote
 from .config import WEBAPP_HOST, WEBAPP_PORT
 from .api import authenticate_telegram_request
 from .auth import TelegramWebAppAuthError
@@ -38,7 +38,7 @@ from services.healthcare.access import ClinicAccessError
 from .clinic_api import dispatch as clinic_dispatch
 
 logger = logging.getLogger(__name__)
-ADMIN_PATH = "/adminNhduwqh3409iwejewed"
+ADMIN_PATH = "/backoffice"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 class WebAppAsyncRuntime:
     def __init__(self): self.loop=asyncio.new_event_loop(); self.thread=Thread(target=self._run,name="telegram-webapp-async",daemon=True)
@@ -69,10 +69,12 @@ class WebAppHandler(BaseHTTPRequestHandler):
         if STATIC_DIR not in target.parents and target!=STATIC_DIR or not target.is_file(): return False
         body=target.read_bytes(); self.send_response(200); self.send_header("Content-Type",mimetypes.guess_type(target.name)[0] or "application/octet-stream"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body); return True
     def _authenticate_admin(self):
-        user = self._authenticate("")
-        if not is_admin(user.id):
+        from services.admin_access import resolve_admin_token
+        cookies = parse_qs(self.headers.get("Cookie", "").replace(";", "&"))
+        admin_id = resolve_admin_token(unquote(cookies.get("admin_session", [""])[0]))
+        if not admin_id or not is_admin(admin_id):
             raise WebAppTaskAccessError("admin_required")
-        return user
+        return type("Admin", (), {"id": int(admin_id)})()
 
     def _handle_admin(self,method):
         path=urlparse(self.path).path
@@ -250,6 +252,17 @@ class WebAppHandler(BaseHTTPRequestHandler):
             return self._json(500,{"error":"internal_server_error"})
     def do_GET(self):
         path=urlparse(self.path).path
+        if path.startswith(ADMIN_PATH + "/") and path != ADMIN_PATH + "/":
+            from services.admin_access import resolve_admin_token
+            token = unquote(path[len(ADMIN_PATH)+1:].strip("/"))
+            if resolve_admin_token(token):
+                self.send_response(302)
+                self.send_header("Location", ADMIN_PATH + "/")
+                self.send_header("Set-Cookie", f"admin_session={token}; Max-Age=600; HttpOnly; SameSite=Lax; Path=/")
+                self.end_headers()
+            else:
+                self._json(404,{"error":"expired_or_invalid_admin_link"})
+            return
         if path.startswith("/tasks/") or path.startswith("/task/"):
             return handle_public_task_get(self)
         if path in {"/","/static/index.html",ADMIN_PATH,ADMIN_PATH+"/"} or path.startswith("/static/"): return self._serve_static(path) or self._json(404,{"error":"not_found"})

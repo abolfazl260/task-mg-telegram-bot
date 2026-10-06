@@ -57,6 +57,7 @@ from handlers.jira import (
     jira_url,
 )
 from handlers.menu import button_handler
+from handlers.backoffice import backoffice_command
 from handlers.reports import reports_callback, show_reports_menu
 from handlers.search_share import search_command, share_category_callback
 from handlers.start import start
@@ -246,7 +247,7 @@ def build_application(profile):
     if not getattr(task_handler,"_tag_flow_installed",False):install_tag_flow(task_handler)
     app.add_handler(TypeHandler(Update,bind_bot_context),group=-100)
     if _feature(app,"guest_mode") and _permission(app,"guest_mode.use"):app.add_handler(TypeHandler(Update,handle_guest_task),group=-2)
-    app.add_handler(MessageHandler(filters.ALL,track_usage),group=-1);app.add_handler(TypeHandler(Update,handle_business_connection),group=-10);app.add_handler(TypeHandler(Update,handle_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_edited_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_deleted_business_messages),group=-10);app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.ALL,track_usage),group=-1);app.add_handler(TypeHandler(Update,handle_business_connection),group=-10);app.add_handler(TypeHandler(Update,handle_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_edited_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_deleted_business_messages),group=-10);app.add_handler(CommandHandler("start", start));app.add_handler(CommandHandler("backoffice", backoffice_command))
     if _feature(app,"tasks") and _permission(app,"tasks.create"):app.add_handler(CommandHandler("add", add_task))
     if _feature(app,"tasks") and _permission(app,"tasks.view"):app.add_handler(CommandHandler("tasks",paginated_list_tasks))
     if _feature(app,"unassigned") and _permission(app,"unassigned.view"):app.add_handler(CommandHandler("unassigned",unassigned_tasks))
