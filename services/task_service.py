@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -122,20 +121,15 @@ async def assign_task_async(task_id,assignee,actor_id,action="assigned"):
     await transaction([("UPDATE tasks SET assignee_id=?,assignee_name=?,assignee_username=? WHERE id=?",(aid,(assignee or {}).get("display_name") or "",(assignee or {}).get("username") or "",task_id)),("""INSERT INTO task_assignment_history(task_id,actor_id,action,old_assignee_name,new_assignee_name,created_at) VALUES(?,?,?,?,?,?)""",(task_id,str(actor_id),action,t.get("assignee_name") or "",(assignee or {}).get("display_name") or "",now))]); return True
 async def get_unassigned_tasks_async(user_id): return [t for t in await get_active_tasks_async(user_id) if not t.get("assignee_id")]
 async def get_task_comments_async(task_id):
-    out=[]
-    for r in await fetch_all("task_comments","task_id=? ORDER BY id",(task_id,)):
-        try: content=json.loads(r.get("content_json") or "{}")
-        except (json.JSONDecodeError, TypeError):
-            logger.warning("task_comment_content_invalid task_id=%s comment_id=%s", task_id, r.get("id"))
-            content={}
-        if not isinstance(content,dict): content={"content":content}
-        out.append({"author_id":str(r.get("author_id") or ""),"author_name":r.get("author_name") or "کاربر","author_username":r.get("author_username") or "","created_at":r.get("created_at") or "",**content})
-    return out
+    from services.comment_message_store import get_comment_messages_async
+    return await get_comment_messages_async(task_id)
+
 async def add_task_comment_async(task_id,author,content):
     if not await get_task_by_id_async(task_id): return False
     aid=str(author.get("id") or author.get("user_id") or "") or None
     if aid: await _ensure_user_async(aid)
-    await execute("INSERT INTO task_comments(task_id,author_id,author_name,author_username,content_json,created_at) VALUES(?,?,?,?,?,?)",(task_id,aid,author.get("full_name") or author.get("display_name") or "کاربر",author.get("username") or "",json.dumps(content,ensure_ascii=False),_now())); return True
+    from services.comment_message_store import add_comment_async
+    return await add_comment_async(task_id, author, content)
 async def link_user_category_to_team_async(user_id,category,team_id):
     statements=[("UPDATE tasks SET team_id=? WHERE id=?",(team_id,t["id"])) for t in await get_all_user_tasks_async(user_id) if not t.get("team_id") and (t.get("category") or "").strip().lower()==(category or "").strip().lower()]
     if statements: await transaction(statements)
