@@ -125,6 +125,45 @@ CREATE TABLE IF NOT EXISTS business_messages (
     chat_id TEXT NOT NULL DEFAULT '', message_id TEXT NOT NULL DEFAULT '', from_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
     from_username TEXT NOT NULL DEFAULT '', text TEXT NOT NULL DEFAULT '', message_ids_json TEXT NOT NULL DEFAULT '[]', date TEXT NOT NULL DEFAULT '', recorded_at TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS task_attribute_definitions (
+    id TEXT PRIMARY KEY,
+    bot_key TEXT NOT NULL DEFAULT 'default',
+    workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+    work_item_type TEXT NOT NULL,
+    field_key TEXT NOT NULL,
+    label TEXT NOT NULL,
+    data_type TEXT NOT NULL,
+    required INTEGER NOT NULL DEFAULT 0 CHECK(required IN (0,1)),
+    repeatable INTEGER NOT NULL DEFAULT 0 CHECK(repeatable IN (0,1)),
+    default_value_json TEXT,
+    validation_json TEXT NOT NULL DEFAULT '{}',
+    searchable INTEGER NOT NULL DEFAULT 0 CHECK(searchable IN (0,1)),
+    filterable INTEGER NOT NULL DEFAULT 0 CHECK(filterable IN (0,1)),
+    sortable INTEGER NOT NULL DEFAULT 0 CHECK(sortable IN (0,1)),
+    group_key TEXT NOT NULL DEFAULT '',
+    display_order INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    UNIQUE(bot_key, workspace_id, work_item_type, field_key, version)
+);
+CREATE TABLE IF NOT EXISTS task_attribute_values (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    definition_id TEXT NOT NULL REFERENCES task_attribute_definitions(id) ON DELETE RESTRICT,
+    definition_version INTEGER NOT NULL DEFAULT 1,
+    ordinal INTEGER NOT NULL DEFAULT 0 CHECK(ordinal >= 0),
+    value_text TEXT,
+    value_number REAL,
+    value_boolean INTEGER CHECK(value_boolean IN (0,1)),
+    value_date TEXT,
+    value_datetime TEXT,
+    value_json TEXT,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    UNIQUE(task_id, definition_id, ordinal)
+);
 CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_bot_key ON tasks(bot_key);
 CREATE INDEX IF NOT EXISTS idx_tasks_bot_user ON tasks(bot_key,user_id);
@@ -141,6 +180,12 @@ CREATE INDEX IF NOT EXISTS idx_habit_logs_user_date ON habit_logs(user_id,done_d
 CREATE INDEX IF NOT EXISTS idx_jira_links_key ON jira_task_links(jira_key);
 CREATE INDEX IF NOT EXISTS idx_oauth_pending_created_at ON oauth_pending_states(created_at);
 CREATE INDEX IF NOT EXISTS idx_business_messages_connection ON business_messages(business_connection_id);
+CREATE INDEX IF NOT EXISTS idx_attribute_definitions_lookup ON task_attribute_definitions(bot_key, workspace_id, work_item_type, active, display_order);
+CREATE INDEX IF NOT EXISTS idx_attribute_definitions_search ON task_attribute_definitions(searchable, filterable, sortable);
+CREATE INDEX IF NOT EXISTS idx_attribute_values_task ON task_attribute_values(task_id, definition_id, ordinal);
+CREATE INDEX IF NOT EXISTS idx_attribute_values_text ON task_attribute_values(definition_id, value_text);
+CREATE INDEX IF NOT EXISTS idx_attribute_values_number ON task_attribute_values(definition_id, value_number);
+CREATE INDEX IF NOT EXISTS idx_attribute_values_date ON task_attribute_values(definition_id, value_date);
 """
 
 CORE_SCHEMA = SCHEMA
@@ -197,6 +242,41 @@ async def migrate_core_schema(conn) -> None:
     END;
     """
     await conn.executescript(parent_trigger.format(operation="insert", verb="INSERT") + parent_trigger.format(operation="update", verb="UPDATE"))
+    await conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS task_attribute_definitions (
+            id TEXT PRIMARY KEY, bot_key TEXT NOT NULL DEFAULT 'default',
+            workspace_id TEXT, work_item_type TEXT NOT NULL, field_key TEXT NOT NULL,
+            label TEXT NOT NULL, data_type TEXT NOT NULL,
+            required INTEGER NOT NULL DEFAULT 0 CHECK(required IN (0,1)),
+            repeatable INTEGER NOT NULL DEFAULT 0 CHECK(repeatable IN (0,1)),
+            default_value_json TEXT, validation_json TEXT NOT NULL DEFAULT '{}',
+            searchable INTEGER NOT NULL DEFAULT 0 CHECK(searchable IN (0,1)),
+            filterable INTEGER NOT NULL DEFAULT 0 CHECK(filterable IN (0,1)),
+            sortable INTEGER NOT NULL DEFAULT 0 CHECK(sortable IN (0,1)),
+            group_key TEXT NOT NULL DEFAULT '', display_order INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+            version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+            created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '',
+            UNIQUE(bot_key, workspace_id, work_item_type, field_key, version)
+        );
+        CREATE TABLE IF NOT EXISTS task_attribute_values (
+            id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            definition_id TEXT NOT NULL REFERENCES task_attribute_definitions(id) ON DELETE RESTRICT,
+            definition_version INTEGER NOT NULL DEFAULT 1, ordinal INTEGER NOT NULL DEFAULT 0 CHECK(ordinal >= 0),
+            value_text TEXT, value_number REAL, value_boolean INTEGER CHECK(value_boolean IN (0,1)),
+            value_date TEXT, value_datetime TEXT, value_json TEXT,
+            created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '',
+            UNIQUE(task_id, definition_id, ordinal)
+        );
+        CREATE INDEX IF NOT EXISTS idx_attribute_definitions_lookup ON task_attribute_definitions(bot_key, workspace_id, work_item_type, active, display_order);
+        CREATE INDEX IF NOT EXISTS idx_attribute_definitions_search ON task_attribute_definitions(searchable, filterable, sortable);
+        CREATE INDEX IF NOT EXISTS idx_attribute_values_task ON task_attribute_values(task_id, definition_id, ordinal);
+        CREATE INDEX IF NOT EXISTS idx_attribute_values_text ON task_attribute_values(definition_id, value_text);
+        CREATE INDEX IF NOT EXISTS idx_attribute_values_number ON task_attribute_values(definition_id, value_number);
+        CREATE INDEX IF NOT EXISTS idx_attribute_values_date ON task_attribute_values(definition_id, value_date);
+        """
+    )
 
     async with conn.execute("PRAGMA table_info(task_comments)") as cursor:
         columns = {row[1] for row in await cursor.fetchall()}
