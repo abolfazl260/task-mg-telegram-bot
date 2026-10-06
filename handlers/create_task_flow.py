@@ -9,6 +9,7 @@ from html import escape
 import sys
 
 import jdatetime
+from services.date_picker import deadline_label as _shared_deadline_label
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 CREATE_CANCEL_CALLBACK = "assign_cancel_create"
@@ -109,15 +110,7 @@ def _priority_html():
 
 
 def _deadline_label(days):
-    target = datetime.now().date() + timedelta(days=days)
-    jalali = jdatetime.date.fromgregorian(date=target).strftime("%Y/%m/%d")
-    if days == 0:
-        prefix = "امروز"
-    elif days == 1:
-        prefix = "فردا"
-    else:
-        prefix = f"{days} روز بعد"
-    return f"{prefix} · {jalali}"
+    return _shared_deadline_label(days)
 
 
 def _deadline_html():

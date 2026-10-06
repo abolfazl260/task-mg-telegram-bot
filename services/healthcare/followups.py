@@ -194,6 +194,7 @@ async def queue(
     branch_id=None,
     owner_id=None,
     doctor_id=None,
+    case_id=None,
     limit=25,
     offset=0,
     at=None,
@@ -237,6 +238,9 @@ async def queue(
     if doctor_id:
         pred += " AND c.primary_owner_user_id=?"
         params.append(str(doctor_id))
+    if case_id:
+        pred += " AND e.case_id=?"
+        params.append(str(case_id))
     joins = "FROM followups e JOIN cases c ON c.id=e.case_id AND c.workspace_id=e.workspace_id AND c.unit_id=e.unit_id LEFT JOIN outcomes o ON o.id=e.outcome_id AND o.workspace_id=e.workspace_id"
     total = await fetch_one_sql(
         f"SELECT COUNT(*) AS n {joins} WHERE {pred}", tuple(params)
