@@ -371,12 +371,26 @@ async def database_backup_job(context) -> None:
     if _backup_running:
         logger.warning("database_backup skipped reason=already_running")
         return
-    if (
-        _last_backup_started_at
-        and now - _last_backup_started_at < MIN_START_GAP_SECONDS
-    ):
+    if _last_backup_started_at and now - _last_backup_started_at < MIN_START_GAP_SECONDS:
         logger.info("database_backup skipped reason=recent_run")
         return
+
+    # Persist the throttle in SQLite so separate bot/process instances cannot
+    # each send the shared database backup after their own startup.
+    conn = sqlite3.connect(database.DB_PATH, timeout=30)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("CREATE TABLE IF NOT EXISTS backup_state (name TEXT PRIMARY KEY, started_at REAL NOT NULL)")
+        row = conn.execute("SELECT started_at FROM backup_state WHERE name='database'").fetchone()
+        wall_now = time.time()
+        if row and wall_now - float(row[0]) < MIN_START_GAP_SECONDS:
+            conn.rollback()
+            logger.info("database_backup skipped reason=persisted_recent_run")
+            return
+        conn.execute("INSERT INTO backup_state(name,started_at) VALUES('database',?) ON CONFLICT(name) DO UPDATE SET started_at=excluded.started_at", (wall_now,))
+        conn.commit()
+    finally:
+        conn.close()
 
     _backup_running = True
     _last_backup_started_at = now
