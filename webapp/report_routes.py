@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -72,8 +72,7 @@ def web_report_html(token):
 
 def report_token_from_path(path: str) -> str | None:
     candidate = unquote((path or "").strip("/"))
-    if candidate.startswith("report/"):
-        candidate = candidate[len("report/"):]
+    candidate = candidate.removeprefix("report/")
     if not candidate or "/" in candidate or len(candidate) < 40:
         return None
     return candidate
