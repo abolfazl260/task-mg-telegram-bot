@@ -42,6 +42,17 @@ BOT_REQUEST_WORKFLOW_USERNAME=RequestApproval_Bot
 
 جزئیات ساختار پروفایل‌ها در [Multi-Bot و Business Mode](07-bots-and-business.md) آمده است.
 
+## رمزنگاری Token ربات‌های Managed
+
+برای Bot Profileهایی که token آن‌ها در دیتابیس ذخیره می‌شود، keyring رمزنگاری را در محیط deployment تنظیم کنید:
+
+```env
+BOT_TOKEN_ENCRYPTION_KEYS_JSON={"2026-10":"<fernet-key>"}
+BOT_TOKEN_ACTIVE_KEY_ID=2026-10
+```
+
+برای ساخت key و migration/rotation به [Managed Bot Token Encryption](10-bot-token-encryption.md) مراجعه کنید.
+
 ## اصول نگهداری Secret
 
 - Token و API Key را داخل کد Commit نکنید.
