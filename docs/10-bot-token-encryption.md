@@ -23,7 +23,7 @@ python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 Configure the keyring in the service environment:
 
 ```env
-BOT_TOKEN_ENCRYPTION_KEYS_JSON={"2026-10":"<generated-fernet-key>"}
+BOT_TOKEN_ENCRYPTION_KEYS_JSON='{"2026-10":"<generated-fernet-key>"}'
 BOT_TOKEN_ACTIVE_KEY_ID=2026-10
 ```
 
@@ -60,7 +60,7 @@ New or replaced managed tokens fail closed if no encryption key is configured.
 Example during rotation:
 
 ```env
-BOT_TOKEN_ENCRYPTION_KEYS_JSON={"2026-10":"<old-key>","2027-01":"<new-key>"}
+BOT_TOKEN_ENCRYPTION_KEYS_JSON='{"2026-10":"<old-key>","2027-01":"<new-key>"}'
 BOT_TOKEN_ACTIVE_KEY_ID=2027-01
 ```
 
