@@ -93,12 +93,15 @@ MVP باید تا حد ممکن روی Class B/C بماند و Class D را حد
 
 ## TaskMG نباید به‌صورت پیش‌فرض ذخیره کند
 
-- full medical chart
-- complete diagnosis history
+داده‌های زیر بخشی از Patient Record قابل پشتیبانی هستند و باید کنترل امنیتی قوی‌تری داشته باشند:
+- full medical/clinical record
+- diagnosis history
 - medication history
-- imaging archive
-- detailed clinical narrative
-- treatment recommendation engine
+- allergies/chronic conditions
+- clinical notes/documents
+- imaging archive در صورت فعال‌سازی نیازمند storage/access policy اختصاصی است
+- detailed clinical narrative باید با permission و audit نگهداری شود
+- autonomous treatment recommendation engine نیازمند capability و governance مستقل است
 
 ## Principle
 
@@ -226,7 +229,7 @@ Frontend hiding is not authorization.
 
 Examples:
 
-- Reception نیاز به full medical history ندارد.
+- Reception ممکن است به full medical history نیاز نداشته باشد؛ Patient Record وجود دارد اما دسترسی باید role/permission-specific باشد.
 - Doctor لزوماً integration secret را نمی‌بیند.
 - Support staff نباید production patient data را default ببینند.
 - AI tool نباید admin permission ضمنی داشته باشد.
