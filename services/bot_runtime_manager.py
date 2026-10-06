@@ -1,8 +1,8 @@
 """Dynamic per-bot Telegram Application lifecycle reconciler.
 
-The reconciler treats each bot key as an independent runtime unit. Managed
-configuration changes are applied without restarting sibling applications or
-the process that hosts the Back Office.
+Each bot key is an independent runtime unit. Managed configuration changes are
+applied without restarting sibling applications or the process hosting the
+Back Office.
 """
 from __future__ import annotations
 
@@ -14,35 +14,39 @@ import os
 import signal
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Any
 
 from telegram import Update
 from telegram.ext import Application
 
+from bot_platform import BotProfile
 from services.bot_runtime_status import record_runtime_status
 from services.task_capabilities import install_task_capabilities
 
-if TYPE_CHECKING:
-    from bot_platform import BotProfile
-
 logger = logging.getLogger(__name__)
 
-ApplicationFactory = Callable[["BotProfile"], Application]
-ProfileLoader = Callable[[], list["BotProfile"]]
+ApplicationFactory = Callable[[BotProfile], Application]
+ProfileLoader = Callable[[], list[BotProfile]]
 StatusRecorder = Callable[..., Awaitable[None]]
+LifecycleHook = Callable[[], Awaitable[None]]
 
 
 @dataclass
 class RuntimeHandle:
-    profile: "BotProfile"
+    profile: BotProfile
     app: Application
     fingerprint: str
 
 
-def profile_fingerprint(profile: "BotProfile") -> str:
-    """Hash runtime-relevant configuration without logging or persisting secrets."""
+def profile_fingerprint(profile: BotProfile) -> str:
+    """Hash runtime-relevant configuration without exposing secrets."""
     payload = asdict(profile)
-    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+    raw = json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str,
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -65,13 +69,17 @@ class BotRuntimeManager:
         configured = os.getenv("BOT_RUNTIME_RECONCILE_SECONDS", "5").strip()
         self.reconcile_seconds = max(
             1.0,
-            float(reconcile_seconds if reconcile_seconds is not None else configured or "5"),
+            float(
+                reconcile_seconds
+                if reconcile_seconds is not None
+                else configured or "5"
+            ),
         )
         self.handles: dict[str, RuntimeHandle] = {}
         self._reconcile_lock = asyncio.Lock()
 
     @staticmethod
-    def _default_profile_loader() -> list["BotProfile"]:
+    def _default_profile_loader() -> list[BotProfile]:
         from bot_platform import load_bot_profiles
 
         return load_bot_profiles()
@@ -84,6 +92,7 @@ class BotRuntimeManager:
         desired_status: str,
         event: str = "",
         error: str = "",
+        clear_error: bool = False,
     ) -> None:
         await self.status_recorder(
             bot_key,
@@ -91,31 +100,37 @@ class BotRuntimeManager:
             desired_status=desired_status,
             event=event,
             error=error,
+            clear_error=clear_error,
         )
 
     async def _stop_app(self, app: Application) -> None:
+        updater = getattr(app, "updater", None)
+        if updater is not None and getattr(updater, "running", False):
+            await updater.stop()
+
+        from bot_platform import _cleanup_application_resources
+
+        await _cleanup_application_resources(app)
+        if getattr(app, "running", False):
+            await app.stop()
         try:
-            updater = getattr(app, "updater", None)
-            if updater is not None and getattr(updater, "running", False):
-                await updater.stop()
-        finally:
-            try:
-                from bot_platform import _cleanup_application_resources
+            await app.shutdown()
+        except RuntimeError:
+            # PTB raises if shutdown is requested before initialize completed.
+            logger.debug("bot_runtime_shutdown_skipped_uninitialized")
 
-                await _cleanup_application_resources(app)
-            finally:
-                try:
-                    if getattr(app, "running", False):
-                        await app.stop()
-                finally:
-                    try:
-                        await app.shutdown()
-                    except RuntimeError:
-                        # python-telegram-bot raises when shutdown is requested
-                        # before initialization completed. Cleanup is already done.
-                        pass
+    async def _cleanup_failed_start(self, bot_key: str, app: Application) -> None:
+        try:
+            await self._stop_app(app)
+        except Exception:  # noqa: BLE001 - cleanup must not mask the start error
+            logger.exception("bot_runtime_failed_start_cleanup bot=%s", bot_key)
 
-    async def _start_profile(self, profile: "BotProfile", *, event: str) -> RuntimeHandle:
+    async def _start_profile(
+        self,
+        profile: BotProfile,
+        *,
+        event: str,
+    ) -> RuntimeHandle:
         bot_key = profile.key
         await self._record(bot_key, "starting", desired_status="active")
         app: Application | None = None
@@ -132,25 +147,9 @@ class BotRuntimeManager:
                 await updater.start_polling(
                     allowed_updates=[*Update.ALL_TYPES, "guest_message"]
                 )
-            handle = RuntimeHandle(
-                profile=profile,
-                app=app,
-                fingerprint=profile_fingerprint(profile),
-            )
-            self.handles[bot_key] = handle
-            await self._record(
-                bot_key,
-                "running",
-                desired_status="active",
-                event=event,
-            )
-            return handle
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - runtime isolation boundary
             if app is not None:
-                try:
-                    await self._stop_app(app)
-                except Exception:
-                    logger.exception("bot_runtime_failed_start_cleanup bot=%s", bot_key)
+                await self._cleanup_failed_start(bot_key, app)
             await self._record(
                 bot_key,
                 "error",
@@ -160,6 +159,21 @@ class BotRuntimeManager:
             logger.exception("bot_runtime_start_failed bot=%s", bot_key)
             raise
 
+        handle = RuntimeHandle(
+            profile=profile,
+            app=app,
+            fingerprint=profile_fingerprint(profile),
+        )
+        self.handles[bot_key] = handle
+        await self._record(
+            bot_key,
+            "running",
+            desired_status="active",
+            event=event,
+            clear_error=True,
+        )
+        return handle
+
     async def _stop_key(self, bot_key: str, *, desired_status: str) -> None:
         handle = self.handles.pop(bot_key, None)
         if handle is None:
@@ -168,12 +182,14 @@ class BotRuntimeManager:
                 "stopped",
                 desired_status=desired_status,
                 event="stopped",
+                clear_error=True,
             )
             return
+
         await self._record(bot_key, "stopping", desired_status=desired_status)
         try:
             await self._stop_app(handle.app)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - runtime isolation boundary
             await self._record(
                 bot_key,
                 "error",
@@ -182,14 +198,37 @@ class BotRuntimeManager:
             )
             logger.exception("bot_runtime_stop_failed bot=%s", bot_key)
             return
+
         await self._record(
             bot_key,
             "stopped",
             desired_status=desired_status,
             event="stopped",
+            clear_error=True,
         )
 
-    async def _reload_profile(self, profile: "BotProfile") -> None:
+    async def _rollback_profile(
+        self,
+        old: RuntimeHandle,
+        *,
+        reload_error: str,
+    ) -> None:
+        bot_key = old.profile.key
+        try:
+            rollback = await self._start_profile(old.profile, event="started")
+        except Exception:  # noqa: BLE001 - failure already persisted by start path
+            logger.exception("bot_runtime_rollback_failed bot=%s", bot_key)
+            return
+
+        self.handles[bot_key] = rollback
+        await self._record(
+            bot_key,
+            "running",
+            desired_status="active",
+            error=reload_error,
+        )
+
+    async def _reload_profile(self, profile: BotProfile) -> None:
         bot_key = profile.key
         old = self.handles.get(bot_key)
         if old is None:
@@ -200,7 +239,8 @@ class BotRuntimeManager:
         self.handles.pop(bot_key, None)
         try:
             await self._stop_app(old.app)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - runtime isolation boundary
+            self.handles[bot_key] = old
             await self._record(
                 bot_key,
                 "error",
@@ -212,25 +252,22 @@ class BotRuntimeManager:
 
         try:
             await self._start_profile(profile, event="reloaded")
-            return
-        except Exception as exc:
-            reload_error = _safe_error("reload_failed", exc)
-
-        # Best-effort rollback uses the previously running profile and creates a
-        # fresh Application instance. Sibling bots are never touched.
-        try:
-            rollback = await self._start_profile(old.profile, event="started")
-            self.handles[bot_key] = rollback
-            await self._record(
-                bot_key,
-                "running",
-                desired_status="active",
-                error=reload_error,
+        except Exception as exc:  # noqa: BLE001 - runtime isolation boundary
+            await self._rollback_profile(
+                old,
+                reload_error=_safe_error("reload_failed", exc),
             )
-        except Exception:
-            logger.exception("bot_runtime_rollback_failed bot=%s", bot_key)
 
-    async def reconcile(self, profiles: list["BotProfile"] | None = None) -> None:
+    async def _start_isolated(self, profile: BotProfile) -> None:
+        try:
+            await self._start_profile(profile, event="started")
+        except Exception:  # noqa: BLE001 - one bot must not terminate siblings
+            logger.warning(
+                "bot_runtime_start_isolated_failure bot=%s",
+                profile.key,
+            )
+
+    async def reconcile(self, profiles: list[BotProfile] | None = None) -> None:
         async with self._reconcile_lock:
             if profiles is None:
                 profiles = await asyncio.to_thread(self.profile_loader)
@@ -243,12 +280,8 @@ class BotRuntimeManager:
             for bot_key, profile in desired.items():
                 handle = self.handles.get(bot_key)
                 if handle is None:
-                    try:
-                        await self._start_profile(profile, event="started")
-                    except Exception:
-                        continue
-                    continue
-                if handle.fingerprint != profile_fingerprint(profile):
+                    await self._start_isolated(profile)
+                elif handle.fingerprint != profile_fingerprint(profile):
                     await self._reload_profile(profile)
 
     async def shutdown(self) -> None:
@@ -259,7 +292,7 @@ class BotRuntimeManager:
         self,
         stop_event: asyncio.Event,
         *,
-        initial_profiles: list["BotProfile"] | None = None,
+        initial_profiles: list[BotProfile] | None = None,
     ) -> None:
         first = True
         while not stop_event.is_set():
@@ -268,12 +301,14 @@ class BotRuntimeManager:
                     await self.reconcile(initial_profiles)
                 else:
                     await self.reconcile()
-            except Exception:
-                # Loader/database failures must not terminate already running bots.
+            except Exception:  # noqa: BLE001 - keep running bots alive on loader failure
                 logger.exception("bot_runtime_reconcile_failed")
             first = False
             try:
-                await asyncio.wait_for(stop_event.wait(), timeout=self.reconcile_seconds)
+                await asyncio.wait_for(
+                    stop_event.wait(),
+                    timeout=self.reconcile_seconds,
+                )
             except TimeoutError:
                 pass
 
@@ -281,11 +316,13 @@ class BotRuntimeManager:
 async def run_runtime_control_plane(
     application_factory: ApplicationFactory,
     *,
-    initial_profiles: list["BotProfile"] | None = None,
+    initial_profiles: list[BotProfile] | None = None,
     profile_loader: ProfileLoader | None = None,
     reconcile_seconds: float | None = None,
+    startup_hook: LifecycleHook | None = None,
+    shutdown_hook: LifecycleHook | None = None,
 ) -> None:
-    """Run bot applications under a reconciler until SIGINT/SIGTERM."""
+    """Run dynamic bot applications until SIGINT/SIGTERM."""
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     installed_signals: list[signal.Signals] = []
@@ -294,12 +331,15 @@ async def run_runtime_control_plane(
             loop.add_signal_handler(sig, stop_event.set)
             installed_signals.append(sig)
         except (NotImplementedError, RuntimeError):
-            pass
+            logger.debug("signal_handler_unavailable signal=%s", sig.name)
 
     from services.resource_monitor import monitor_resources
     from webapp.runtime import start_webapp_server
 
     start_webapp_server()
+    if startup_hook is not None:
+        await startup_hook()
+
     resource_stop = asyncio.Event()
     resource_task = asyncio.create_task(
         monitor_resources(resource_stop),
@@ -314,29 +354,37 @@ async def run_runtime_control_plane(
         await manager.run(stop_event, initial_profiles=initial_profiles)
     finally:
         await manager.shutdown()
+        if shutdown_hook is not None:
+            try:
+                await shutdown_hook()
+            except Exception:  # noqa: BLE001 - continue global shutdown
+                logger.exception("shared_runtime_shutdown_failed")
+
         resource_stop.set()
         resource_task.cancel()
         try:
             await resource_task
         except asyncio.CancelledError:
             pass
+
         for sig in installed_signals:
             loop.remove_signal_handler(sig)
+
         try:
             from webapp.runtime import stop_webapp_server
 
             stop_webapp_server()
-        except Exception:
+        except Exception:  # noqa: BLE001 - continue process shutdown
             logger.exception("Failed to stop webapp server during shutdown")
         try:
             from services.database import close_all_dbs
 
             await close_all_dbs()
-        except Exception:
+        except Exception:  # noqa: BLE001 - continue process shutdown
             logger.exception("Failed to close database connections during shutdown")
         try:
             from services.database import shutdown_sync_loop
 
             shutdown_sync_loop()
-        except Exception:
+        except Exception:  # noqa: BLE001 - continue process shutdown
             logger.exception("Failed to close database compatibility loop during shutdown")
