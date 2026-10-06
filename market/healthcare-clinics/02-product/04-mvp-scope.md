@@ -126,7 +126,7 @@ Admin بتواند تیم Pilot را بدون تغییر code راه‌اندا�
 
 ### Acceptance
 
-کاربر مجاز بتواند patient را پیدا کند، Patient Record را بر اساس permission مشاهده/ویرایش کند و آن را به task/case/workflow لینک کند.
+کاربر مجاز بتواند Patient top-level item را بسازد/پیدا/ویرایش کند، Patient Record را بر اساس permission مدیریت کند و Session/Visit/Follow-up child itemها را زیر همان Patient ایجاد و مشاهده کند.
 
 ### Boundary
 
@@ -362,7 +362,7 @@ P0 Metrics:
 
 ### Import
 CSV برای:
-- patient references
+- patient records / patient work items
 - initial tasks در صورت نیاز
 
 ### Export
@@ -819,7 +819,7 @@ Clinic + Branch.
 Users + Roles.
 
 ## Step 3
-Import Patient References.
+Import Patient Records / Patient Work Items.
 
 ## Step 4
 Choose 2 Workflows.
