@@ -451,6 +451,14 @@ async def migrate(conn) -> None:
             await conn.execute(f"DROP TRIGGER IF EXISTS {trigger}")  # nosec B608
 
         tables = await _table_names(conn)
+        migrated_legacy_workspaces = (
+            "clinic_organizations" in tables
+            and "workspaces" not in tables
+        )
+        migrated_legacy_references = (
+            "patient_references" in tables
+            and "reference_entities" not in tables
+        )
         migrated_legacy_memberships = (
             "clinic_memberships" in tables
             and "workspace_memberships" not in tables
@@ -529,14 +537,17 @@ async def migrate(conn) -> None:
 
     await conn.executescript(SCHEMA)
 
-    # Legacy rows did not carry generic type metadata. Preserve them as the
-    # Healthcare vertical while keeping the Core schema vertical-neutral.
-    await conn.execute(
-        "UPDATE workspaces SET workspace_type='healthcare' "
-        "WHERE workspace_type='generic'"
-    )
-    await conn.execute(
-        "UPDATE reference_entities SET reference_type='patient' "
-        "WHERE reference_type='generic'"
-    )
+    # Only rows originating from legacy vertical tables receive Healthcare
+    # type metadata. Native generic/sales/construction workspaces must remain
+    # untouched on later startups.
+    if migrated_legacy_workspaces:
+        await conn.execute(
+            "UPDATE workspaces SET workspace_type='healthcare' "
+            "WHERE workspace_type='generic'"
+        )
+    if migrated_legacy_references:
+        await conn.execute(
+            "UPDATE reference_entities SET reference_type='patient' "
+            "WHERE reference_type='generic'"
+        )
     await conn.commit()
