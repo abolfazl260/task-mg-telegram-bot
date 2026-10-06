@@ -1,12 +1,16 @@
-# Healthcare operational domain
+# Healthcare domain
 
-Implementation tracking: issues #112–#126. This module uses the existing SQLite
-connection lifecycle, shared users, and `tasks` table. It does not represent a
-medical record, clinical decision system, or appointment scheduler.
+Implementation tracking: issues #112–#126 and #160+. This module uses the existing
+SQLite connection lifecycle, shared users, and Core operations primitives.
+
+Healthcare includes both operational workflow data and a first-class Patient Record.
+Clinical data may be stored and managed inside TaskMG. Clinical decision support,
+autonomous diagnosis, prescription, and treatment recommendation remain separate
+capabilities and are not implied by storing the record.
 
 ## Data and authorization
 
-PatientReference → Case → existing Task / FollowUp → structured Outcome → next Task.
+Patient → Patient Record → Case → existing Task / FollowUp → structured Outcome → next Task.
 
 All new objects have an organization; patient-linked objects also have a branch.
 Clinic memberships are independent of general team roles. Reception, coordinator,
@@ -24,9 +28,9 @@ cross-organization/branch assignments. Historical creator/owner references remai
 valid after deactivation so another authorized staff member can close the work.
 
 Legacy task list, report, export, reminder, integration and Telegram access paths
-cannot read or modify new organization-linked tasks. Patient attachments are not
-supported in this release; the generic attachment path cannot attach to a clinic
-task. No public patient/case links exist.
+cannot read or modify new organization-linked tasks. Patient attachments must remain scope-bound and are part of the Healthcare roadmap.
+The current generic attachment path must not bypass Patient/Case permissions.
+No public patient/case/clinical-record links exist.
 
 ## Migration and rollout
 
@@ -49,8 +53,8 @@ mapping are not implemented. Enabling those existing generic features does not
 make them authorized clinic actions.
 
 Bootstrap an organization as an authenticated user with the clinic API, create a
-branch, grant staff membership, create/import operational PatientReferences, then
-create cases and follow-ups. This does not create, activate or configure Telegram
+branch, grant staff membership, create/import Patient Records, then create cases
+and follow-ups. This does not create, activate or configure Telegram
 bot credentials.
 
 ## HTTP API
@@ -69,6 +73,7 @@ patient data, SQL details or search parameters.
 | POST | `/memberships` | Grant, change or deactivate membership |
 | GET / POST | `/patients` | Paginated list / operational patient creation |
 | GET / PATCH | `/patients/{id}` | Scoped read / edit / archive |
+| GET / POST / PATCH | `/clinical-records/{patient_id}` | Permission-aware patient clinical record |
 | GET / POST | `/cases` | Paginated list / case creation |
 | GET / PATCH | `/cases/{id}` | Scoped read / status and blocker |
 | GET | `/cases/{id}/timeline` | Related actions and outcomes |
@@ -95,8 +100,9 @@ follow-up is any unfinished follow-up whose exact due timestamp has passed.
 Case `missing_next_action=true` flags active cases with no usable pending action.
 
 Timestamps in writes must be ISO 8601 with an explicit timezone. Storage and CSV
-use ISO 8601 UTC. Phone/name and identifiers are validated for length; clinical
-fields are not part of the domain DTO.
+use ISO 8601 UTC. Phone/name and identifiers are validated for length. Clinical fields are part of
+the Healthcare patient-record domain and require dedicated authorization, audit,
+data-lifecycle, and safe-output rules.
 
 ## Outcomes and workflow rules
 
@@ -134,9 +140,11 @@ and an operator retry procedure remain required before production pilot rollout.
 
 ## CSV, metrics, audit and retention
 
-Patient CSV columns: `external_id,display_name,branch_id`, optional `phone,doctor_id`.
-Input is UTF-8 (BOM accepted), bounded to 500 rows / 512 KB. Unknown/clinical
-columns are rejected. Preview validates each row and branch mapping. Confirmation
+The current basic Patient CSV path supports `external_id,display_name,branch_id`
+and optional `phone,doctor_id`. Clinical fields are valid Healthcare data, but
+must be imported/exported only through an explicit clinical-data mapping with
+dedicated permission, validation, audit and safe-export controls. The basic
+operational CSV path must not silently accept unknown columns. Preview validates each row and branch mapping. Confirmation
 revalidates source data. Organization-unique external IDs prevent duplicate
 imports. Cross-branch duplicate conflicts fail generically. CSV tags and a
 frontline import UI are not available yet.
@@ -152,7 +160,9 @@ weekly active target users and time-to-first-value are not implemented.
 
 Audit events have schema version 1 and contain tenant/branch, actor, action,
 entity identity and UTC time. Database triggers prohibit audit update/delete.
-Patient names, phones, free text and clinical content are excluded. Audit is
+Patient names, phones, free text and clinical content are excluded from generic
+audit payloads; audit stores entity identity and action metadata rather than
+duplicating sensitive record contents. Audit is
 created in the same transaction as sensitive domain writes. Dashboard views and
 exports are audited. Notifications use actor `system`.
 
