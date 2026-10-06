@@ -12,6 +12,7 @@ import pytest
 from services import database, task_service
 from services.healthcare import followups, service, workflows
 from services.healthcare.access import ClinicAccessError, Scope
+from services.operations.schema import migrate as migrate_operations
 
 
 async def test_patient_has_multiple_cases_and_tasks(clinic):
@@ -85,7 +86,7 @@ async def test_invalid_owner_and_cross_branch_links_rejected(clinic, test_db):
     tid = service.new_id()
     with pytest.raises(sqlite3.IntegrityError):
         await database.execute(
-            "INSERT INTO tasks(id,user_id,title,organization_id,branch_id,patient_id,case_id) VALUES(?,?,?,?,?,?,?)",
+            "INSERT INTO tasks(id,user_id,title,workspace_id,unit_id,reference_id,case_id) VALUES(?,?,?,?,?,?,?)",
             (
                 tid,
                 "1",
@@ -211,7 +212,7 @@ async def test_five_templates_pin_version_and_validate_stage(clinic, template_ke
     newer = await workflows.publish(scope, template_key, updated)
     assert newer["version"] == 2
     instance = await database.fetch_one_sql(
-        "SELECT * FROM clinic_workflow_instances WHERE id=?",
+        "SELECT * FROM workflow_instances WHERE id=?",
         (case["workflow_instance_id"],),
     )
     assert instance["version_id"] == version["id"]
@@ -225,7 +226,7 @@ async def test_five_templates_pin_version_and_validate_stage(clinic, template_ke
             expected_stage=definition["initial_stage"],
         )
     f = await database.fetch_one_sql(
-        "SELECT * FROM clinic_followups WHERE task_id=?", (case["next_action_task_id"],)
+        "SELECT * FROM followups WHERE task_id=?", (case["next_action_task_id"],)
     )
     await followups.record_outcome(scope, f["id"], "resolved")
     transitioned = await workflows.transition(
@@ -250,13 +251,13 @@ async def test_workflow_unsupported_automation_rejected_and_audit_immutable(
     with pytest.raises(ValueError, match="automation_not_available"):
         await workflows.publish(clinic["owner"], "bad", definition)
     events = await database.fetch_all_sql(
-        "SELECT * FROM clinic_audit WHERE organization_id=?",
+        "SELECT * FROM operational_audit WHERE workspace_id=?",
         (clinic["owner"].organization_id,),
     )
     assert events and all("display_name" not in event for event in events)
     with pytest.raises(sqlite3.IntegrityError, match="immutable_audit"):
         await database.execute(
-            "DELETE FROM clinic_audit WHERE id=?", (events[0]["id"],)
+            "DELETE FROM operational_audit WHERE id=?", (events[0]["id"],)
         )
     await test_db.conn.rollback()
 
@@ -265,25 +266,81 @@ async def test_additive_migration_preserves_legacy_data_and_is_repeatable(tmp_pa
     path = tmp_path / "legacy.db"
     conn = await aiosqlite.connect(path)
     try:
-        # Recreate the exact old schema by removing only the new task columns.
-        core = database.CORE_SCHEMA
-        start = core.index(
-            ",\n    organization_id TEXT REFERENCES clinic_organizations(id)"
+        await conn.executescript(
+            """
+            PRAGMA foreign_keys=ON;
+            CREATE TABLE users (
+                user_id TEXT PRIMARY KEY,
+                full_name TEXT NOT NULL DEFAULT '',
+                username TEXT NOT NULL DEFAULT '',
+                timezone TEXT NOT NULL DEFAULT 'UTC',
+                date_format TEXT NOT NULL DEFAULT 'jalali',
+                first_seen TEXT NOT NULL DEFAULT '',
+                last_seen TEXT NOT NULL DEFAULT '',
+                messages_count INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE clinic_organizations (
+                id TEXT PRIMARY KEY,
+                bot_key TEXT NOT NULL,
+                name TEXT NOT NULL,
+                timezone TEXT NOT NULL DEFAULT 'Asia/Tehran',
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE tasks (
+                id TEXT PRIMARY KEY,
+                bot_key TEXT NOT NULL DEFAULT 'default',
+                user_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                priority TEXT NOT NULL DEFAULT 'medium',
+                status TEXT NOT NULL DEFAULT 'pending',
+                deadline TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT '',
+                tags TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT '',
+                completed_at TEXT NOT NULL DEFAULT '',
+                team_id TEXT,
+                assignee_id TEXT,
+                assignee_name TEXT NOT NULL DEFAULT '',
+                assignee_username TEXT NOT NULL DEFAULT '',
+                jira_key TEXT NOT NULL DEFAULT '',
+                jira_sync_hash TEXT NOT NULL DEFAULT '',
+                organization_id TEXT,
+                branch_id TEXT,
+                patient_id TEXT,
+                case_id TEXT,
+                outcome_id TEXT,
+                workflow_instance_id TEXT
+            );
+            """
         )
-        end = core.index("\n);", start)
-        old = core[:start] + core[end:]
-        await conn.executescript(old)
         await conn.execute("INSERT INTO users(user_id) VALUES('legacy')")
         await conn.execute(
-            "INSERT INTO tasks(id,user_id,title) VALUES('old','legacy','Existing task')"
+            "INSERT INTO clinic_organizations(id,bot_key,name) "
+            "VALUES('legacy-workspace','clinic','Legacy clinic')"
+        )
+        await conn.execute(
+            "INSERT INTO tasks(id,user_id,title,organization_id) "
+            "VALUES('old','legacy','Existing task','legacy-workspace')"
         )
         await conn.commit()
+
         for _ in range(2):
-            await database.migrate_healthcare(conn)
+            await migrate_operations(conn)
+
         async with conn.execute(
-            "SELECT title,organization_id FROM tasks WHERE id='old'"
+            "SELECT title,workspace_id FROM tasks WHERE id='old'"
         ) as cur:
-            assert tuple(await cur.fetchone()) == ("Existing task", None)
+            assert tuple(await cur.fetchone()) == (
+                "Existing task",
+                "legacy-workspace",
+            )
+        async with conn.execute(
+            "SELECT name,workspace_type FROM workspaces "
+            "WHERE id='legacy-workspace'"
+        ) as cur:
+            assert tuple(await cur.fetchone()) == ("Legacy clinic", "healthcare")
         async with conn.execute("PRAGMA foreign_key_check") as cur:
             assert not await cur.fetchall()
     finally:
