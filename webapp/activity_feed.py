@@ -39,7 +39,7 @@ def _event(event_id, kind, icon, title, task, actor="کاربر", text="", creat
 
 def activity_feed(access, start=None, end=None, query="", limit=100):
     args = (access["bot_key"], str(access["user_id"]))
-    tasks = sync_all("tasks", "organization_id IS NULL AND bot_key=? AND user_id=?", args)
+    tasks = sync_all("tasks", "workspace_id IS NULL AND bot_key=? AND user_id=?", args)
     task_map = {str(task.get("id")): task for task in tasks}
     events = []
 
@@ -76,7 +76,7 @@ def activity_feed(access, start=None, end=None, query="", limit=100):
     try:
         comments = sync_all(
             "task_comments",
-            "task_id IN (SELECT id FROM tasks WHERE organization_id IS NULL AND bot_key=? AND user_id=?)",
+            "task_id IN (SELECT id FROM tasks WHERE workspace_id IS NULL AND bot_key=? AND user_id=?)",
             args,
         )
     except Exception:
@@ -114,7 +114,7 @@ def activity_feed(access, start=None, end=None, query="", limit=100):
     try:
         assignments = sync_all(
             "task_assignment_history",
-            "task_id IN (SELECT id FROM tasks WHERE organization_id IS NULL AND bot_key=? AND user_id=?)",
+            "task_id IN (SELECT id FROM tasks WHERE workspace_id IS NULL AND bot_key=? AND user_id=?)",
             args,
         )
     except Exception:
