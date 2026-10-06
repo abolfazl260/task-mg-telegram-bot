@@ -1,16 +1,23 @@
-# Healthcare domain
+# Healthcare implementation status
 
-Implementation tracking: issues #112–#126 and #160+. This module uses the existing
-SQLite connection lifecycle, shared users, and Core operations primitives.
+> Canonical target architecture: `docs/CLINIC_VERTICAL_ARCHITECTURE.md`
 
-Healthcare includes both operational workflow data and a first-class Patient Record.
-Clinical data may be stored and managed inside TaskMG. Clinical decision support,
-autonomous diagnosis, prescription, and treatment recommendation remain separate
-capabilities and are not implied by storing the record.
+The current implementation contains an earlier Healthcare domain model built around
+reference entities, cases and follow-ups. The target architecture supersedes that
+shape: Clinic must become a Vertical Profile over generic Core typed work items,
+attribute schemas and parent/child hierarchy.
+
+Target Clinic mapping:
+
+**Patient = top-level typed Work Item / Task**
+
+**Session / Visit / Follow-up = child Work Item / Subtask**
+
+Patient and clinical data remain stored in TaskMG. External PMS/EMR integration is
+optional. The migration to typed items must preserve existing data and must not
+regress generic TaskBot behavior.
 
 ## Data and authorization
-
-Patient → Patient Record → Case → existing Task / FollowUp → structured Outcome → next Task.
 
 All new objects have an organization; patient-linked objects also have a branch.
 Clinic memberships are independent of general team roles. Reception, coordinator,
@@ -37,9 +44,10 @@ No public patient/case/clinical-record links exist.
 Startup adds nullable context columns to existing tasks, then creates clinic
 objects, indexes and integrity triggers. Column additions serialize with `BEGIN
 IMMEDIATE`; migration is repeatable. Existing task IDs, content, status and general
-sharing behavior are preserved. Old tasks remain organization-unscoped; they are
-not guessed into PatientReferences. An operator must explicitly map any legacy
-patient-as-task data before using real clinic records with this profile.
+sharing behavior are preserved. Old generic tasks remain organization-unscoped. Existing Healthcare reference
+entities are transitional data and must be migrated explicitly to the typed
+Patient Work Item model when the Core hierarchy/attribute migration is implemented.
+No implicit cross-tenant mapping is allowed.
 
 Before upgrading an existing installation, take an operational database backup.
 The migration is additive; reverting application code does not remove its tables
@@ -52,9 +60,9 @@ for Clinic because clinic-specific authorization/confirmation and provider
 mapping are not implemented. Enabling those existing generic features does not
 make them authorized clinic actions.
 
-Bootstrap an organization as an authenticated user with the clinic API, create a
-branch, grant staff membership, create/import Patient Records, then create cases
-and follow-ups. This does not create, activate or configure Telegram
+Bootstrap an organization as an authenticated user with the Clinic API, create a
+branch, grant staff membership, configure the Clinic Vertical schema, then create
+Patient work items and child Session/Visit/Follow-up items. This does not create, activate or configure Telegram
 bot credentials.
 
 ## HTTP API
@@ -175,8 +183,10 @@ retention/anonymization before claiming issue #121 complete.
 
 ## Remaining rollout work
 
-The Telegram module supports scoped queues, pagination, minimal patient/case
-lists, outcome selection and explicit retry scheduling. It lacks inline patient
+The current Telegram module supports scoped queues, pagination, minimal patient/case
+lists, outcome selection and explicit retry scheduling. This is transitional: the
+target UX must allow Secretary/Reception and Doctor roles to manage Patient records
+and Session/Visit child items through the shared typed-item service layer. It lacks inline patient
 creation/search, a full role-specific checklist/delegation/approval flow and
 arbitrary rescheduling. The authenticated API is ready for a Web workspace; this
 PR does not build that full frontend. Calendar/PMS webhooks, integration mapping,
