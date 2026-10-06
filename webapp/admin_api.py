@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from services.database import get_db
 from services.bot_feature_registry import DEFAULT_PROFILE_TEMPLATES
+from services.bot_runtime_status import get_runtime_status, list_runtime_statuses
 from services.bot_management_service import (
     create_managed_bot,
     feature_registry_payload,
@@ -63,6 +64,7 @@ async def task_status_distribution(bot_key:str="")->list[dict]:
 async def bot_management()->list[dict]:
     await seed_default_profiles()
     rows = await list_managed_bots()
+    runtime_statuses = await list_runtime_statuses()
     db = await get_db()
     async with db.conn.execute("SELECT bot_key,COUNT(DISTINCT user_id) AS users,COUNT(*) AS tasks,MAX(created_at) AS last_activity FROM tasks GROUP BY bot_key") as cur:
         stats={r["bot_key"]:dict(r) for r in await cur.fetchall()}
@@ -83,6 +85,14 @@ async def bot_management()->list[dict]:
         row["tasks"]=s.get("tasks",0)
         row["last_activity"]=s.get("last_activity","")
         row["status"]=row.get("status") or "inactive"
+        runtime=runtime_statuses.get(row["bot_key"],{})
+        row["runtime_status"]=runtime.get("runtime_status","unknown")
+        row["runtime_desired_status"]=runtime.get("desired_status",row["status"])
+        row["last_runtime_start"]=runtime.get("last_started_at","")
+        row["last_runtime_stop"]=runtime.get("last_stopped_at","")
+        row["last_runtime_reload"]=runtime.get("last_reloaded_at","")
+        row["runtime_error"]=runtime.get("last_error","")
+        row["runtime_error_at"]=runtime.get("last_error_at","")
     return rows
 
 
@@ -98,7 +108,18 @@ async def bot_feature_registry()->dict:
 
 async def get_bot_management_detail(bot_key:str)->dict|None:
     await seed_default_profiles()
-    return await get_managed_bot(bot_key)
+    bot=await get_managed_bot(bot_key)
+    if bot is None:
+        return None
+    runtime=await get_runtime_status(bot_key) or {}
+    bot["runtime_status"]=runtime.get("runtime_status","unknown")
+    bot["runtime_desired_status"]=runtime.get("desired_status",bot.get("status","inactive"))
+    bot["last_runtime_start"]=runtime.get("last_started_at","")
+    bot["last_runtime_stop"]=runtime.get("last_stopped_at","")
+    bot["last_runtime_reload"]=runtime.get("last_reloaded_at","")
+    bot["runtime_error"]=runtime.get("last_error","")
+    bot["runtime_error_at"]=runtime.get("last_error_at","")
+    return bot
 
 
 async def create_bot_management(payload:dict,actor_user_id:object)->dict:
