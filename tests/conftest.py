@@ -22,6 +22,7 @@ async def test_db(monkeypatch):
             await self.conn.execute("PRAGMA foreign_keys=ON")
         if not self.initialized:
             await self.conn.executescript(database.CORE_SCHEMA)
+            await database.migrate_core_schema(self.conn)
             await database.migrate_operations(self.conn)
             await self.conn.commit()
             self.initialized = True
