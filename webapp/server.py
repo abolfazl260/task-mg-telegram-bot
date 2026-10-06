@@ -14,6 +14,7 @@ from .auth import TelegramWebAppAuthError
 from .bot_profile import WebAppBotProfileError, get_webapp_bot_profile
 from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, create_task, update_task, change_status
 from .public_tasks import handle_public_task_get, handle_public_task_api
+from .database_explorer import database_explorer_rows, database_explorer_tables
 from .admin_api import (
     activate_bot_management,
     bot_feature_registry,
@@ -115,6 +116,31 @@ class WebAppHandler(BaseHTTPRequestHandler):
             return self._json(405,{"error":"method_not_allowed"})
         if path=="/api/admin/system-health" and method=="GET":
             return self._json(200,self.server.webapp_runtime.submit(system_health()))
+        if path=="/api/admin/database/tables" and method=="GET":
+            return self._json(200,self.server.webapp_runtime.submit(database_explorer_tables()))
+        if path=="/api/admin/database/rows" and method=="GET":
+            table=(query.get("table") or [""])[0].strip()
+            try:
+                limit=int((query.get("limit") or ["50"])[0])
+                offset=int((query.get("offset") or ["0"])[0])
+            except ValueError:
+                return self._json(400,{"error":"invalid_pagination"})
+            try:
+                filters=json.loads((query.get("filters") or ["[]"])[0] or "[]")
+            except json.JSONDecodeError:
+                return self._json(400,{"error":"invalid_filters"})
+            try:
+                payload=self.server.webapp_runtime.submit(database_explorer_rows(
+                    table,
+                    filters=filters,
+                    sort=(query.get("sort") or [""])[0].strip(),
+                    direction=(query.get("direction") or [""])[0].strip(),
+                    limit=limit,
+                    offset=offset,
+                ))
+            except TypeError as exc:
+                return self._json(400,{"error":str(exc)})
+            return self._json(200,payload)
         if path=="/api/admin/tasks/creation" and method=="GET":
             try: days=int((query.get("days") or ["7"])[0])
             except ValueError: return self._json(400,{"error":"invalid_days"})
