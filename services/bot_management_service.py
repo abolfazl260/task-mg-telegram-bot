@@ -329,9 +329,7 @@ async def update_managed_bot(
         if username and username.lower() != actual_username.lower():
             raise ValueError("telegram_username_mismatch")
         username = actual_username
-    if replacement:
-        stored_token = encrypt_secret(token)
-    elif token and keyring_configured():
+    if replacement or (token and keyring_configured()):
         stored_token = encrypt_secret(token)
     else:
         stored_token = token
