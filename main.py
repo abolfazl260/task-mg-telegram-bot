@@ -1,42 +1,124 @@
-import asyncio,logging,os
+import asyncio
+import logging
 from datetime import time as dt_time
-from telegram import BotCommand,Update,InlineKeyboardButton
+
+from telegram import BotCommand, InlineKeyboardButton, Update
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ConversationHandler,
+    MessageHandler,
+    PreCheckoutQueryHandler,
+    TypeHandler,
+    filters,
+)
 from telegram.request import HTTPXRequest
-from telegram.ext import Application,CommandHandler,CallbackQueryHandler,MessageHandler,PreCheckoutQueryHandler,TypeHandler,ConversationHandler,filters
-from config import ADMIN_REPORT_TIME,BOT_PROFILES
-from services.bot_runtime_manager import run_runtime_control_plane
-from services.integration_oauth_runtime import start_integration_oauth_server,stop_integration_oauth_server
-from bot_context import set_current_bot_key,set_current_user_id
-from handlers.start import start
-from handlers.menu import button_handler
-from handlers.integrations import integration_callback
-from handlers.task import add_task,save_task,list_tasks,priority_selected,deadline_selected,optional_field_callback,detail_page,download_csv,start_task,done_task,cancel_task,pending_task,sort_tasks_callback,assignment_callback,unassigned_tasks,take_assignment,take_confirm,assignment_manage_callback,task_details_callback,comment_callback,comment_cancel_callback
-from handlers.task_pagination import paginated_list_tasks,paginated_detail_page,paginated_sort_callback,tasks_view_callback
-from handlers.reports import show_reports_menu,reports_callback
-from handlers.templates import show_templates_menu,templates_callback
-from handlers.search_share import search_command,share_category_callback
-from handlers.extra_reports import report_compare_months,report_performance,report_progress_bar
-from handlers.import_bulk import import_callback
-from handlers.team import team_command,team_callback
-from services.reminders import morning_today_tasks,midday_summary_and_weekly,habit_reminders,weekly_habit_reports
-from services.user_service import record_user_async
-from services.sync_scheduler import run_external_sync,run_jira_sync
-from handlers.custom_bot import custom_bot_callback
-from services.admin_service import notify_new_user,daily_admin_report,error_handler
-from handlers.habits import handle_habit_callback,show_habit_menu
-from handlers.donate import donate_callback,donate_command,precheckout_callback,successful_payment_callback
-from handlers.guest import handle_guest_task
+
+import handlers.extra_reports as extra_reports_handler
+import handlers.reports as reports_handler
+import handlers.task as task_handler
+from bot_context import set_current_bot_key, set_current_user_id
+from config import ADMIN_REPORT_TIME, BOT_PROFILES
 from handlers.ai import ai_command
-from handlers.voice import handle_voice_message
-from handlers.business import handle_business_connection,handle_business_message,handle_deleted_business_messages,handle_edited_business_message
-from handlers.jira import jira_start,jira_type,jira_url,jira_identity,jira_credential,jira_project,jira_cancel,jira_disconnect_command,jira_status_command,JIRA_TYPE,JIRA_URL,JIRA_IDENTITY,JIRA_CREDENTIAL,JIRA_PROJECT
-from handlers.tag_suggestions import handle_tag_text,safe_assignment_confirm,install_tag_flow
+from handlers.business import (
+    handle_business_connection,
+    handle_business_message,
+    handle_deleted_business_messages,
+    handle_edited_business_message,
+)
 from handlers.calendar_pdf import calendar_pdf_callback
-import handlers.task as task_handler,handlers.reports as reports_handler,handlers.extra_reports as extra_reports_handler
-from services import calendar_runtime,calendar_runtime_extensions,calendar_reports_v2,calendar_report_legacy
-from services.database import init_db
-from services.task_capabilities import install_task_capabilities,task_option_enabled
+from handlers.custom_bot import custom_bot_callback
+from handlers.donate import (
+    donate_callback,
+    donate_command,
+    precheckout_callback,
+    successful_payment_callback,
+)
+from handlers.extra_reports import report_performance, report_progress_bar
+from handlers.guest import handle_guest_task
+from handlers.habits import handle_habit_callback, show_habit_menu
+from handlers.import_bulk import import_callback
+from handlers.integrations import integration_callback
+from handlers.jira import (
+    JIRA_CREDENTIAL,
+    JIRA_IDENTITY,
+    JIRA_PROJECT,
+    JIRA_TYPE,
+    JIRA_URL,
+    jira_cancel,
+    jira_credential,
+    jira_disconnect_command,
+    jira_identity,
+    jira_project,
+    jira_start,
+    jira_status_command,
+    jira_type,
+    jira_url,
+)
+from handlers.menu import button_handler
+from handlers.reports import reports_callback, show_reports_menu
+from handlers.search_share import search_command, share_category_callback
+from handlers.start import start
+from handlers.tag_suggestions import (
+    handle_tag_text,
+    install_tag_flow,
+    safe_assignment_confirm,
+)
+from handlers.task import (
+    add_task,
+    assignment_callback,
+    assignment_manage_callback,
+    cancel_task,
+    comment_callback,
+    comment_cancel_callback,
+    detail_page,
+    done_task,
+    download_csv,
+    list_tasks,
+    optional_field_callback,
+    pending_task,
+    priority_selected,
+    save_task,
+    sort_tasks_callback,
+    start_task,
+    take_assignment,
+    take_confirm,
+    task_details_callback,
+    unassigned_tasks,
+)
+from handlers.task_pagination import (
+    paginated_detail_page,
+    paginated_list_tasks,
+    paginated_sort_callback,
+    tasks_view_callback,
+)
+from handlers.team import team_callback, team_command
+from handlers.templates import show_templates_menu, templates_callback
+from handlers.voice import handle_voice_message
 from logging_config import setup_logging
+from services import (
+    calendar_report_legacy,
+    calendar_reports_v2,
+    calendar_runtime,
+    calendar_runtime_extensions,
+)
+from services.admin_service import daily_admin_report, error_handler, notify_new_user
+from services.bot_runtime_manager import run_runtime_control_plane
+from services.database import init_db
+from services.integration_oauth_runtime import (
+    start_integration_oauth_server,
+    stop_integration_oauth_server,
+)
+from services.reminders import (
+    habit_reminders,
+    midday_summary_and_weekly,
+    morning_today_tasks,
+    weekly_habit_reports,
+)
+from services.sync_scheduler import run_external_sync, run_jira_sync
+from services.task_capabilities import install_task_capabilities, task_option_enabled
+from services.user_service import record_user_async
 
 setup_logging()
 task_handler.format_task_card=calendar_runtime_extensions.format_task_card
