@@ -176,8 +176,8 @@ def load_bot_profiles() -> list[BotProfile]:
     file_profile_names = [name for name in profile_names if name not in managed_keys]
     if file_profile_names: profiles.extend(_load_json_profile(BOTS_DIR / f"{name}.json") for name in file_profile_names)
     elif profile_names and not managed_keys and not profiles: raise RuntimeError("Set BOT_TOKEN for one bot or BOT_PROFILES with per-bot token env vars.")
-    elif not profile_names and not profiles and not any(row.get("status") == "active" and row.get("bot_token") for row in managed_rows):
-        raise RuntimeError("Set BOT_TOKEN, BOT_PROFILES, or activate a managed Bot Profile.")
+    elif not profile_names and not profiles and not managed_rows:
+        raise RuntimeError("Set BOT_TOKEN, BOT_PROFILES, or configure a managed Bot Profile.")
     profiles.extend(_custom_bot_profiles()); unique: dict[str, BotProfile] = {}
     for profile in profiles:
         if profile.active: unique[profile.key] = profile
