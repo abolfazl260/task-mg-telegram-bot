@@ -9,6 +9,7 @@
   const refreshEl = document.getElementById('refresh');
   const themeToggleEl = document.getElementById('theme-toggle');
   const resultCountEl = document.getElementById('result-count');
+  const columnFilters = document.querySelectorAll('[data-column-filter]');
 
   // Views
   const viewTabs = document.querySelectorAll('.notion-tab');
@@ -18,6 +19,22 @@
     analytics: document.getElementById('view-analytics')
   };
   let currentView = 'table';
+
+  function jalaliDate(value) {
+    if (!value) return null;
+    const date = new Date(String(value).replace(' ', 'T'));
+    if (Number.isNaN(date.getTime())) return null;
+    const parts = new Intl.DateTimeFormat('en-US-u-ca-persian', {year:'numeric', month:'2-digit', day:'2-digit'}).formatToParts(date);
+    const get = type => parts.find(p => p.type === type)?.value;
+    return `${get('year')}/${get('month')}/${get('day')}`;
+  }
+
+  function displayDate(value) {
+    if (!value) return '—';
+    const jalali = jalaliDate(value);
+    const gregorian = String(value).replace('T', ' ').slice(0, 16);
+    return jalali ? `<time class="localized-date" datetime="${esc(value)}" tabindex="0" title="${esc(gregorian)}">⏰ ${jalali}</time>` : esc(gregorian);
+  }
 
   // Table & Board Containers
   const tableBody = document.getElementById('notion-table-body');
@@ -118,13 +135,19 @@
     const q = (searchEl?.value || '').trim().toLowerCase();
     const st = statusEl?.value || '';
     const pr = priorityEl?.value || '';
+    const cf = key => document.querySelector(`[data-column-filter=\"${key}\"]`)?.value || '';
+    const cst = cf('status'), cpr = cf('priority'), cdl = cf('deadline'), ccat = cf('category');
 
     return tasks.filter(t => {
       const haystack = `${t.title || ''} ${t.description || ''} ${t.category || ''} ${t.tags || ''}`.toLowerCase();
       const matchQ = !q || haystack.includes(q);
       const matchSt = !st || t.status === st;
       const matchPr = !pr || String(t.priority || 'medium').toLowerCase() === pr;
-      return matchQ && matchSt && matchPr;
+      const matchCst = !cst || t.status === cst;
+      const matchCpr = !cpr || String(t.priority || 'medium').toLowerCase() === cpr;
+      const matchCdl = !cdl || (cdl === 'has' ? !!t.deadline : !t.deadline);
+      const matchCcat = !ccat || String(t.category || '') === ccat;
+      return matchQ && matchSt && matchPr && matchCst && matchCpr && matchCdl && matchCcat;
     });
   }
 
@@ -139,7 +162,7 @@
       const st = statusMap[t.status] || { label: t.status || '—', class: 'status-pending' };
       const pr = priorityMap[String(t.priority || 'medium').toLowerCase()] || { label: t.priority || '—', class: 'priority-medium' };
       const isDone = t.status === 'done';
-      const deadline = t.deadline ? t.deadline.replace('T', ' ').slice(0, 16) : '—';
+      const deadline = t.deadline ? displayDate(t.deadline) : '—';
 
       return `
         <tr data-id="${esc(t.id)}">
@@ -156,7 +179,7 @@
             <span class="notion-pill ${pr.class}">${pr.label}</span>
           </td>
           <td style="color:var(--text-secondary);font-size:12px;direction:ltr;text-align:right">
-            ${deadline !== '—' ? '⏰ ' + esc(deadline) : '—'}
+            ${deadline}
           </td>
           <td>
             ${t.category ? `<span class="notion-pill category-pill">${esc(t.category)}</span>` : '—'}
@@ -165,7 +188,7 @@
             ${t.tags ? `<span class="notion-pill tag-pill">${esc(t.tags)}</span>` : '—'}
           </td>
           <td class="col-actions">
-            <button class="notion-btn" style="height:26px;padding:0 8px;font-size:11px" data-open-id="${esc(t.id)}">✏️ ویرایش</button>
+            <button class="notion-btn" style="height:26px;padding:0 8px;font-size:11px" data-open-id="${esc(t.id)}" aria-label="ویرایش وظیفه" title="ویرایش وظیفه">✏️</button>
           </td>
         </tr>
       `;
@@ -396,6 +419,8 @@
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       tasks = Array.isArray(data.tasks) ? data.tasks : [];
+      const categoryFilter = document.querySelector('[data-column-filter=\"category\"]');
+      if (categoryFilter) { const current = categoryFilter.value; const cats = [...new Set(tasks.map(t => t.category).filter(Boolean))].sort(); categoryFilter.innerHTML = '<option value="">همه</option>' + cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join(''); categoryFilter.value = cats.includes(current) ? current : ''; }
       if (state) state.hidden = true;
       render();
     } catch (err) {
@@ -413,6 +438,7 @@
   });
 
   searchEl?.addEventListener('input', render);
+  columnFilters.forEach(el => el.addEventListener('change', render));
   statusEl?.addEventListener('change', render);
   priorityEl?.addEventListener('change', render);
   refreshEl?.addEventListener('click', load);

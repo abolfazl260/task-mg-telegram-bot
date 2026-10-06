@@ -28,14 +28,14 @@
     <div class="notion-header">
       <div class="notion-page-icon">📋</div>
       <h1 class="notion-title" id="greeting">وظایف من</h1>
-      <p class="notion-desc">مدیریت وظایف، برنامه‌ریزی و پیگیری پروژه‌ها به سبک نوشن (Notion Workspace)</p>
+      <p class="notion-desc">مدیریت وظایف، برنامه‌ریزی و پیگیری پروژه‌ها</p>
     </div>
 
     <!-- View Switcher Tabs -->
     <div class="notion-tabs-bar">
       <div class="notion-tabs">
-        <button class="notion-tab active" data-view="table" type="button">📋 جدول (Table)</button>
-        <button class="notion-tab" data-view="board" type="button">📌 بورد (Board)</button>
+        <button class="notion-tab active" data-view="table" type="button">📋 جدول</button>
+        <button class="notion-tab" data-view="board" type="button">📌 برد</button>
         <button class="notion-tab" data-view="analytics" type="button">📊 آمار و تحلیل</button>
       </div>
       <div id="result-count" class="notion-desc" style="font-size:12px;font-weight:600"></div>
@@ -74,10 +74,10 @@
             <tr>
               <th class="col-check"></th>
               <th>عنوان وظیفه</th>
-              <th>وضعیت</th>
-              <th>اولویت</th>
-              <th>مهلت</th>
-              <th>دسته‌بندی</th>
+              <th>وضعیت <select class="column-filter" data-column-filter="status" aria-label="فیلتر وضعیت"><option value="">همه</option><option value="pending">در انتظار</option><option value="in_progress">در حال انجام</option><option value="done">انجام‌شده</option><option value="cancelled">لغوشده</option></select></th>
+              <th>اولویت <select class="column-filter" data-column-filter="priority" aria-label="فیلتر اولویت"><option value="">همه</option><option value="urgent">فوری</option><option value="high">بالا</option><option value="medium">متوسط</option><option value="low">پایین</option></select></th>
+              <th>مهلت <select class="column-filter" data-column-filter="deadline" aria-label="فیلتر مهلت"><option value="">همه</option><option value="has">دارای مهلت</option><option value="none">بدون مهلت</option></select></th>
+              <th>دسته‌بندی <select class="column-filter" data-column-filter="category" aria-label="فیلتر دسته‌بندی"><option value="">همه</option></select></th>
               <th>تگ‌ها</th>
               <th class="col-actions">عملیات</th>
             </tr>
