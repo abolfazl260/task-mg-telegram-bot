@@ -40,6 +40,31 @@ def _release(bot_key: str, kind: str, success: bool) -> None:
             _LAST_SUCCESS[key] = time.monotonic()
 
 
+def _external_sync_succeeded(result) -> bool:
+    if not isinstance(result, list):
+        return False
+    for item in result:
+        if not isinstance(item, (tuple, list)) or len(item) < 2:
+            return False
+        provider_results = item[1]
+        if not isinstance(provider_results, list):
+            return False
+        for provider_result in provider_results:
+            if not isinstance(provider_result, (tuple, list)) or len(provider_result) < 3:
+                return False
+            if provider_result[2]:
+                return False
+    return True
+
+
+def _sync_succeeded(kind: str, result) -> bool:
+    if kind == "jira":
+        return isinstance(result, dict) and result.get("success") is True
+    if kind == "external":
+        return _external_sync_succeeded(result)
+    return False
+
+
 def _run_sync(kind: str, bot_key: str):
     set_current_bot_key(bot_key)
     try:
@@ -50,8 +75,7 @@ def _run_sync(kind: str, bot_key: str):
     except Exception:
         _release(bot_key, kind, False)
         raise
-    success = not (kind == "jira" and isinstance(result, dict) and not result.get("success", False))
-    _release(bot_key, kind, success)
+    _release(bot_key, kind, _sync_succeeded(kind, result))
     return result
 
 
