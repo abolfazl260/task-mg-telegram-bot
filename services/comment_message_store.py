@@ -9,6 +9,7 @@ while every channel reads the same normalized comment list.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 
 from bot_context import get_current_bot_key
@@ -18,6 +19,7 @@ from services.database import execute, fetch_all, get_db
 _TABLE = "task_comments"
 _LEGACY_TELEGRAM_TABLE = "task_comments_v2"
 _SCHEMA_READY = False
+logger = logging.getLogger(__name__)
 
 
 def _bot_key() -> str:
@@ -228,7 +230,7 @@ async def add_comment_message_async(task_id: str, author: dict, message) -> bool
     )
 
 
-async def get_comment_messages_async(task_id: str) -> list[dict]:
+async def get_comment_messages_async(task_id: str, *, invalid_content_logger=None) -> list[dict]:
     await _ensure_schema()
     rows = await fetch_all(
         _TABLE,
@@ -240,6 +242,11 @@ async def get_comment_messages_async(task_id: str) -> list[dict]:
         try:
             content = json.loads(row.get("content_json") or "{}")
         except (json.JSONDecodeError, TypeError):
+            (invalid_content_logger or logger).warning(
+                "task_comment_content_invalid task_id=%s comment_id=%s",
+                task_id,
+                row.get("id"),
+            )
             content = {}
         if not isinstance(content, dict):
             content = {"content": content}
