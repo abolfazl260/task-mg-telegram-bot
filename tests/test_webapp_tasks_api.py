@@ -41,3 +41,54 @@ async def test_get_task_rejects_task_not_visible(monkeypatch):
 
     with pytest.raises(tasks_api.WebAppTaskAccessError):
         await tasks_api.get_task(42, "secret-task")
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_forwards_work_item_type_filter(monkeypatch):
+    called = {}
+
+    monkeypatch.setattr(
+        tasks_api,
+        "set_webapp_bot_context",
+        lambda bot_key: called.setdefault("bot_key", bot_key),
+    )
+
+    async def fake_list(user_id, team_id, work_item_type=None):
+        called["args"] = (user_id, team_id, work_item_type)
+        return [{"id": "patient-1", "work_item_type": work_item_type}]
+
+    monkeypatch.setattr(tasks_api.task_service, "get_all_user_tasks_async", fake_list)
+
+    result = await tasks_api.list_tasks(
+        42,
+        "clinic",
+        team_id=None,
+        work_item_type="patient",
+    )
+
+    assert result == [{"id": "patient-1", "work_item_type": "patient"}]
+    assert called == {"bot_key": "clinic", "args": (42, None, "patient")}
+
+
+@pytest.mark.asyncio
+async def test_create_task_forwards_work_item_type(monkeypatch):
+    called = {}
+
+    monkeypatch.setattr(tasks_api, "set_webapp_bot_context", lambda bot_key: bot_key)
+
+    async def fake_create(**kwargs):
+        called.update(kwargs)
+        return "new-id"
+
+    monkeypatch.setattr(tasks_api.task_service, "create_task_async", fake_create)
+
+    task_id = await tasks_api.create_task(
+        77,
+        "clinic",
+        title="Patient record",
+        work_item_type="patient",
+    )
+
+    assert task_id == "new-id"
+    assert called["user_id"] == 77
+    assert called["work_item_type"] == "patient"
