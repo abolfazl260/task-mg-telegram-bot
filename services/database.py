@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS team_members (
     PRIMARY KEY(team_id,user_id)
 );
 CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY, bot_key TEXT NOT NULL DEFAULT 'default', work_item_type TEXT NOT NULL DEFAULT 'task', user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    id TEXT PRIMARY KEY, bot_key TEXT NOT NULL DEFAULT 'default', work_item_type TEXT NOT NULL DEFAULT 'task', parent_task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL, user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     title TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'medium', status TEXT NOT NULL DEFAULT 'pending', deadline TEXT NOT NULL DEFAULT '',
     category TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '',
     completed_at TEXT NOT NULL DEFAULT '', team_id TEXT REFERENCES teams(team_id) ON DELETE SET NULL,
@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     jira_key TEXT NOT NULL DEFAULT '', jira_sync_hash TEXT NOT NULL DEFAULT '',
     workspace_id TEXT REFERENCES workspaces(id), unit_id TEXT REFERENCES workspace_units(id),
     reference_id TEXT REFERENCES reference_entities(id), case_id TEXT REFERENCES cases(id),
-    outcome_id TEXT REFERENCES outcomes(id), workflow_instance_id TEXT REFERENCES workflow_instances(id)
+    outcome_id TEXT REFERENCES outcomes(id), workflow_instance_id TEXT REFERENCES workflow_instances(id),
+    archived_at TEXT
 );
 CREATE TABLE IF NOT EXISTS task_comments (
     id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -160,6 +161,42 @@ async def migrate_core_schema(conn) -> None:
     await conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_tasks_work_item_type ON tasks(work_item_type)"
     )
+
+    # Parent/child hierarchy is additive so existing installations keep all
+    # legacy tasks as roots (parent_task_id IS NULL).
+    if "parent_task_id" not in task_columns:
+        await conn.execute(
+            "ALTER TABLE tasks ADD COLUMN parent_task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL"
+        )
+    async with conn.execute("PRAGMA table_info(tasks)") as cursor:
+        task_columns = {row[1] for row in await cursor.fetchall()}
+    if "archived_at" not in task_columns:
+        await conn.execute("ALTER TABLE tasks ADD COLUMN archived_at TEXT")
+    if "created_at" in task_columns:
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id, created_at, id)")
+    else:
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id, id)")
+    if "workspace_id" in task_columns:
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_workspace_parent ON tasks(workspace_id, parent_task_id, id)")
+    await conn.execute("DROP TRIGGER IF EXISTS task_parent_scope_insert")
+    await conn.execute("DROP TRIGGER IF EXISTS task_parent_scope_update")
+    parent_trigger = """
+    CREATE TRIGGER task_parent_scope_{operation}
+    BEFORE {verb} ON tasks
+    WHEN NEW.parent_task_id IS NOT NULL
+    BEGIN
+      SELECT CASE WHEN NEW.parent_task_id = NEW.id
+        THEN RAISE(ABORT, 'task_parent_self_reference') END;
+      SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM tasks p WHERE p.id=NEW.parent_task_id)
+        THEN RAISE(ABORT, 'task_parent_not_found') END;
+      SELECT CASE WHEN EXISTS (
+          SELECT 1 FROM tasks p WHERE p.id=NEW.parent_task_id
+            AND (p.workspace_id IS NOT NEW.workspace_id
+              OR (p.workspace_id IS NULL AND p.user_id IS NOT NEW.user_id))
+        ) THEN RAISE(ABORT, 'task_parent_scope_mismatch') END;
+    END;
+    """
+    await conn.executescript(parent_trigger.format(operation="insert", verb="INSERT") + parent_trigger.format(operation="update", verb="UPDATE"))
 
     async with conn.execute("PRAGMA table_info(task_comments)") as cursor:
         columns = {row[1] for row in await cursor.fetchall()}
