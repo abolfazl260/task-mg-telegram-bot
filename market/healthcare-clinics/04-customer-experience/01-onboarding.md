@@ -207,7 +207,7 @@ CSV.
 اگر نه:
 import نشود.
 
-Clinical history bulk migration جزو onboarding standard نیست.
+Clinical history و Patient Record migration بخشی قابل پشتیبانی از onboarding است، اما باید با mapping، validation، permission، audit، duplicate handling و data-lifecycle policy انجام شود. برای هر Pilot می‌توان subset داده را بر اساس نیاز انتخاب کرد.
 
 ---
 
