@@ -4,6 +4,21 @@ import os, platform, resource, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from services.database import get_db
+from services.bot_feature_registry import DEFAULT_PROFILE_TEMPLATES
+from services.bot_permission_registry import default_permission_policy
+from services.bot_runtime_status import get_runtime_status, list_runtime_statuses
+from services.bot_management_service import (
+    create_managed_bot,
+    feature_registry_payload,
+    get_managed_bot,
+    list_audit_events,
+    list_managed_bots,
+    permissions_registry_payload,
+    seed_default_profiles,
+    set_bot_status,
+    update_managed_bot,
+    validate_token_only,
+)
 
 DB_PATH=Path("data/data.db")
 _STARTED_AT=time.time()
@@ -49,15 +64,107 @@ async def task_status_distribution(bot_key:str="")->list[dict]:
     total=sum(counts.get(status,0) for status in statuses)
     return [{"status":status,"count":counts.get(status,0),"percentage":round((counts.get(status,0)/total)*100,1) if total else 0} for status in statuses]
 async def bot_management()->list[dict]:
-    db=await get_db()
-    async with db.conn.execute("SELECT bot_key,bot_username,owner_user_id,owner_name,owner_username,status,created_at,updated_at FROM custom_bots ORDER BY created_at DESC") as c: rows=[dict(r) for r in await c.fetchall()]
-    async with db.conn.execute("SELECT bot_key,COUNT(DISTINCT user_id) AS users,COUNT(*) AS tasks,MAX(created_at) AS last_activity FROM tasks WHERE organization_id IS NULL GROUP BY bot_key") as c: stats={r['bot_key']:dict(r) for r in await c.fetchall()}
-    known={r['bot_key'] for r in rows}
+    await seed_default_profiles()
+    rows = await list_managed_bots()
+    runtime_statuses = await list_runtime_statuses()
+    db = await get_db()
+    async with db.conn.execute("SELECT bot_key,COUNT(DISTINCT user_id) AS users,COUNT(*) AS tasks,MAX(created_at) AS last_activity FROM tasks WHERE organization_id IS NULL GROUP BY bot_key") as cur:
+        stats={r["bot_key"]:dict(r) for r in await cur.fetchall()}
+    known={r["bot_key"] for r in rows}
     for key in stats:
-        if key not in known: rows.append({'bot_key':key,'bot_username':'','owner_user_id':'','owner_name':'','owner_username':'','status':'active','created_at':'','updated_at':''})
-    for r in rows:
-        s=stats.get(r['bot_key'],{}); r['users']=s.get('users',0); r['tasks']=s.get('tasks',0); r['last_activity']=s.get('last_activity',''); r['status']=r.get('status') or 'inactive'
+        if key not in known:
+            rows.append({
+                "bot_key":key,"bot_username":"","owner_user_id":"","owner_name":"",
+                "owner_username":"","status":"active","created_at":"","updated_at":"",
+                "display_name":key,"description":"","profile_type":"legacy","base_profile":"",
+                "features":[],"enabled_feature_count":0,"token_configured":False,"token_masked":"",
+                "source":"runtime","last_error":"","last_connectivity_check":"",
+                "settings":{},"permissions":{},"commands":[],"workflow":{},"menu":[]
+            })
+    for row in rows:
+        s=stats.get(row["bot_key"],{})
+        row["users"]=s.get("users",0)
+        row["tasks"]=s.get("tasks",0)
+        row["last_activity"]=s.get("last_activity","")
+        row["status"]=row.get("status") or "inactive"
+        runtime=runtime_statuses.get(row["bot_key"],{})
+        row["runtime_status"]=runtime.get("runtime_status","unknown")
+        row["runtime_desired_status"]=runtime.get("desired_status",row["status"])
+        row["last_runtime_start"]=runtime.get("last_started_at","")
+        row["last_runtime_stop"]=runtime.get("last_stopped_at","")
+        row["last_runtime_reload"]=runtime.get("last_reloaded_at","")
+        row["runtime_error"]=runtime.get("last_error","")
+        row["runtime_error_at"]=runtime.get("last_error_at","")
     return rows
+
+
+async def bot_feature_registry()->dict:
+    await seed_default_profiles()
+    profiles=[
+        {
+            "key":key,
+            "label":template["name"],
+            "features":list(template["features"]),
+            "permissions":default_permission_policy(template["features"]),
+        }
+        for key,template in DEFAULT_PROFILE_TEMPLATES.items()
+    ]
+    custom_features=["core","tasks"]
+    profiles.append({
+        "key":"custom",
+        "label":"Custom",
+        "features":custom_features,
+        "permissions":default_permission_policy(custom_features),
+    })
+    return {
+        "features":feature_registry_payload(),
+        "permissions":permissions_registry_payload(),
+        "profiles":profiles,
+    }
+
+
+async def get_bot_management_detail(bot_key:str)->dict|None:
+    await seed_default_profiles()
+    bot=await get_managed_bot(bot_key)
+    if bot is None:
+        return None
+    runtime=await get_runtime_status(bot_key) or {}
+    bot["runtime_status"]=runtime.get("runtime_status","unknown")
+    bot["runtime_desired_status"]=runtime.get("desired_status",bot.get("status","inactive"))
+    bot["last_runtime_start"]=runtime.get("last_started_at","")
+    bot["last_runtime_stop"]=runtime.get("last_stopped_at","")
+    bot["last_runtime_reload"]=runtime.get("last_reloaded_at","")
+    bot["runtime_error"]=runtime.get("last_error","")
+    bot["runtime_error_at"]=runtime.get("last_error_at","")
+    return bot
+
+
+async def create_bot_management(payload:dict,actor_user_id:object)->dict:
+    return await create_managed_bot(payload,actor_user_id)
+
+
+async def update_bot_management(bot_key:str,payload:dict,actor_user_id:object)->dict:
+    return await update_managed_bot(bot_key,payload,actor_user_id)
+
+
+async def activate_bot_management(bot_key:str,actor_user_id:object)->dict:
+    return await set_bot_status(bot_key,True,actor_user_id)
+
+
+async def deactivate_bot_management(bot_key:str,actor_user_id:object)->dict:
+    return await set_bot_status(bot_key,False,actor_user_id)
+
+
+async def validate_bot_management_token(payload:dict)->dict:
+    token=str(payload.get("bot_token") or "").strip()
+    if not token:
+        raise ValueError("bot_token_required")
+    return await validate_token_only(token)
+
+
+async def bot_management_audit(bot_key:str)->list[dict]:
+    return await list_audit_events(bot_key)
+
 async def system_health()->dict:
     db=await get_db(); tables=[]; records={}; db_size=DB_PATH.stat().st_size if DB_PATH.exists() else 0
     try:

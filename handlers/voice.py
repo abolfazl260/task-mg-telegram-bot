@@ -23,6 +23,13 @@ from services.speech_to_text import (
 from services.task_intelligence import parse_task_request_smart
 
 logger = logging.getLogger(__name__)
+
+def _permission_enabled(context, permission_key: str) -> bool:
+    bot_data = getattr(context, "bot_data", {}) if context is not None else {}
+    profile = (bot_data or {}).get("bot_config")
+    checker = getattr(profile, "permission_enabled", None)
+    return profile is None or checker is None or bool(checker(permission_key))
+
 _VOICE_PROCESSING_SEMAPHORE = asyncio.Semaphore(3)
 
 def _rich_draft_html(title: str, body: str, *, thinking: bool = False) -> str:
@@ -74,6 +81,13 @@ async def _send_rich_final(bot, chat_id: int, html: str):
 
 async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
+    if not (
+        _permission_enabled(context, "voice.use")
+        and _permission_enabled(context, "ai.use")
+    ):
+        if message is not None:
+            await message.reply_text("⛔️ ورودی صوتی هوشمند برای این ربات مجاز نیست.")
+        return
     voice = message.voice if message else None
     if not message or not voice:
         return
@@ -128,6 +142,13 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 )
                 draft = None
             if isinstance(draft, dict) and draft.get("action") in {"CREATE_TASK", "CREATE_HABIT"}:
+                if draft.get("action") == "CREATE_TASK":
+                    allowed = _permission_enabled(context, "ai.tasks.create") and _permission_enabled(context, "tasks.create")
+                else:
+                    allowed = _permission_enabled(context, "ai.habits.create") and _permission_enabled(context, "habits.manage")
+                if not allowed:
+                    await _replace_status(message, "⛔️ عملیات استخراج‌شده از وویس برای این ربات مجاز نیست.")
+                    return
                 user_data = getattr(context, "user_data", None)
                 if user_data is not None:
                     user_data["ai_request_draft"] = draft

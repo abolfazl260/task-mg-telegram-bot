@@ -24,6 +24,10 @@ import os
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ```
 
+## Token ربات‌های Managed
+
+Tokenهایی که در `custom_bots` ذخیره می‌شوند باید با keyring محیطی رمز شوند. database backup را همراه keyring در یک محل نگهداری نکنید. برای migration و key rotation از راهنمای [Managed Bot Token Encryption](10-bot-token-encryption.md) استفاده کنید.
+
 ## دیتابیس در Production
 
 - از فایل دیتابیس Backup منظم بگیرید.

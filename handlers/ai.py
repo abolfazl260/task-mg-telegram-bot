@@ -16,6 +16,13 @@ from services.task_service import create_task_async, get_task_by_id_async, get_t
 from utils.keyboard import task_action_keyboard
 from handlers.task import format_task_card
 
+def _permission_enabled(context, permission_key: str) -> bool:
+    bot_data = getattr(context, "bot_data", {}) if context is not None else {}
+    profile = (bot_data or {}).get("bot_config")
+    checker = getattr(profile, "permission_enabled", None)
+    return profile is None or checker is None or bool(checker(permission_key))
+
+
 _PRIORITY_LABEL = {"high": "🔴 بالا", "medium": "🟠 متوسط", "low": "🟢 پایین"}
 _REPEAT_LABEL = {"daily": "روزانه", "weekly": "هفتگی", "monthly": "ماهانه"}
 
@@ -121,6 +128,9 @@ async def _run_with_processing(message, operation):
         raise
 
 async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _permission_enabled(context, "ai.use"):
+        await update.effective_message.reply_text("⛔️ دستیار هوشمند برای این ربات مجاز نیست.")
+        return
     request_text = " ".join(context.args).strip()
     if not request_text:
         await update.message.reply_text(_ai_examples_text(), reply_markup=_ai_examples_keyboard(), parse_mode=ParseMode.MARKDOWN)
@@ -128,8 +138,18 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         draft = await _run_with_processing(update.message, lambda: parse_task_request_smart(update.effective_user.id, request_text))
         if draft.get("action") in {"CREATE_TASK", "CREATE_HABIT"}:
+            if draft.get("action") == "CREATE_TASK":
+                allowed = _permission_enabled(context, "ai.tasks.create") and _permission_enabled(context, "tasks.create")
+            else:
+                allowed = _permission_enabled(context, "ai.habits.create") and _permission_enabled(context, "habits.manage")
+            if not allowed:
+                await update.message.reply_text("⛔️ این عملیات هوش مصنوعی برای این ربات مجاز نیست.")
+                return
             context.user_data["ai_request_draft"] = draft
             await update.message.reply_text(_draft_text(draft), reply_markup=_draft_keyboard(draft["action"]))
+            return
+        if not _permission_enabled(context, "tasks.view"):
+            await update.message.reply_text("⛔️ دستیار هوشمند اجازه مشاهده داده‌های تسک این ربات را ندارد.")
             return
         answer = await _run_with_processing(update.message, lambda: ask_task_assistant(update.effective_user.id, request_text))
     except GroqConfigurationError:
@@ -145,6 +165,13 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ai_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if not (
+        _permission_enabled(context, "ai.use")
+        and _permission_enabled(context, "ai.tasks.create")
+        and _permission_enabled(context, "tasks.create")
+    ):
+        await query.answer("ایجاد تسک با هوش مصنوعی برای این ربات مجاز نیست.", show_alert=True)
+        return
     draft = context.user_data.get("ai_request_draft")
     if query.data == "ai_task_cancel":
         context.user_data.pop("ai_request_draft", None)
@@ -170,6 +197,13 @@ async def ai_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ai_habit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if not (
+        _permission_enabled(context, "ai.use")
+        and _permission_enabled(context, "ai.habits.create")
+        and _permission_enabled(context, "habits.manage")
+    ):
+        await query.answer("ایجاد عادت با هوش مصنوعی برای این ربات مجاز نیست.", show_alert=True)
+        return
     draft = context.user_data.get("ai_request_draft")
     if query.data == "ai_habit_cancel":
         context.user_data.pop("ai_request_draft", None)

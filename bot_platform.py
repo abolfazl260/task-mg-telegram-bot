@@ -1,5 +1,6 @@
 """Multi-bot profile loading and Telegram application orchestration."""
-from __future__ import annotations
+
+from __future__ import annotations  # noqa: I001
 
 import asyncio
 import json
@@ -13,12 +14,19 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application
 
+from services.bot_feature_registry import FEATURE_REGISTRY
+from services.bot_management_service import seed_default_profiles
+from services.bot_permission_registry import (
+    normalize_permission_policy,
+    permission_enabled as profile_permission_enabled,
+)
 from services.custom_bot_service import read_custom_bots
+from services.database import _run
 from services.task_capabilities import install_task_capabilities
 
 BASE_DIR = Path(__file__).resolve().parent
 BOTS_DIR = BASE_DIR / "bots"
-DEFAULT_FEATURES = {"healthcare": False, "clinic_staff_reminders": False, "custom_bots": True, "integrations": True, "tasks": True, "teams": True, "templates": True, "habits": True, "reports": True, "donate": True, "ai": True, "guest_mode": True, "search": True, "bulk_import": True, "unassigned": True}
+DEFAULT_FEATURES = {name: name not in {"healthcare", "clinic_staff_reminders"} for name in FEATURE_REGISTRY}
 COMMAND_TO_FEATURE = {"clinic": "healthcare", "add": "tasks", "tasks": "tasks", "unassigned": "unassigned", "team": "teams", "search": "search", "templates": "templates", "reports": "reports", "habit": "habits", "donate": "donate", "ai": "ai", "jira": "integrations", "jira_status": "integrations", "jira_disconnect": "integrations"}
 DEFAULT_MENU = [{"label": "➕ افزودن تسک", "callback_data": "add_task", "feature": "tasks"}, {"label": "📋 تسک‌ها", "callback_data": "tasks", "feature": "tasks"}, {"label": "🌱 عادت من", "callback_data": "habit_menu", "feature": "habits"}, {"label": "📊 گزارش", "callback_data": "stats", "feature": "reports"}, {"label": "📖 راهنما", "callback_data": "help"}, {"label": "⚙️ تنظیمات", "callback_data": "settings"}, {"label": "📞 ارتباط با ما", "callback_data": "contact_us", "feature": None}]
 DEFAULT_WORKFLOW = {"statuses": {"pending": "⏳ در انتظار", "in_progress": "🚀 در حال انجام", "done": "✅ انجام شده", "cancelled": "❌ لغو شده"}, "actions": {"start": "🚀 شروع", "done": "✅ انجام شد", "cancel": "❌ لغو", "pending": "⏸ بازگشت به انتظار", "owner": "👤 مسئول", "take": "🙋 برعهده گرفتن"}}
@@ -32,6 +40,7 @@ class BotProfile:
     active: bool = True
     description: str = ""
     features: dict[str, bool] = field(default_factory=lambda: DEFAULT_FEATURES.copy())
+    permissions: dict[str, bool] = field(default_factory=dict)
     commands: tuple[str, ...] | None = None
     settings: dict[str, Any] = field(default_factory=dict)
     access: dict[str, Any] = field(default_factory=dict)
@@ -44,12 +53,18 @@ class BotProfile:
             return feature is None or self.feature_enabled(feature)
         return command in self.commands and (COMMAND_TO_FEATURE.get(command) is None or self.feature_enabled(COMMAND_TO_FEATURE[command]))
     def feature_enabled(self, name: str) -> bool:
-        if name == "clinic_staff_reminders" and not self.feature_enabled("healthcare"): return False
         if not bool(self.features.get(name, False)): return False
         if self.commands is not None:
             commands_for_feature = [c for c, feature in COMMAND_TO_FEATURE.items() if feature == name]
             if commands_for_feature and not any(c in self.commands for c in commands_for_feature): return False
         return True
+    def permission_enabled(self, permission_key: str) -> bool:
+        enabled_features = [name for name, enabled in self.features.items() if enabled]
+        return profile_permission_enabled(
+            self.permissions,
+            permission_key,
+            enabled_features,
+        )
 
 def _env_name(profile_key: str, field_name: str) -> str:
     safe_key = "".join(ch if ch.isalnum() else "_" for ch in profile_key).upper()
@@ -62,37 +77,123 @@ def _load_json_profile(path: Path) -> BotProfile:
     if not token: raise RuntimeError(f"Token env var {token_env} is required for bot profile {key}.")
     username = os.getenv(username_env, raw.get("username", "")).strip().lstrip("@")
     if not username: raise RuntimeError(f"Username env var {username_env} or username field is required for bot profile {key}.")
-    features = DEFAULT_FEATURES.copy(); features.update(raw.get("features", {})); raw_commands = raw.get("commands")
+    features = DEFAULT_FEATURES.copy(); features.update(raw.get("features", {}))
+    # Backward-compatible migration for legacy JSON profiles: derive newly
+    # granular Core features from the existing task_options contract.
+    task_options = {}
+    if isinstance(raw.get("settings"), dict) and isinstance(raw["settings"].get("task_options"), dict):
+        task_options.update(raw["settings"]["task_options"])
+    if isinstance(raw.get("task_options"), dict):
+        task_options.update(raw["task_options"])
+    option_features = {
+        "allow_assignment": "assignment",
+        "allow_tags": "tags",
+        "allow_comments": "comments",
+        "allow_categories": "categories",
+        "allow_search": "search",
+        "allow_templates": "templates",
+        "allow_bulk_import": "bulk_import",
+    }
+    for option, feature in option_features.items():
+        if option in task_options:
+            features[feature] = bool(task_options[option])
+    if not features.get("tasks", False):
+        for feature in ("assignment","comments","attachments","tags","categories","priority","deadline","reminders","unassigned"):
+            features[feature] = False
+    if not features.get("ai", False):
+        features["voice"] = False
+    raw_commands = raw.get("commands")
     commands = tuple(dict.fromkeys(str(c).strip().lstrip("/") for c in raw_commands if str(c).strip())) if isinstance(raw_commands, list) else None
     workflow = json.loads(json.dumps(DEFAULT_WORKFLOW))
     for section, values in raw.get("workflow", {}).items():
         if isinstance(values, dict) and isinstance(workflow.get(section), dict): workflow[section].update(values)
         else: workflow[section] = values
-    return BotProfile(key=key, name=raw.get("name") or username, username=username, token=token, active=bool(raw.get("active", True)), description=raw.get("description", ""), features=features, commands=commands, settings=raw.get("settings", {}), access=raw.get("access", {}), workflow=workflow, menu=raw.get("menu", DEFAULT_MENU))
+    enabled_features = [name for name, enabled in features.items() if enabled]
+    permissions = normalize_permission_policy(raw.get("permissions"), enabled_features)
+    return BotProfile(key=key, name=raw.get("name") or username, username=username, token=token, active=bool(raw.get("active", True)), description=raw.get("description", ""), features=features, permissions=permissions, commands=commands, settings=raw.get("settings", {}), access=raw.get("access", {}), workflow=workflow, menu=raw.get("menu", DEFAULT_MENU))
 
 def _legacy_default_profile() -> BotProfile | None:
     token = os.getenv("BOT_TOKEN", "").strip()
     if not token: return None
     return BotProfile(key="default", name=os.getenv("BOT_NAME", "Task Manager Bot"), username=os.getenv("BOT_USERNAME", "TaskManagerpersian_Bot").lstrip("@"), token=token, description=os.getenv("BOT_DESCRIPTION", ""))
 
+def _json_field(row: dict, name: str, default):
+    raw = row.get(name)
+    if raw in (None, ""):
+        return default
+    try:
+        value = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return default
+    return value
+
+
 def _custom_bot_profiles() -> list[BotProfile]:
     profiles = []
     for row in read_custom_bots(include_tokens=True):
-        if row.get("status") != "active" or not row.get("bot_token"): continue
-        features = {name: False for name in DEFAULT_FEATURES}; selected = [item.strip() for item in row.get("features", "").split(",") if item.strip()]
+        if row.get("status") != "active" or not row.get("bot_token"):
+            continue
+        features = {name: False for name in DEFAULT_FEATURES}
+        selected = [item.strip() for item in str(row.get("features") or "").split(",") if item.strip()]
         for feature in selected:
-            if feature in DEFAULT_FEATURES: features[feature] = True
-        features["custom_bots"] = False; commands = tuple(c for c, feature in COMMAND_TO_FEATURE.items() if feature in selected)
-        profiles.append(BotProfile(key=row.get("bot_key") or f"custom_{row.get('owner_user_id', 'user')}", name=f"ربات اختصاصی {row.get('owner_name') or row.get('owner_user_id')}", username=(row.get("bot_username") or row.get("bot_key") or "custom_bot").lstrip("@"), token=row.get("bot_token", ""), description="ربات اختصاصی ساخته‌شده توسط کاربر؛ فعلاً رایگان در نسخه بتا.", features=features, commands=commands, settings={"pricing_plan": row.get("pricing_plan", "free_beta"), "owner_user_id": row.get("owner_user_id", ""), "habit_only": "habits" in selected and "tasks" not in selected}))
+            if feature in DEFAULT_FEATURES:
+                features[feature] = True
+        if "custom_bots" not in selected:
+            features["custom_bots"] = False
+        commands_json = _json_field(row, "commands_json", None)
+        if isinstance(commands_json, list) and commands_json:
+            commands = tuple(dict.fromkeys(str(c).strip().lstrip("/") for c in commands_json if str(c).strip()))
+        else:
+            commands = tuple(c for c, feature in COMMAND_TO_FEATURE.items() if feature in selected)
+        workflow = json.loads(json.dumps(DEFAULT_WORKFLOW))
+        workflow_override = _json_field(row, "workflow_json", {})
+        if isinstance(workflow_override, dict):
+            for section, values in workflow_override.items():
+                if isinstance(values, dict) and isinstance(workflow.get(section), dict):
+                    workflow[section].update(values)
+                else:
+                    workflow[section] = values
+        menu = _json_field(row, "menu_json", DEFAULT_MENU)
+        if not isinstance(menu, list) or not menu:
+            menu = list(DEFAULT_MENU)
+        settings = _json_field(row, "settings_json", {})
+        permissions = normalize_permission_policy(
+            _json_field(row, "permissions_json", {}),
+            selected,
+        )
+        profiles.append(
+            BotProfile(
+                key=row.get("bot_key") or f"custom_{row.get('owner_user_id', 'user')}",
+                name=row.get("display_name") or row.get("owner_name") or row.get("bot_key") or "TaskMG Bot",
+                username=(row.get("bot_username") or row.get("bot_key") or "custom_bot").lstrip("@"),
+                token=row.get("bot_token", ""),
+                description=row.get("description") or "Managed TaskMG Bot Profile.",
+                features=features,
+                permissions=permissions,
+                commands=commands,
+                settings=settings if isinstance(settings, dict) else {},
+                access={"managed": True, "profile_type": row.get("profile_type") or "custom"},
+                workflow=workflow,
+                menu=menu,
+            )
+        )
     return profiles
 
 def load_bot_profiles() -> list[BotProfile]:
     load_dotenv(BASE_DIR / ".env")
     if os.getenv("TESTING", "").lower() in {"1", "true", "yes", "on"}: return [BotProfile(key="test", name="Test Bot", username="test_bot", token="test-token")]
+    # JSON profiles are migration/compatibility inputs. Once a bot_key exists in
+    # the managed store, that row is authoritative even when it is inactive.
+    _run(seed_default_profiles())
+    managed_rows = read_custom_bots(include_tokens=True)
+    managed_keys = {str(row.get("bot_key") or "").strip() for row in managed_rows if row.get("bot_key")}
     profile_names = [item.strip() for item in os.getenv("BOT_PROFILES", "").split(",") if item.strip()]; profiles: list[BotProfile] = []; legacy_profile = _legacy_default_profile()
     if legacy_profile is not None: profiles.append(legacy_profile)
-    if profile_names: profiles.extend(_load_json_profile(BOTS_DIR / f"{name}.json") for name in profile_names)
-    elif not profiles: raise RuntimeError("Set BOT_TOKEN for one bot or BOT_PROFILES with per-bot token env vars.")
+    file_profile_names = [name for name in profile_names if name not in managed_keys]
+    if file_profile_names: profiles.extend(_load_json_profile(BOTS_DIR / f"{name}.json") for name in file_profile_names)
+    elif profile_names and not managed_keys and not profiles: raise RuntimeError("Set BOT_TOKEN for one bot or BOT_PROFILES with per-bot token env vars.")
+    elif not profile_names and not profiles and not managed_rows:
+        raise RuntimeError("Set BOT_TOKEN, BOT_PROFILES, or configure a managed Bot Profile.")
     profiles.extend(_custom_bot_profiles()); unique: dict[str, BotProfile] = {}
     for profile in profiles:
         if profile.active: unique[profile.key] = profile

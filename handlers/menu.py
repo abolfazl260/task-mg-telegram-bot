@@ -9,8 +9,16 @@ from services.team_service import aget_user_teams
 from services.timezone_service import build_timezone_keyboard, build_timezone_text
 from services.user_service import get_user_date_format, set_user_date_format, validate_timezone, set_user_timezone
 
-def _bot_profile(context=None): return context.bot_data.get("bot_config") if context is not None else None
-def _feature_enabled(profile, feature): return not feature or profile is None or profile.feature_enabled(feature)
+def _bot_profile(context=None):
+    bot_data=getattr(context,"bot_data",{}) if context is not None else {}
+    return (bot_data or {}).get("bot_config")
+def _feature_enabled(profile, feature):
+    checker=getattr(profile,"feature_enabled",None)
+    return not feature or profile is None or checker is None or bool(checker(feature))
+def _permission_enabled(profile, permission):
+    checker=getattr(profile,"permission_enabled",None)
+    return not permission or profile is None or checker is None or bool(checker(permission))
+_CALLBACK_PERMISSION={"add_task":"tasks.create","add_task_manual":"tasks.create","tasks":"tasks.view","tasks_list":"tasks.view","search":"search.use","teams":"teams.view","templates":"templates.use","habit_menu":"habits.manage","stats":"reports.view","import_bulk":"bulk_import.use","custom_bot":"custom_bots.manage","integrations":"integrations.manage","download_csv":"tasks.view","contact_us":"contact.use","ai_start":"ai.use","ai_menu":"ai.use"}
 
 def main_menu(context=None):
     profile=_bot_profile(context); menu_items=profile.menu if profile is not None else []
@@ -18,9 +26,10 @@ def main_menu(context=None):
         from bot_platform import DEFAULT_MENU; menu_items=DEFAULT_MENU
     if profile is None or menu_items == __import__("bot_platform").DEFAULT_MENU:
         rows=[[InlineKeyboardButton("➕ افزودن تسک",callback_data="add_task"),InlineKeyboardButton("📋 تسک‌ها",callback_data="tasks")],[InlineKeyboardButton("🌱 عادت من",callback_data="habit_menu"),InlineKeyboardButton("📊 گزارش",callback_data="stats"),InlineKeyboardButton("📖 راهنما",callback_data="help")],[InlineKeyboardButton("⚙️ تنظیمات",callback_data="settings"),InlineKeyboardButton("📞 ارتباط با ما",callback_data="contact_us")]]
-        rows=[[b for b in row if not(b.callback_data=="habit_menu" and not _feature_enabled(profile,"habits"))] for row in rows]
+        feature_by_callback={"add_task":"tasks","tasks":"tasks","habit_menu":"habits","stats":"reports","contact_us":"contact"}
+        rows=[[b for b in row if _feature_enabled(profile,feature_by_callback.get(b.callback_data)) and _permission_enabled(profile,_CALLBACK_PERMISSION.get(b.callback_data))] for row in rows]
         return InlineKeyboardMarkup([row for row in rows if row])
-    return InlineKeyboardMarkup([[InlineKeyboardButton(item["label"],callback_data=item["callback_data"])] for item in menu_items if _feature_enabled(profile,item.get("feature"))])
+    return InlineKeyboardMarkup([[InlineKeyboardButton(item["label"],callback_data=item["callback_data"])] for item in menu_items if _feature_enabled(profile,item.get("feature")) and _permission_enabled(profile,_CALLBACK_PERMISSION.get(item["callback_data"]))])
 
 async def main_menu_summary(user_id):
     try: active_habits=len(await get_user_habits_async(user_id,active_only=True))
@@ -34,9 +43,9 @@ async def main_menu_summary(user_id):
 
 def add_task_options_keyboard(context=None):
     profile=_bot_profile(context);rows=[[InlineKeyboardButton("📝 ثبت تسک جدید",callback_data="add_task_manual")]]
-    if _feature_enabled(profile,"bulk_import"): rows.append([InlineKeyboardButton("📥 ثبت گروهی",callback_data="import_bulk")])
-    if _feature_enabled(profile,"ai"): rows.append([InlineKeyboardButton("🤖 ثبت با هوش مصنوعی",callback_data="ai_start")])
-    if _feature_enabled(profile,"templates"): rows.append([InlineKeyboardButton("🧩 انتخاب از تمپلیت‌ها",callback_data="templates")])
+    if _feature_enabled(profile,"bulk_import") and _permission_enabled(profile,"bulk_import.use"): rows.append([InlineKeyboardButton("📥 ثبت گروهی",callback_data="import_bulk")])
+    if _feature_enabled(profile,"ai") and _permission_enabled(profile,"ai.use") and _permission_enabled(profile,"ai.tasks.create"): rows.append([InlineKeyboardButton("🤖 ثبت با هوش مصنوعی",callback_data="ai_start")])
+    if _feature_enabled(profile,"templates") and _permission_enabled(profile,"templates.use"): rows.append([InlineKeyboardButton("🧩 انتخاب از تمپلیت‌ها",callback_data="templates")])
     rows.append([InlineKeyboardButton("🔙 بازگشت",callback_data="tasks_back")]);return InlineKeyboardMarkup(rows)
 
 async def show_add_task_menu(update, context):
@@ -52,14 +61,14 @@ async def show_add_task_menu(update, context):
 def tasks_options_keyboard(context=None):
     profile=_bot_profile(context)
     rows=[[InlineKeyboardButton("📋 لیست تسک‌های فعال",callback_data="tasks_list")],[InlineKeyboardButton("🕒 تاریخ ایجاد",callback_data="sort_created")],[InlineKeyboardButton("📅 بر اساس ددلاین",callback_data="sort_deadline")],[InlineKeyboardButton("🔙 بازگشت",callback_data="tasks_back")]]
-    if _feature_enabled(profile,"search"): rows.insert(2,[InlineKeyboardButton("🔎 جستجو",callback_data="search")])
+    if _feature_enabled(profile,"search") and _permission_enabled(profile,"search.use"): rows.insert(2,[InlineKeyboardButton("🔎 جستجو",callback_data="search")])
     return InlineKeyboardMarkup(rows)
 
 def settings_keyboard(context=None):
     profile=_bot_profile(context);rows=[]
-    if _feature_enabled(profile,"integrations"):rows.append([InlineKeyboardButton("🔗 اتصال به سرویس‌های مدیریت تسک",callback_data="integrations")])
+    if _feature_enabled(profile,"integrations") and _permission_enabled(profile,"integrations.manage"):rows.append([InlineKeyboardButton("🔗 اتصال به سرویس‌های مدیریت تسک",callback_data="integrations")])
     rows += [[InlineKeyboardButton("🌍 زمان محلی",callback_data="settings_timezone")],[InlineKeyboardButton("📅 نوع تاریخ",callback_data="settings_date_format")],[InlineKeyboardButton("🌐 تغییر زبان",callback_data="settings_language")]]
-    if _feature_enabled(profile,"custom_bots"):rows.append([InlineKeyboardButton("🤖 ساخت ربات اختصاصی",callback_data="custom_bot")])
+    if _feature_enabled(profile,"custom_bots") and _permission_enabled(profile,"custom_bots.manage"):rows.append([InlineKeyboardButton("🤖 ساخت ربات اختصاصی",callback_data="custom_bot")])
     rows.append([InlineKeyboardButton("🔙 بازگشت به منوی اصلی",callback_data="tasks_back")]);return InlineKeyboardMarkup(rows)
 def timezone_keyboard(user_id):
     rows=build_timezone_keyboard(user_id,InlineKeyboardButton);rows.append([InlineKeyboardButton("🔙 بازگشت به تنظیمات",callback_data="settings")]);return InlineKeyboardMarkup(rows)
@@ -70,29 +79,39 @@ def date_format_text(user_id):
     current=get_user_date_format(user_id);label="شمسی 🇮🇷" if current=="jalali" else "میلادی 🌐";return f"🗓 **تنظیمات تقویم**\n\nتقویم فعال: **{label}**"
 def language_keyboard():return InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="language_fa")],[InlineKeyboardButton("🇬🇧 English",callback_data="language_en")],[InlineKeyboardButton("🔙 بازگشت به تنظیمات",callback_data="settings")]])
 def contact_text():return "📞 **ارتباط با ما**\nبرای پیشنهاد یا پشتیبانی با ما در ارتباط باشید."
-def contact_keyboard():
-    rows=[[InlineKeyboardButton(f"⭐️ دونیت {amount} استارز",callback_data=f"donate_{amount}")] for amount in DONATION_AMOUNTS];rows.append([InlineKeyboardButton("🔙 بازگشت به منوی اصلی",callback_data="tasks_back")]);return InlineKeyboardMarkup(rows)
+def contact_keyboard(context=None):
+    profile=_bot_profile(context);rows=[]
+    if _feature_enabled(profile,"donate") and _permission_enabled(profile,"donate.use"):
+        rows.extend([[InlineKeyboardButton(f"⭐️ دونیت {amount} استارز",callback_data=f"donate_{amount}")] for amount in DONATION_AMOUNTS])
+    rows.append([InlineKeyboardButton("🔙 بازگشت به منوی اصلی",callback_data="tasks_back")]);return InlineKeyboardMarkup(rows)
 
 async def button_handler(update,context):
-    query=update.callback_query;data=query.data
+    query=update.callback_query;data=query.data;profile=_bot_profile(context)
     if data=="report_calendar_pdf":
+        if not _feature_enabled(profile,"reports") or not _permission_enabled(profile,"reports.view"):await query.answer("دسترسی گزارش‌ها برای این ربات فعال نیست.",show_alert=True);return
         from handlers.calendar_pdf import calendar_pdf_callback;return await calendar_pdf_callback(update,context)
     if data.startswith("report_"):
+        if not _feature_enabled(profile,"reports") or not _permission_enabled(profile,"reports.view"):await query.answer("دسترسی گزارش‌ها برای این ربات فعال نیست.",show_alert=True);return
         from handlers.reports import reports_callback;return await reports_callback(update,context)
     if data.startswith(("ai_task_","ai_habit_")):
+        required="tasks" if data.startswith("ai_task_") else "habits"
+        permission="ai.tasks.create" if data.startswith("ai_task_") else "ai.habits.create"
+        if not _feature_enabled(profile,"ai") or not _feature_enabled(profile,required) or not _permission_enabled(profile,"ai.use") or not _permission_enabled(profile,permission):await query.answer("این قابلیت AI برای این ربات مجاز نیست.",show_alert=True);return
         from handlers.ai import ai_habit_callback,ai_task_callback
         return await (ai_habit_callback(update,context) if data.startswith("ai_habit_") else ai_task_callback(update,context))
-    if data=="ai_menu":
-        profile=_bot_profile(context)
-        if not _feature_enabled(profile,"ai"):
+    if data in {"ai_menu","ai_start"}:
+        if not _feature_enabled(profile,"ai") or not _permission_enabled(profile,"ai.use"):
             await query.answer("هوش مصنوعی برای این ربات فعال نیست.",show_alert=True);return
-        from handlers.ai import _ai_examples_text,_ai_examples_keyboard
-        await query.answer()
-        return await query.message.reply_text(_ai_examples_text(),reply_markup=_ai_examples_keyboard(),parse_mode="Markdown")
+        if data=="ai_menu":
+            from handlers.ai import _ai_examples_text,_ai_examples_keyboard
+            await query.answer()
+            return await query.message.reply_text(_ai_examples_text(),reply_markup=_ai_examples_keyboard(),parse_mode="Markdown")
     if data.startswith("habit_"):
+        if not _feature_enabled(profile,"habits") or not _permission_enabled(profile,"habits.manage"):await query.answer("مدیریت عادت برای این ربات مجاز نیست.",show_alert=True);return
         from handlers.habits import handle_habit_callback;return await handle_habit_callback(update,context)
-    profile=_bot_profile(context);feature_by_callback={"add_task":"tasks","tasks":"tasks","teams":"teams","templates":"templates","habit_menu":"habits","stats":"reports","import_bulk":"bulk_import","custom_bot":"custom_bots","search":"search"};feature=feature_by_callback.get(data)
+    feature_by_callback={"add_task":"tasks","add_task_manual":"tasks","tasks":"tasks","tasks_list":"tasks","teams":"teams","templates":"templates","habit_menu":"habits","stats":"reports","import_bulk":"bulk_import","custom_bot":"custom_bots","search":"search","integrations":"integrations","download_csv":"tasks","contact_us":"contact"};feature=feature_by_callback.get(data);permission=_CALLBACK_PERMISSION.get(data)
     if feature and not _feature_enabled(profile,feature):await query.answer("این قابلیت برای این ربات فعال نیست.",show_alert=True);return
+    if permission and not _permission_enabled(profile,permission):await query.answer("این عملیات برای این ربات مجاز نیست.",show_alert=True);return
     await query.answer()
     if data=="add_task":return await show_add_task_menu(update,context)
     if data=="add_task_manual":
@@ -131,4 +150,4 @@ async def button_handler(update,context):
         from handlers.import_bulk import import_callback;return await import_callback(update,context)
     if data=="download_csv":
         from handlers.task import download_csv;return await download_csv(update,context)
-    if data=="contact_us":return await query.message.reply_text(contact_text(),reply_markup=contact_keyboard(),parse_mode="Markdown")
+    if data=="contact_us":return await query.message.reply_text(contact_text(),reply_markup=contact_keyboard(context),parse_mode="Markdown")
