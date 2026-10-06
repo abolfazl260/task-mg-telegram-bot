@@ -22,7 +22,7 @@ def _install_report_routes() -> None:
     global _report_routes_installed
     if _report_routes_installed:
         return
-    from .report_routes import add_monthly_web_button, handle_report_api, handle_report_get, web_report_html
+    from .report_routes import add_monthly_web_button, handle_report_api, handle_report_get, report_token_from_path, web_report_html
     from .public_tasks import handle_public_task_api, handle_public_task_get
     from .report_tokens import resolve_report_token
     from .report_routes import _html
@@ -39,15 +39,14 @@ def _install_report_routes() -> None:
         if handle_public_task_api(self):
             return
         path = urlparse(self.path).path
-        if path and path not in ('/', '/report-launch') and not path.startswith('/api/') and '/' not in path.strip('/') and len(path.strip('/')) >= 40:
-            token = path.strip('/')
-            if resolve_report_token(token):
-                html = web_report_html(token)
-                task_url = f'/tasks/{quote(token, safe="")}'
-                nav = f'<a href="{task_url}" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none;border-radius:12px;padding:10px 14px;background:#ffffff18;border:1px solid #ffffff30;color:#fff;font-weight:800;font-size:13px;white-space:nowrap">📋 مدیریت تسک‌ها</a>'
-                html = html.replace('<div class="hero-top">', f'<div class="hero-top">{nav}', 1)
-                _html(self, 200, html)
-                return
+        token = report_token_from_path(path)
+        if token and resolve_report_token(token):
+            html = web_report_html(token)
+            task_url = f'/tasks/{quote(token, safe="")}'
+            nav = f'<a href="{task_url}" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none;border-radius:12px;padding:10px 14px;background:#ffffff18;border:1px solid #ffffff30;color:#fff;font-weight:800;font-size:13px;white-space:nowrap">📋 مدیریت تسک‌ها</a>'
+            html = html.replace('<div class="hero-top">', f'<div class="hero-top">{nav}', 1)
+            _html(self, 200, html)
+            return
         if handle_report_get(self):
             return
         if handle_report_api(self):
