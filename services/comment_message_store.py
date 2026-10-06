@@ -38,22 +38,22 @@ async def _ensure_schema() -> None:
 
     db = await get_db()
     async with db.lock:
-        cur = await db.conn.execute(f"PRAGMA table_info({_TABLE})")
+        cur = await db.conn.execute("PRAGMA table_info(task_comments)")
         columns = {row["name"] for row in await cur.fetchall()}
-        additions = {
-            "bot_key": "TEXT NOT NULL DEFAULT 'default'",
-            "source": "TEXT NOT NULL DEFAULT 'core'",
-            "source_key": "TEXT",
-            "telegram_chat_id": "TEXT",
-            "telegram_message_id": "INTEGER",
-        }
-        for name, definition in additions.items():
+        additions = (
+            ("bot_key", "ALTER TABLE task_comments ADD COLUMN bot_key TEXT NOT NULL DEFAULT 'default'"),
+            ("source", "ALTER TABLE task_comments ADD COLUMN source TEXT NOT NULL DEFAULT 'core'"),
+            ("source_key", "ALTER TABLE task_comments ADD COLUMN source_key TEXT"),
+            ("telegram_chat_id", "ALTER TABLE task_comments ADD COLUMN telegram_chat_id TEXT"),
+            ("telegram_message_id", "ALTER TABLE task_comments ADD COLUMN telegram_message_id INTEGER"),
+        )
+        for name, statement in additions:
             if name not in columns:
-                await db.conn.execute(f"ALTER TABLE {_TABLE} ADD COLUMN {name} {definition}")
+                await db.conn.execute(statement)
 
         await db.conn.execute(
-            f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{_TABLE}_source_key "
-            f"ON {_TABLE}(source_key)"
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_task_comments_source_key "
+            "ON task_comments(source_key)"
         )
 
         cur = await db.conn.execute(
@@ -62,10 +62,10 @@ async def _ensure_schema() -> None:
         )
         if await cur.fetchone():
             cur = await db.conn.execute(
-                f"""SELECT v.*
-                    FROM {_LEGACY_TELEGRAM_TABLE} AS v
-                    JOIN tasks AS t ON t.id = v.task_id
-                    ORDER BY v.id"""
+                """SELECT v.*
+                   FROM task_comments_v2 AS v
+                   JOIN tasks AS t ON t.id = v.task_id
+                   ORDER BY v.id"""
             )
             for raw in await cur.fetchall():
                 row = dict(raw)
@@ -75,7 +75,7 @@ async def _ensure_schema() -> None:
                 )
                 content = {"type": "telegram_message"}
                 await db.conn.execute(
-                    f"""INSERT OR IGNORE INTO {_TABLE}
+                    """INSERT OR IGNORE INTO task_comments
                     (task_id, author_id, author_name, author_username, content_json,
                      created_at, bot_key, source, source_key,
                      telegram_chat_id, telegram_message_id)
@@ -186,7 +186,7 @@ async def add_comment_async(
     await _ensure_schema()
     payload = content if isinstance(content, dict) else {"content": content}
     await execute(
-        f"""INSERT OR IGNORE INTO {_TABLE}
+        """INSERT OR IGNORE INTO task_comments
         (task_id, author_id, author_name, author_username, content_json, created_at,
          bot_key, source, source_key, telegram_chat_id, telegram_message_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
