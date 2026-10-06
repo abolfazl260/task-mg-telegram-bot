@@ -46,7 +46,7 @@ TABLE_SPECS: dict[str, dict[str, Any]] = {
             "completed_at": "datetime", "team_id": "text", "assignee_id": "text",
             "assignee_name": "text", "assignee_username": "text", "jira_key": "text",
         },
-        "scope_sql": '"organization_id" IS NULL',
+        "scope_sql": '"workspace_id" IS NULL',
         "default_sort": "created_at", "default_direction": "desc",
     },
     "task_assignment_history": {

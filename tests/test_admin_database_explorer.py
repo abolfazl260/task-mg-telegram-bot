@@ -1,5 +1,6 @@
 import pytest
 
+from services.healthcare import service
 from webapp.database_explorer import database_explorer_rows, database_explorer_tables
 
 
@@ -73,42 +74,25 @@ async def test_database_explorer_combines_filters_sorts_and_paginates_server_sid
     assert [row["user_id"] for row in page["rows"]] == ["u2"]
 
 
-async def test_database_explorer_core_tasks_do_not_leak_healthcare_scoped_rows(test_db):
-    await test_db.conn.execute(
-        "INSERT INTO users(user_id, full_name) VALUES(?,?)",
-        ("u1", "Admin-visible user"),
-    )
-    await test_db.conn.execute(
-        "INSERT INTO clinic_organizations(id, bot_key, name) VALUES(?,?,?)",
-        ("org-1", "clinic", "Clinic"),
-    )
-    await test_db.conn.execute(
-        "INSERT INTO clinic_branches(id, organization_id, name) VALUES(?,?,?)",
-        ("branch-1", "org-1", "Main"),
-    )
-    await test_db.conn.execute(
-        """
-        INSERT INTO clinic_memberships(id, organization_id, user_id, branch_id, role)
-        VALUES(?,?,?,?,?)
-        """,
-        ("membership-1", "org-1", "u1", "branch-1", "admin"),
-    )
+async def test_database_explorer_core_tasks_do_not_leak_healthcare_scoped_rows(clinic, test_db):
     await test_db.conn.execute(
         "INSERT INTO tasks(id, user_id, title, created_at) VALUES(?,?,?,?)",
-        ("core-task", "u1", "Core task", "2026-10-01T00:00:00Z"),
+        ("core-task", "1", "Core task", "2026-10-01T00:00:00Z"),
     )
-    await test_db.conn.execute(
-        """
-        INSERT INTO tasks(id, user_id, title, created_at, organization_id, branch_id)
-        VALUES(?,?,?,?,?,?)
-        """,
-        ("clinic-task", "u1", "Clinic task", "2026-10-02T00:00:00Z", "org-1", "branch-1"),
+    await test_db.conn.commit()
+    scoped = await service.create_action(
+        clinic["owner"],
+        clinic["ca"]["id"],
+        "Clinic task",
+        "3",
+        "2026-10-07T10:00:00Z",
     )
     await test_db.conn.commit()
 
     payload = await database_explorer_rows("tasks", sort="created_at", direction="desc")
     assert payload["total"] == 1
     assert [row["id"] for row in payload["rows"]] == ["core-task"]
+    assert scoped["id"] != "core-task"
 
 
 async def test_database_explorer_rejects_unallowlisted_identifiers_and_invalid_filters(test_db):
