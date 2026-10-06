@@ -139,6 +139,24 @@ async def handle_clinic_input(update, context):
             context.user_data["clinic_patient_phone"] = "" if value == "-" else value
             context.user_data["clinic_input"] = "patient_reference"
             await update.effective_message.reply_text("کد پرونده/شناسه بیمار را ارسال کنید یا - بفرستید:")
+        elif step == "typed_session_title":
+            context.user_data["clinic_session_title"] = value
+            context.user_data["clinic_input"] = "typed_session_time"
+            await update.effective_message.reply_text("زمان جلسه را با قالب ISO ارسال کنید یا - بفرستید:")
+        elif step == "typed_session_time":
+            scope = Scope(memberships[0]["organization_id"], str(update.effective_user.id))
+            patient_id = context.user_data.pop("clinic_patient_id")
+            title = context.user_data.pop("clinic_session_title")
+            scheduled = None if value == "-" else value
+            await clinic_typed.create_child_async(scope, patient_id, "session", title, scheduled_at=scheduled)
+            context.user_data.pop("clinic_input", None)
+            await update.effective_message.reply_text("✅ جلسه بیمار ایجاد شد.")
+        elif step == "typed_case_title":
+            scope = Scope(memberships[0]["organization_id"], str(update.effective_user.id))
+            patient_id = context.user_data.pop("clinic_patient_id")
+            await clinic_typed.create_child_async(scope, patient_id, "case", value)
+            context.user_data.pop("clinic_input", None)
+            await update.effective_message.reply_text("✅ پرونده عملیاتی بیمار ایجاد شد.")
         elif step == "typed_reschedule":
             task_id = context.user_data.pop("clinic_reschedule_task_id")
             await clinic_typed.reschedule_async(task_id, str(update.effective_user.id), value)
@@ -264,6 +282,8 @@ async def clinic_callback(update, context):
                 for item in page["items"]
             ]
             rows = []
+            if kind == "patients":
+                rows.extend([[InlineKeyboardButton(f"{item.get('display_name') or item.get('title')} · {item['status']}", callback_data=f"clinic:patient:{item['id']}")] for item in page["items"]])
             if offset:
                 rows.append(
                     [
@@ -284,6 +304,22 @@ async def clinic_callback(update, context):
                 rows.insert(0, [InlineKeyboardButton("➕ ثبت بیمار جدید", callback_data="clinic:new_patient")])
             rows.append([InlineKeyboardButton("منو", callback_data="clinic:menu")])
             return await _render(update, "\n".join(lines) or "موردی وجود ندارد.", rows)
+        if parts[1] == "patient":
+            item = await clinic_typed._item(parts[2], str(update.effective_user.id))
+            children = await clinic_typed.list_children_async(parts[2], str(update.effective_user.id), limit=10)
+            lines = [f"👤 {item.get('title')}\nوضعیت: {item.get('status')}" ]
+            if item.get("reference_id"): lines.append(f"شناسه پرونده: {item['reference_id']}")
+            lines.append("\n".join(f"• {x['work_item_type']}: {x['title']} · {x['status']}" for x in children["items"]) or "هنوز جلسه یا پرونده عملیاتی ثبت نشده است.")
+            context.user_data["clinic_patient_id"] = parts[2]
+            return await _render(update, "\n".join(lines), [[InlineKeyboardButton("➕ ایجاد جلسه", callback_data=f"clinic:new_session:{parts[2]}"), InlineKeyboardButton("📁 ایجاد پرونده عملیاتی", callback_data=f"clinic:new_case:{parts[2]}")], [InlineKeyboardButton("بازگشت", callback_data="clinic:patients:0")]])
+        if parts[1] == "new_session":
+            context.user_data["clinic_patient_id"] = parts[2]
+            context.user_data["clinic_input"] = "typed_session_title"
+            return await query.message.reply_text("عنوان جلسه را ارسال کنید:")
+        if parts[1] == "new_case":
+            context.user_data["clinic_patient_id"] = parts[2]
+            context.user_data["clinic_input"] = "typed_case_title"
+            return await query.message.reply_text("عنوان پرونده عملیاتی را ارسال کنید:")
         if parts[1] == "followup":
             item = await service.get_entity(scope, "followups", parts[2])
             case = await service.get_entity(scope, "cases", item["case_id"])

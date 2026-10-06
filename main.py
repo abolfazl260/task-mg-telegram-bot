@@ -217,6 +217,8 @@ async def post_init(app:Application):
     await app.bot.delete_my_commands();await app.bot.set_my_commands(commands);logger.info("Telegram command menu updated bot=%s features=%s commands=%s",profile.key if profile else "default",profile.features if profile else {},", ".join(f"/{cmd.command}" for cmd in commands))
     from config import ADMIN_IDS
     for admin_id in ADMIN_IDS:
+        if profile is not None and profile.key != "default":
+            break
         if str(admin_id).strip().isdigit():
             try:
                 await app.bot.set_my_commands(commands + [BotCommand("backoffice", "لینک موقت پنل مدیریت")], scope=BotCommandScopeChat(int(admin_id)))
@@ -263,7 +265,9 @@ def build_application(profile):
     if not getattr(task_handler,"_tag_flow_installed",False):install_tag_flow(task_handler)
     app.add_handler(TypeHandler(Update,bind_bot_context),group=-100)
     if _feature(app,"guest_mode") and _permission(app,"guest_mode.use"):app.add_handler(TypeHandler(Update,handle_guest_task),group=-2)
-    app.add_handler(MessageHandler(filters.ALL,track_usage),group=-1);app.add_handler(TypeHandler(Update,handle_business_connection),group=-10);app.add_handler(TypeHandler(Update,handle_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_edited_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_deleted_business_messages),group=-10);app.add_handler(CommandHandler("start", start));app.add_handler(CommandHandler("backoffice", backoffice_command))
+    app.add_handler(MessageHandler(filters.ALL,track_usage),group=-1);app.add_handler(TypeHandler(Update,handle_business_connection),group=-10);app.add_handler(TypeHandler(Update,handle_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_edited_business_message),group=-10);app.add_handler(TypeHandler(Update,handle_deleted_business_messages),group=-10);app.add_handler(CommandHandler("start", start));
+    if profile.key == "default":
+        app.add_handler(CommandHandler("backoffice", backoffice_command))
     if _feature(app,"tasks") and _permission(app,"tasks.create"):app.add_handler(CommandHandler("add", add_task))
     if _feature(app,"tasks") and _permission(app,"tasks.view"):app.add_handler(CommandHandler("tasks",paginated_list_tasks))
     if _feature(app,"unassigned") and _permission(app,"unassigned.view"):app.add_handler(CommandHandler("unassigned",unassigned_tasks))
