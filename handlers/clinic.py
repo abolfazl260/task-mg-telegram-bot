@@ -62,8 +62,15 @@ async def clinic_menu(update, context):
                     for oid, name in orgs.items()
                 ],
             )
-        scope = await _scope(update, context)
         labels = profile.settings.get("terminology", {})
+        branch_memberships = [m for m in memberships if m.get("branch_id")]
+        if not branch_memberships:
+            org_id = next(iter(orgs), None)
+            can_manage = any(m.get("role") in {"owner", "manager", "admin"} for m in memberships)
+            rows = [[InlineKeyboardButton("➕ تعریف شعبه کلینیک", callback_data="clinic:new_branch")]] if can_manage else []
+            rows.append([InlineKeyboardButton("راهنما", callback_data="clinic:menu")])
+            return await _render(update, "برای ثبت بیمار ابتدا یک شعبه کلینیک تعریف کنید.", rows)
+        scope = await _scope(update, context)
         rows = [
             [
                 InlineKeyboardButton(
@@ -110,7 +117,13 @@ async def handle_clinic_input(update, context):
     try:
         memberships = await actor_scopes(str(update.effective_user.id), profile.key)
         if not memberships: raise ClinicAccessError("forbidden")
-        if step == "patient_name":
+        if step == "branch_name":
+            scope = Scope(memberships[0]["organization_id"], str(update.effective_user.id))
+            await service.create_branch(scope, value)
+            context.user_data.pop("clinic_input", None)
+            await update.effective_message.reply_text("✅ شعبه کلینیک تعریف شد.")
+            await clinic_menu(update, context)
+        elif step == "patient_name":
             context.user_data["clinic_patient_name"] = value
             context.user_data["clinic_input"] = "patient_phone"
             await update.effective_message.reply_text("شماره تماس بیمار را ارسال کنید یا - بفرستید:")
@@ -132,6 +145,9 @@ async def clinic_callback(update, context):
     await query.answer()
     try:
         parts = (query.data or "").split(":")
+        if query.data == "clinic:new_branch":
+            context.user_data["clinic_input"] = "branch_name"
+            return await query.message.reply_text("نام شعبه کلینیک را ارسال کنید:")
         if query.data == "clinic:new_patient":
             context.user_data["clinic_input"] = "patient_name"
             return await query.message.reply_text("نام و نام خانوادگی بیمار را ارسال کنید:")
