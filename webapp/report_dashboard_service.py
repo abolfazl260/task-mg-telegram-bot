@@ -438,7 +438,9 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
     today = datetime.now(timezone.utc).date().isoformat()
     overdue = sum(1 for task in deadline_tasks if str(task.get("deadline"))[:10] < today and task.get("status") not in {"done", "cancelled", "canceled"})
     previous_start, previous_end = _previous_period(start, end)
-    previous_total = len(_query_tasks(access, previous_start, previous_end, "", {}))
+    # Compare like-for-like datasets: the previous period must use the same
+    # search term and structured filters as the current period.
+    previous_total = len(_query_tasks(access, previous_start, previous_end, query, filters))
     productivity = _productivity_metrics(tasks)
     result = {
         "report_type": "dashboard",
@@ -473,9 +475,23 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
         sort_key = str(filters.get("sort") or "newest")
         selected = _sort_tasks(selected, sort_key)
         rows = [_row(task) for task in selected]
-        total_rows = len(rows); page = max(1, int(page)); start_index = (page - 1) * page_size
-        result.update({"section": section, "rows": rows[start_index:start_index + page_size], "page": page, "page_size": page_size,
-                       "total": total_rows, "pages": max(1, (total_rows + page_size - 1) // page_size), "sort": sort_key})
+        total_rows = len(rows)
+        page = max(1, int(page))
+        normalized_page_size = int(page_size) if page_size is not None else 25
+        if normalized_page_size <= 0:
+            # Unpaginated mode is used by exports so CSV/PDF contain the full
+            # filtered task set rather than only the first dashboard page.
+            visible_rows = rows
+            page = 1
+            response_page_size = total_rows
+            pages = 1
+        else:
+            start_index = (page - 1) * normalized_page_size
+            visible_rows = rows[start_index:start_index + normalized_page_size]
+            response_page_size = normalized_page_size
+            pages = max(1, (total_rows + normalized_page_size - 1) // normalized_page_size)
+        result.update({"section": section, "rows": visible_rows, "page": page, "page_size": response_page_size,
+                       "total": total_rows, "pages": pages, "sort": sort_key})
         return result
     if section in {"status", "priority", "category"}:
         result["section"] = section
