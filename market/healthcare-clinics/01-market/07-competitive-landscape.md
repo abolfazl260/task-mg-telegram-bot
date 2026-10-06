@@ -480,7 +480,7 @@ TaskMG Target ستون محصول فعلی + roadmap است، نه ادعای ت
 
 # 18. Strategic Wedge
 
-TaskMG نباید از روز اول وارد battle «کدام Dental PMS کامل‌تر است» شود.
+TaskMG لازم نیست از روز اول billing/insurance/all-in-one PMS را کپی کند؛ مزیت آن باید از Patient Record منعطف + workflow/action + Telegram/Web vertical UX بیاید.
 
 Wedge پیشنهادی:
 
@@ -685,7 +685,7 @@ Moat احتمالی در بلندمدت:
 
 # 27. تصمیم رقابتی فعلی
 
-**TaskMG نباید Dental PMS جدید بسازد.**
+**TaskMG Clinic باید standalone Patient/Session management را بسازد؛ billing/insurance/all-in-one PMS scope فقط با تصمیم جداگانه اضافه شود.**
 
 جایگاه پیشنهادی:
 
