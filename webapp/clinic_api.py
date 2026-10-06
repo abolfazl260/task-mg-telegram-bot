@@ -67,6 +67,8 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
             }
     if path == "/api/clinic/templates/seed" and method == "POST":
         return 200, {"items": await workflows.seed_defaults(scope)}
+    if path == "/api/clinic/report" and method == "GET":
+        return 200, await service.clinic_report(scope, unit_id=(query.get("branch_id") or [None])[0])
     if path == "/api/clinic/metrics" and method == "GET":
         return 200, await reports.metrics(
             scope, unit_id=(query.get("branch_id") or [None])[0]
@@ -83,6 +85,10 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
             (query.get("kind") or ["tasks"])[0],
             unit_id=(query.get("branch_id") or [None])[0],
         )
+    if path.startswith("/api/clinic/clinical-records/"):
+        patient_id = path.rsplit("/", 1)[-1]
+        if method == "GET": return 200, {"item": await service.get_clinical_record(scope, patient_id)}
+        if method in {"POST", "PATCH"}: return 200, {"item": await service.save_clinical_record(scope, patient_id, data)}
     parts = path.removeprefix("/api/clinic/").split("/")
     kind = parts[0]
     if kind not in service.TABLES:

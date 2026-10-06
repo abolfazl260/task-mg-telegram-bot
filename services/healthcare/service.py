@@ -518,3 +518,30 @@ async def record_task_outcome(
     )
     await transaction(statements)
     return await get_entity(scope, "tasks", task_id)
+
+async def get_clinical_record(scope: Scope, patient_id: str):
+    patient = await get_entity(scope, "patients", patient_id)
+    pred, args = await scope.predicate("patients.view", doctor_context=DOCTOR_CONTEXT["patients"])
+    row = await fetch_one_sql("SELECT * FROM clinical_records WHERE workspace_id=? AND patient_id=?", (scope.workspace_id, patient_id))
+    if not row:
+        return {"patient_id": patient_id, "allergies": "", "chronic_conditions": "", "medications": "", "diagnoses": "", "clinical_notes": ""}
+    return dict(row)
+
+async def save_clinical_record(scope: Scope, patient_id: str, values: dict):
+    patient = await get_entity(scope, "patients", patient_id, manage=True)
+    await scope.branch(patient["unit_id"], "patients.manage")
+    allowed = {k: text(values.get(k, ""), max_length=20000, required=False) for k in ("allergies", "chronic_conditions", "medications", "diagnoses", "clinical_notes")}
+    stamp = now(); rid = new_id()
+    await transaction([("""INSERT INTO clinical_records(id,workspace_id,unit_id,patient_id,allergies,chronic_conditions,medications,diagnoses,clinical_notes,created_by,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(workspace_id,patient_id) DO UPDATE SET allergies=excluded.allergies,chronic_conditions=excluded.chronic_conditions,medications=excluded.medications,diagnoses=excluded.diagnoses,clinical_notes=excluded.clinical_notes,updated_at=excluded.updated_at""", (rid,scope.workspace_id,patient["unit_id"],patient_id,allowed["allergies"],allowed["chronic_conditions"],allowed["medications"],allowed["diagnoses"],allowed["clinical_notes"],str(scope.actor_id),stamp,stamp)), audit(scope, patient["unit_id"], "clinical_record.saved", "clinical_record", patient_id)])
+    return await get_clinical_record(scope, patient_id)
+
+async def clinic_report(scope: Scope, unit_id=None):
+    patients = await list_entities(scope, "patients", unit_id=unit_id, limit=100)
+    cases = await list_entities(scope, "cases", unit_id=unit_id, limit=100)
+    result=[]
+    for patient in patients["items"]:
+        sessions=[c for c in cases["items"] if c.get("reference_id")==patient["id"]]
+        record=await get_clinical_record(scope, patient["id"])
+        result.append({"patient":patient,"clinical_record":record,"sessions":sessions})
+    return {"patients":result,"total_patients":len(result),"total_sessions":len(cases["items"])}

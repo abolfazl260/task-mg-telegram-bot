@@ -69,6 +69,23 @@ CREATE TABLE IF NOT EXISTS reference_entities (
  FOREIGN KEY(workspace_id,unit_id) REFERENCES workspace_units(workspace_id,id)
 );
 
+CREATE TABLE IF NOT EXISTS clinical_records (
+ id TEXT PRIMARY KEY,
+ workspace_id TEXT NOT NULL,
+ unit_id TEXT NOT NULL,
+ patient_id TEXT NOT NULL,
+ allergies TEXT NOT NULL DEFAULT '',
+ chronic_conditions TEXT NOT NULL DEFAULT '',
+ medications TEXT NOT NULL DEFAULT '',
+ diagnoses TEXT NOT NULL DEFAULT '',
+ clinical_notes TEXT NOT NULL DEFAULT '',
+ created_by TEXT NOT NULL REFERENCES users(user_id),
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ UNIQUE(workspace_id,patient_id),
+ FOREIGN KEY(workspace_id,unit_id,patient_id) REFERENCES reference_entities(workspace_id,unit_id,id)
+);
+CREATE INDEX IF NOT EXISTS idx_clinical_records_patient ON clinical_records(workspace_id,unit_id,patient_id);
 CREATE TABLE IF NOT EXISTS cases (
  id TEXT PRIMARY KEY,
  workspace_id TEXT NOT NULL,
