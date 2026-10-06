@@ -203,6 +203,9 @@ async def list_entities(
     if search and kind == "patients":
         pred += " AND (e.display_name LIKE ? OR e.external_reference=? OR EXISTS (SELECT 1 FROM contact_points cp WHERE cp.entity_id=e.id AND cp.normalized_value LIKE ?))"
         params.extend((f"%{text(search)}%", search, f"%{text(search)}%"))
+    if search and kind == "cases":
+        pred += " AND (e.title LIKE ? OR e.external_reference LIKE ?)"
+        params.extend((f"%{text(search)}%", f"%{text(search)}%"))
     limit, offset = max(1, min(int(limit), 100)), max(0, int(offset))
     total = await fetch_one_sql(
         f"SELECT COUNT(*) AS n FROM {TABLES[kind]} e WHERE {pred}", tuple(params)  # nosec B608

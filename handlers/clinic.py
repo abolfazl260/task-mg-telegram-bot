@@ -323,6 +323,16 @@ async def clinic_callback(update, context):
             context.user_data["clinic_patient_id"] = parts[2]
             context.user_data["clinic_input"] = "typed_case_title"
             return await query.message.reply_text("📁 پرونده عملیاتی برای یک روند چندمرحله‌ای بیمار است و می‌تواند چند جلسه، اقدام و پیگیری داشته باشد.\n\nعنوان پرونده عملیاتی را ارسال کنید:")
+        if parts[1] == "case":
+            case = await service.get_entity(scope, "cases", parts[2])
+            patient = await service.get_entity(scope, "patients", case["reference_id"])
+            status_labels = {"active": "🟡 در حال انجام", "waiting": "⏳ منتظر", "blocked": "🔴 مسدود", "completed": "✅ تکمیل‌شده", "closed": "⚪ بسته‌شده", "cancelled": "🚫 لغوشده"}
+            text_body = f"📂 {case.get('title')}\n\nبیمار: {patient.get('display_name')}\nوضعیت پرونده: {status_labels.get(case.get('status'), case.get('status'))}\nمسئول: {case.get('primary_owner_user_id') or 'تعیین نشده'}"
+            rows = [[InlineKeyboardButton("🟡 در حال انجام", callback_data=f"clinic:case_status:{case['id']}:active"), InlineKeyboardButton("⏳ منتظر", callback_data=f"clinic:case_status:{case['id']}:waiting")], [InlineKeyboardButton("✅ تکمیل", callback_data=f"clinic:case_status:{case['id']}:completed"), InlineKeyboardButton("⚪ بستن", callback_data=f"clinic:case_status:{case['id']}:closed")], [InlineKeyboardButton("👤 بیمار", callback_data=f"clinic:patient:{patient['id']}"), InlineKeyboardButton("◀️ پرونده‌ها", callback_data="clinic:cases:0")]]
+            return await _render(update, text_body, rows)
+        if parts[1] == "case_status":
+            await service.set_case_status(scope, parts[2], parts[3])
+            return await _render(update, "✅ وضعیت پرونده تغییر کرد.", [[InlineKeyboardButton("باز کردن پرونده", callback_data=f"clinic:case:{parts[2]}"), InlineKeyboardButton("◀️ پرونده‌ها", callback_data="clinic:cases:0")]])
         if parts[1] == "followup":
             item = await service.get_entity(scope, "followups", parts[2])
             case = await service.get_entity(scope, "cases", item["case_id"])
