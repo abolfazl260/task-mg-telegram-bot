@@ -14,8 +14,6 @@ async def isolated_custom_bot_db(tmp_path, monkeypatch):
     database.shutdown_sync_loop()
     await database.close_all_dbs()
     monkeypatch.setattr(database, "DB_PATH", tmp_path / "custom_bot_storage.db")
-    monkeypatch.delenv("BOT_TOKEN_ENCRYPTION_KEYS_JSON", raising=False)
-    monkeypatch.delenv("BOT_TOKEN_ACTIVE_KEY_ID", raising=False)
     await database.init_db()
     db = await database.get_db()
     await db.conn.execute(
