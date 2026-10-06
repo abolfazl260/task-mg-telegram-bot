@@ -19,9 +19,9 @@ def task_permission_enabled(context,name):
 
 async def _show_no_assignment_confirmation(update,context):
     task=context.user_data.get("new_task") or {};task["assignee"]=None;task["team_id"]=""
-    if not task_option_enabled(context,"allow_tags"):task["tags"]=""
-    if not task_option_enabled(context,"allow_categories"):task["category"]=""
-    if not task_option_enabled(context,"allow_priority"):task["priority"]="medium"
+    if not task_option_enabled(context,"allow_tags") or not task_permission_enabled(context,"tags.manage"):task["tags"]=""
+    if not task_option_enabled(context,"allow_categories") or not task_permission_enabled(context,"categories.manage"):task["category"]=""
+    if not task_option_enabled(context,"allow_priority") or not task_permission_enabled(context,"priority.set"):task["priority"]="medium"
     context.user_data["new_task"]=task;context.user_data["step"]="task_confirm_create"
     keyboard=InlineKeyboardMarkup([[InlineKeyboardButton("✅ تایید و ثبت",callback_data="task_confirm_create")],[InlineKeyboardButton("❌ لغو",callback_data="task_cancel_create")]])
     handler=__import__("handlers.task",fromlist=["_assignment_summary"]);summary=handler._assignment_summary(task).replace("👤 مسئول:\n❌ تعیین نشده\n\n","");await update.effective_message.reply_text(summary,reply_markup=keyboard)
@@ -41,16 +41,16 @@ def wrap_save_task(original):
             return
         step=context.user_data.get("step");task=context.user_data.get("new_task")
         if not task:return await original(update,context)
-        if step=="title" and not task_option_enabled(context,"allow_priority"):
+        if step=="title" and (not task_option_enabled(context,"allow_priority") or not task_permission_enabled(context,"priority.set")):
             task["priority"]="medium";context.user_data["step"]="deadline"
             from utils.keyboard import deadline_keyboard
             await update.effective_message.reply_text("📅 زمان انجام را انتخاب کنید یا بدون زمان‌بندی ثبت کنید:",reply_markup=deadline_keyboard());return
-        if step=="category" and not task_option_enabled(context,"allow_categories"):
+        if step=="category" and (not task_option_enabled(context,"allow_categories") or not task_permission_enabled(context,"categories.manage")):
             task["category"]="";task["tags"]="";context.user_data["step"]="description"
             handler=__import__("handlers.task",fromlist=["_ask_description"]);await handler._ask_description(update.effective_message,context);return
-        if step=="tags" and not task_option_enabled(context,"allow_tags"):
+        if step=="tags" and (not task_option_enabled(context,"allow_tags") or not task_permission_enabled(context,"tags.manage")):
             task["tags"]="";handler=__import__("handlers.task",fromlist=["_ask_description"]);await handler._ask_description(update.effective_message,context);return
-        if step=="description" and not task_option_enabled(context,"allow_assignment"):
+        if step=="description" and (not task_option_enabled(context,"allow_assignment") or not task_permission_enabled(context,"assignment.manage")):
             task["description"]=update.effective_message.text or "";await _show_no_assignment_confirmation(update,context);return
         return await original(update,context)
     return wrapper
@@ -68,6 +68,8 @@ def wrap_priority_selected(original):
 def wrap_deadline_selected(original):
     @wraps(original)
     async def wrapper(update,context):
+        if not task_permission_enabled(context,"deadline.set"):
+            await update.callback_query.answer("تنظیم ددلاین برای این ربات مجاز نیست.",show_alert=True);return
         if not task_option_enabled(context,"allow_categories") or not task_permission_enabled(context,"categories.manage"):
             query=update.callback_query;await query.answer();data=query.data.replace("deadline_","");task=context.user_data.setdefault("new_task",{})
             if data=="custom":context.user_data["step"]="deadline_custom";await query.message.reply_text("📅 تاریخ دقیق را وارد کنید:");return
