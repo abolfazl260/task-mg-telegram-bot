@@ -11,11 +11,14 @@ def task_options(profile):
     result=DEFAULT_TASK_OPTIONS.copy();raw=(getattr(profile,"settings",{}) or {}).get("task_options",{}) or {};result.update({k:bool(v) for k,v in raw.items() if k in result});return result
 
 def task_option_enabled(context,name):
-    profile=context.bot_data.get("bot_config") if context is not None else None;return task_options(profile).get(name,True)
+    bot_data=getattr(context,"bot_data",{}) if context is not None else {}
+    profile=(bot_data or {}).get("bot_config");return task_options(profile).get(name,True)
 
 def task_permission_enabled(context,name):
-    profile=context.bot_data.get("bot_config") if context is not None else None
-    return profile is None or profile.permission_enabled(name)
+    bot_data=getattr(context,"bot_data",{}) if context is not None else {}
+    profile=(bot_data or {}).get("bot_config")
+    checker=getattr(profile,"permission_enabled",None)
+    return profile is None or checker is None or bool(checker(name))
 
 async def _show_no_assignment_confirmation(update,context):
     task=context.user_data.get("new_task") or {};task["assignee"]=None;task["team_id"]=""
