@@ -145,7 +145,7 @@ async def test_staff_notifications_overlap_cancellation_and_bot_isolation(clinic
     await notifications.deliver(bot, "clinic", at=due + timedelta(days=2))
     assert bot.send_message.await_count == 2
     events = await database.fetch_all_sql(
-        "SELECT * FROM clinic_audit WHERE action='notification.sent'"
+        "SELECT * FROM operational_audit WHERE action='notification.sent'"
     )
     assert len(events) == 2
 
@@ -188,7 +188,7 @@ async def test_case_close_cancels_pending_tasks_and_notifications(clinic):
         "status"
     ] == "closed"
     rows = await database.fetch_all_sql(
-        "SELECT status FROM clinic_notifications WHERE task_id=?", (f["task_id"],)
+        "SELECT status FROM operational_notifications WHERE task_id=?", (f["task_id"],)
     )
     assert rows and all(r["status"] == "cancelled" for r in rows)
 
