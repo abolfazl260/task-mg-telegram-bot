@@ -44,9 +44,21 @@ jobs:
       - name: Compile Python files
         run: python -m compileall -q .
       - name: Healthcare domain and channel isolation (fail fast)
-        run: python -m pytest -q -x tests/test_healthcare_domain.py tests/test_healthcare_channels.py
-      - name: Run remaining test suite
-        run: python -m pytest -q --ignore=tests/test_healthcare_domain.py --ignore=tests/test_healthcare_channels.py
+        run: |
+          python -m pytest -q -x \
+            --cov=. \
+            --cov-config=.coveragerc \
+            --cov-report= \
+            tests/test_healthcare_domain.py tests/test_healthcare_channels.py
+      - name: Run remaining test suite with coverage
+        run: |
+          python -m pytest -q \
+            --ignore=tests/test_healthcare_domain.py \
+            --ignore=tests/test_healthcare_channels.py \
+            --cov=. \
+            --cov-config=.coveragerc \
+            --cov-append \
+            --cov-report=term-missing:skip-covered
 
   quality:
     name: Code quality
