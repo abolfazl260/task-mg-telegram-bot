@@ -22,7 +22,7 @@ def _install_report_routes() -> None:
     global _report_routes_installed
     if _report_routes_installed:
         return
-    from .report_routes import add_monthly_web_button, handle_report_api, handle_report_get, web_report_html
+    from .report_routes import add_monthly_web_button, handle_report_api, handle_report_get, report_token_from_path, web_report_html
     from .public_tasks import handle_public_task_api, handle_public_task_get
     from .report_tokens import resolve_report_token
     from .report_routes import _html
@@ -39,8 +39,8 @@ def _install_report_routes() -> None:
         if handle_public_task_api(self):
             return
         path = urlparse(self.path).path
-        if path and path not in ('/', '/report-launch') and not path.startswith('/api/') and '/' not in path.strip('/') and len(path.strip('/')) >= 40:
-            token = path.strip('/')
+        token = report_token_from_path(path)
+        if token:
             if resolve_report_token(token):
                 html = web_report_html(token)
                 task_url = f'/tasks/{quote(token, safe="")}'
