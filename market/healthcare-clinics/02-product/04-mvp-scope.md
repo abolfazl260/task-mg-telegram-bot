@@ -104,24 +104,33 @@ Admin بتواند تیم Pilot را بدون تغییر code راه‌اندا�
 
 ---
 
-## 4.3 Patient Operational Reference
+## 4.3 Patient Record
 
-حداقل:
+حداقل Patient Record در MVP:
 
-- internal ID
+- internal ID / external reference
+- demographics / identity
 - display name
-- optional contact reference
+- phone / contact information
 - doctor
 - branch
 - tags
+- allergies
+- chronic conditions
+- medications
+- diagnoses
+- clinical notes
+- treatment-related information قابل توسعه
+- documents/attachments linkage
+- operational history / related cases
 
 ### Acceptance
 
-کاربر بتواند patient را پیدا و به task/case لینک کند.
+کاربر مجاز بتواند patient را پیدا کند، Patient Record را بر اساس permission مشاهده/ویرایش کند و آن را به task/case/workflow لینک کند.
 
 ### Boundary
 
-پرونده بالینی جامع جزو MVP نیست.
+Patient Record و Clinical Data داخل Scope هستند. چیزی که در MVP خودکار نمی‌شود، **clinical decision-making** مانند diagnosis/prescription/treatment recommendation توسط AI است.
 
 ---
 
