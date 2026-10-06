@@ -175,6 +175,19 @@ async def _jira_sync_job(context):
     profile=context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config");await run_jira_sync(bot_key=profile.key if profile else "default")
 async def _integration_sync_job(context):
     profile=context.job.data if context.job and context.job.data else context.application.bot_data.get("bot_config");await run_external_sync(bot_key=profile.key if profile else "default")
+
+def _job_registered(job_queue,name):
+    getter=getattr(job_queue,"get_jobs_by_name",None)
+    return bool(getter(name)) if getter is not None else False
+
+def _run_repeating_once(job_queue,callback,*,name,**kwargs):
+    if _job_registered(job_queue,name):return
+    job_queue.run_repeating(callback,name=name,**kwargs)
+
+def _run_daily_once(job_queue,callback,*,name,**kwargs):
+    if _job_registered(job_queue,name):return
+    job_queue.run_daily(callback,name=name,**kwargs)
+
 async def post_init(app:Application):
     await init_db();install_task_capabilities(app);profile=app.bot_data.get("bot_config")
     commands=[BotCommand("ai","دستیار هوشمند تحلیل تسک‌ها"),BotCommand("clinic","فضای کار کلینیک"),BotCommand("start","شروع ربات و منوی اصلی"),BotCommand("add","افزودن تسک جدید"),BotCommand("reports","گزارشات و آمار"),BotCommand("tasks","منوی تسک‌ها"),BotCommand("unassigned","وظایف بدون مسئول"),BotCommand("team","تیم و فضای مشترک"),BotCommand("search","جستجوی تسک"),BotCommand("templates","تمپلیت‌های آماده"),BotCommand("habit","مدیریت عادت‌ها"),BotCommand("donate","حمایت با Telegram Stars"),BotCommand("jira","اتصال به Jira"),BotCommand("jira_status","وضعیت اتصال Jira"),BotCommand("jira_disconnect","قطع اتصال Jira"),BotCommand("help","راهنمای کامل استفاده")]
@@ -194,19 +207,19 @@ async def post_init(app:Application):
     if app.job_queue:
         if profile is not None and profile.feature_enabled("healthcare") and profile.feature_enabled("clinic_staff_reminders"):
             from services.healthcare.notifications import staff_notification_job
-            app.job_queue.run_repeating(staff_notification_job,interval=60,first=15,name="clinic_staff_notifications")
+            _run_repeating_once(app.job_queue,staff_notification_job,interval=60,first=15,name="clinic_staff_notifications")
         if profile is None or (profile.feature_enabled("reminders") and profile.permission_enabled("reminders.run")):
-            app.job_queue.run_repeating(morning_today_tasks,interval=60,first=10,name="morning_today_tasks")
-            app.job_queue.run_repeating(midday_summary_and_weekly,interval=60,first=20,name="midday_summary_weekly")
+            _run_repeating_once(app.job_queue,morning_today_tasks,interval=60,first=10,name="morning_today_tasks")
+            _run_repeating_once(app.job_queue,midday_summary_and_weekly,interval=60,first=20,name="midday_summary_weekly")
         if profile is None or (profile.feature_enabled("habits") and profile.permission_enabled("habits.manage")):
-            app.job_queue.run_repeating(habit_reminders,interval=60,first=10,name="habit_reminders")
-            app.job_queue.run_repeating(weekly_habit_reports,interval=60,first=40,name="weekly_habit_reports")
+            _run_repeating_once(app.job_queue,habit_reminders,interval=60,first=10,name="habit_reminders")
+            _run_repeating_once(app.job_queue,weekly_habit_reports,interval=60,first=40,name="weekly_habit_reports")
         if profile is None or profile.permission_enabled("reports.view"):
-            app.job_queue.run_daily(daily_admin_report,time=_parse_report_time(),name="daily_admin_report")
+            _run_daily_once(app.job_queue,daily_admin_report,time=_parse_report_time(),name="daily_admin_report")
         if profile is None or (profile.feature_enabled("integrations") and profile.permission_enabled("integrations.sync")):
             bot_offset=sum(ord(ch) for ch in (profile.key if profile else "default"))%60
-            app.job_queue.run_repeating(_jira_sync_job,interval=60,first=30+bot_offset,name="jira_sync",data=profile)
-            app.job_queue.run_repeating(_integration_sync_job,interval=300,first=60+bot_offset,name="external_task_sync",data=profile)
+            _run_repeating_once(app.job_queue,_jira_sync_job,interval=60,first=30+bot_offset,name="jira_sync",data=profile)
+            _run_repeating_once(app.job_queue,_integration_sync_job,interval=300,first=60+bot_offset,name="external_task_sync",data=profile)
 
 def _feature(app,name):
     profile=app.bot_data.get("bot_config")
