@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 from services import database
@@ -16,7 +18,7 @@ from services.operations.service import (
 
 
 class SalesScope(WorkspaceScope):
-    ROLE_PERMISSIONS = {
+    ROLE_PERMISSIONS: ClassVar[dict[str, set[str]]] = {
         "owner": {
             "units.manage",
             "memberships.manage",
