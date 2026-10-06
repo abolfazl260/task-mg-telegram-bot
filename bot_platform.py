@@ -1,4 +1,5 @@
 """Multi-bot profile loading and Telegram application orchestration."""
+
 from __future__ import annotations
 
 import asyncio
