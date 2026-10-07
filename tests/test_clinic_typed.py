@@ -1,6 +1,7 @@
 import pytest
 
-from services import clinic_setup, clinic_typed, task_attribute_service as attributes
+from services import clinic_setup, clinic_typed
+from services import task_attribute_service as attributes
 from services.database import fetch_one_sql
 from services.healthcare import service
 
