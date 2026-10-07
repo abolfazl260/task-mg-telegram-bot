@@ -42,10 +42,10 @@ async def import_async(scope, csv_text: str, *, branch_id: str, confirmed: bool 
     try:
         for index, row in enumerate(rows, 2):
             identity=(row.get('patient_id') or row.get('external_id') or '').strip()
-            existing = await fetch_one_sql("SELECT id FROM tasks WHERE workspace_id=? AND unit_id=? AND work_item_type='patient' AND reference_id=? AND archived_at IS NULL", (scope.workspace_id, branch_id, identity)) if identity else None
+            existing = await fetch_one_sql("SELECT t.id FROM tasks t JOIN typed_work_item_data d ON d.task_id=t.id WHERE t.workspace_id=? AND t.unit_id=? AND t.work_item_type='patient' AND json_extract(d.data_json,'$.patient_id')=? AND t.archived_at IS NULL", (scope.workspace_id, branch_id, identity)) if identity else None
             if existing:
                 duplicates.append({'row': index, 'task_id': existing['id']}); continue
-            patient = await clinic_typed.create_patient_async(scope, branch_id, row['display_name'], doctor_id=row.get('doctor_id') or None, reference_id=identity or None)
+            patient = await clinic_typed.create_patient_async(scope, branch_id, row['display_name'], doctor_id=row.get('doctor_id') or None, patient_id=identity or None)
             created.append(patient['id'])
             for column, ctype in CONTACT_COLUMNS.items():
                 value=(row.get(column) or '').strip()
@@ -64,11 +64,12 @@ async def import_async(scope, csv_text: str, *, branch_id: str, confirmed: bool 
 async def export_async(scope, actor_id: str, *, branch_id: str | None = None, include_sessions: bool = True):
     clauses=['t.workspace_id=?','t.work_item_type=\'patient\'','t.archived_at IS NULL']; params=[scope.workspace_id]
     if branch_id: clauses.append('t.unit_id=?'); params.append(branch_id)
-    rows=await fetch_all_sql('SELECT t.* FROM tasks t WHERE '+' AND '.join(clauses)+' ORDER BY t.created_at,t.id',tuple(params))
+    rows=await fetch_all_sql('SELECT t.*,d.data_json FROM tasks t LEFT JOIN typed_work_item_data d ON d.task_id=t.id WHERE '+' AND '.join(clauses)+' ORDER BY t.created_at,t.id',tuple(params))
     out=io.StringIO(); writer=csv.DictWriter(out, fieldnames=['patient_id','display_name','branch_id','status','created_at','sessions','followups']); writer.writeheader()
     for row in rows:
         try: await __import__('services.work_item_access',fromlist=['authorized_task']).authorized_task(row['id'], actor_id)
         except PermissionError: continue
         children=await fetch_all_sql("SELECT work_item_type,status FROM tasks WHERE parent_task_id=? AND archived_at IS NULL",(row['id'],)) if include_sessions else []
-        writer.writerow({'patient_id': row['reference_id'] or row['id'], 'display_name': row['title'], 'branch_id': row['unit_id'], 'status': row['status'], 'created_at': row['created_at'], 'sessions': sum(1 for x in children if x['work_item_type']=='session'), 'followups': sum(1 for x in children if x['work_item_type']=='followup')})
+        typed = clinic_typed._parse(row.get('data_json'))
+        writer.writerow({'patient_id': typed.get('patient_id') or row['reference_id'] or row['id'], 'display_name': row['title'], 'branch_id': row['unit_id'], 'status': row['status'], 'created_at': row['created_at'], 'sessions': sum(1 for x in children if x['work_item_type']=='session'), 'followups': sum(1 for x in children if x['work_item_type']=='followup')})
     return {'filename':'clinic-patients.csv','content':out.getvalue(),'content_type':'text/csv; charset=utf-8'}
