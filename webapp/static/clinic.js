@@ -405,7 +405,7 @@
       if (!branchId) throw new Error('branch_required');
       const created = await request('/api/clinic/typed/patients', {method:'POST', body:{
         display_name:$('patient-display-name').value.trim(),
-        reference_id:$('patient-reference').value.trim() || null,
+        patient_id:$('patient-reference').value.trim() || null,
         branch_id:branchId
       }});
       const newId = created.item.id;
