@@ -22,7 +22,7 @@ def _start_server():
 def test_clinic_workspace_routes_serve_dedicated_shell(path):
     server, thread = _start_server()
     try:
-        with urllib.request.urlopen(
+        with urllib.request.urlopen(  # nosec B310 -- loopback HTTP test server only
             f"http://127.0.0.1:{server.server_port}{path}", timeout=2
         ) as response:
             html = response.read().decode("utf-8")
