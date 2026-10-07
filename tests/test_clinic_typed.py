@@ -117,3 +117,32 @@ async def test_session_clinical_notes_are_attribute_backed_and_not_exposed_in_li
     children = await clinic_typed.list_children_async(patient['id'], '2')
     listed_session = next(item for item in children['items'] if item['id'] == session['id'])
     assert 'clinical_notes' not in listed_session['typed']
+
+
+
+@pytest.mark.asyncio
+async def test_legacy_patient_bridge_is_stable_and_supports_typed_sessions(clinic):
+    owner = clinic['owner']
+
+    first = await clinic_typed.ensure_typed_patient_for_legacy_async(
+        owner, clinic['pa']['id']
+    )
+    second = await clinic_typed.ensure_typed_patient_for_legacy_async(
+        owner, clinic['pa']['id']
+    )
+
+    assert first['id'] == second['id']
+    assert first['work_item_type'] == 'patient'
+    assert first['reference_id'] == clinic['pa']['id']
+
+    session = await clinic_typed.create_child_async(
+        owner,
+        first['id'],
+        'session',
+        'Telegram-compatible visit',
+        scheduled_at='2026-10-08',
+    )
+    assert session['parent_task_id'] == first['id']
+    assert session['work_item_type'] == 'session'
+    assert session['status'] == 'scheduled'
+    assert session['deadline'].endswith('Z')
