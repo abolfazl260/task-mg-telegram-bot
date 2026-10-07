@@ -83,15 +83,70 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
         if (query.get("doctor_id") or [None])[0]: filters.append("t.assignee_id=?"); params.append((query.get("doctor_id") or [None])[0])
         limit, offset = max(1, min(int((query.get("limit") or ["25"])[0]), 100)), max(0, int((query.get("offset") or ["0"])[0]))
         where = " AND ".join(filters)
-        total = await fetch_one_sql("SELECT COUNT(*) AS n FROM tasks t WHERE " + where, tuple(params))
-        rows = await fetch_all_sql("SELECT t.* FROM tasks t WHERE " + where + " ORDER BY t.created_at DESC,t.id LIMIT ? OFFSET ?", tuple(params) + (limit, offset))
+        total = await fetch_one_sql("SELECT COUNT(*) AS n FROM tasks t WHERE " + where, tuple(params))  # nosec B608 -- fixed predicates, bound values
+        rows = await fetch_all_sql(
+            ("SELECT t.*,d.data_json, "  # nosec B608 -- fixed predicates, bound values
+             "COALESCE((SELECT cp.value FROM task_contact_points cp "
+             "WHERE cp.task_id=t.id AND cp.status='active' AND cp.type='phone' "
+             "ORDER BY cp.is_primary DESC,cp.created_at,cp.id LIMIT 1),'') AS primary_phone "
+             "FROM tasks t LEFT JOIN typed_work_item_data d ON d.task_id=t.id WHERE "
+             + where + " ORDER BY t.created_at DESC,t.id LIMIT ? OFFSET ?"),
+            tuple(params) + (limit, offset),
+        )
+        for row in rows:
+            row["typed"] = clinic_typed._parse(row.pop("data_json", "{}"))
         return 200, {"items": rows, "total": int((total or {}).get("n") or 0), "limit": limit, "offset": offset}
     if path == "/api/clinic/typed/patients" and method == "POST":
         return 201, {"item": await clinic_typed.create_patient_async(
             scope, data.get("branch_id"), data.get("display_name"),
-            doctor_id=data.get("doctor_id"), reference_id=data.get("reference_id"),
+            doctor_id=data.get("doctor_id"),
+            reference_id=data.get("legacy_reference_id"),
+            patient_id=data.get("patient_id") or data.get("reference_id"),
             fields=data.get("fields"),
         )}
+    if path == "/api/clinic/typed/sessions" and method == "GET":
+        from services.work_item_access import workspace_predicate
+        pred, args = await workspace_predicate(oid, str(actor_id), alias="t", action="view")
+        filters = [pred, "t.work_item_type='session'", "t.archived_at IS NULL"]
+        params = list(args)
+        search = (query.get("search") or [""])[0].strip()
+        if search:
+            filters.append("(LOWER(t.title) LIKE ? OR LOWER(COALESCE(p.title,'')) LIKE ?)")
+            needle = f"%{search.lower()}%"
+            params.extend([needle, needle])
+        branch_id = (query.get("branch_id") or [None])[0]
+        doctor_id = (query.get("doctor_id") or [None])[0]
+        status = (query.get("status") or [None])[0]
+        if branch_id:
+            filters.append("t.unit_id=?")
+            params.append(branch_id)
+        if doctor_id:
+            filters.append("t.assignee_id=?")
+            params.append(doctor_id)
+        if status:
+            filters.append("t.status=?")
+            params.append(status)
+        limit = max(1, min(int((query.get("limit") or ["50"])[0]), 100))
+        offset = max(0, int((query.get("offset") or ["0"])[0]))
+        where = " AND ".join(filters)
+        total = await fetch_one_sql(
+            "SELECT COUNT(*) AS n FROM tasks t LEFT JOIN tasks p ON p.id=t.parent_task_id WHERE " + where,
+            tuple(params),
+        )
+        rows = await fetch_all_sql(
+            """SELECT t.*,p.title AS patient_name,d.data_json
+               FROM tasks t
+               LEFT JOIN tasks p ON p.id=t.parent_task_id
+               LEFT JOIN typed_work_item_data d ON d.task_id=t.id
+               WHERE """ + where + """
+               ORDER BY CASE WHEN COALESCE(t.deadline,'')='' THEN 1 ELSE 0 END,
+                        t.deadline,t.created_at,t.id
+               LIMIT ? OFFSET ?""",
+            tuple(params) + (limit, offset),
+        )
+        for row in rows:
+            row["typed"] = clinic_typed._parse(row.pop("data_json", "{}"))
+        return 200, {"items": rows, "total": int((total or {}).get("n") or 0), "limit": limit, "offset": offset}
     if path == "/api/clinic/typed/contact-points" and method == "GET":
         return 200, {"items": await contact_point_service.list_contact_points_async(
             (query.get("task_id") or [""])[0], str(actor_id), include_inactive=(query.get("include_inactive") or ["false"])[0] == "true"
@@ -124,7 +179,7 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
             children = await clinic_typed.list_children_async(item_id, str(actor_id)) if item.get("work_item_type") == "patient" else {"items": [], "total": 0}
             contacts = await contact_point_service.list_contact_points_async(item_id, str(actor_id), include_inactive=True)
             files = await attachment_service.list_attachments_async(item_id, str(actor_id), include_archived=False)
-            return 200, {"item": item, "children": children, "contact_points": contacts, "attachments": files, "tabs": ["profile", "contact", "medical_history", "sessions", "followups", "files", "activity"]}
+            return 200, {"item": item, "children": children, "contact_points": contacts, "attachments": files, "tabs": ["profile", "contact", "medical_history", "medications", "allergies", "diagnoses", "clinical_notes", "sessions", "followups", "files", "activity"]}
         return 200, {"item": await clinic_typed.update_item_async(item_id, str(actor_id), title=data.get("title"), fields=data.get("fields"))}
     if path.startswith("/api/clinic/typed/items/") and path.endswith("/assign") and method == "POST":
         item_id = path.split("/")[-2]
