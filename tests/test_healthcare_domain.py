@@ -80,6 +80,17 @@ async def test_patient_search_uses_core_reference_fields_and_preserves_scope(cli
     assert clinic["pb"]["id"] not in {item["id"] for item in hidden["items"]}
 
 
+async def test_case_accepts_date_only_expected_at_from_clinic_ui(clinic):
+    case = await service.create_case(
+        clinic["owner"],
+        clinic["pa"]["id"],
+        "Date-only session",
+        "2",
+        expected_at="2026-10-07",
+    )
+    assert case["expected_at"] == service.utc_date("2026-10-07T00:00:00+03:30")
+
+
 async def test_doctor_context_is_independent_from_task_owner(clinic):
     task = await service.create_action(
         clinic["owner"],
