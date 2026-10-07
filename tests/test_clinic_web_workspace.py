@@ -53,8 +53,9 @@ def clinic_profile(monkeypatch):
 @pytest.mark.asyncio
 async def test_typed_patient_list_exposes_typed_fields_and_primary_phone(clinic, clinic_profile):
     patient = await clinic_typed.create_patient_async(
-        clinic["owner"], clinic["a"], "Web Patient", reference_id="WEB-001"
+        clinic["owner"], clinic["a"], "Web Patient", patient_id="WEB-001"
     )
+    assert patient["reference_id"] is None
     await clinic_typed.update_item_async(
         patient["id"], "1", fields={"first_name": "Web", "status": "active"}
     )
