@@ -177,7 +177,12 @@ async def handle_clinic_input(update, context):
                 scope, patient_id
             )
             await clinic_typed.create_child_async(
-                scope, typed_patient["id"], "session", title, scheduled_at=scheduled
+                scope,
+                typed_patient["id"],
+                "session",
+                title,
+                scheduled_at=scheduled,
+                doctor_id=typed_patient.get("assignee_id"),
             )
             context.user_data.pop("clinic_input", None)
             await update.effective_message.reply_text("✅ جلسه بیمار برای تاریخ شمسی انتخاب‌شده ایجاد شد.")
@@ -386,7 +391,12 @@ async def clinic_callback(update, context):
                 scope, patient_id
             )
             await clinic_typed.create_child_async(
-                scope, typed_patient["id"], "session", title, scheduled_at=expected
+                scope,
+                typed_patient["id"],
+                "session",
+                title,
+                scheduled_at=expected,
+                doctor_id=typed_patient.get("assignee_id"),
             )
             context.user_data.pop("clinic_input", None)
             return await query.message.reply_text("✅ جلسه بیمار ایجاد شد.")
