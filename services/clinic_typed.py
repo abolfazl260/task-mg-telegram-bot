@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import date, datetime, time, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from services import task_attribute_service as attributes
 from services.database import execute, fetch_all_sql, fetch_one_sql, transaction
@@ -135,6 +137,87 @@ async def _validate_branch(scope: Scope, branch_id: str, permission: str):
     return await scope.branch(branch_id, permission)
 
 
+async def _normalize_scheduled_at(workspace_id: str, value: str) -> str:
+    raw = str(value or "").strip()
+    if len(raw) == 10:
+        try:
+            local_date = date.fromisoformat(raw)
+        except ValueError:
+            pass
+        else:
+            workspace = await fetch_one_sql(
+                "SELECT timezone FROM workspaces WHERE id=?", (workspace_id,)
+            )
+            zone = ZoneInfo((workspace or {}).get("timezone") or "UTC")
+            local = datetime.combine(local_date, time.min, tzinfo=zone)
+            return local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return utc_date(raw)
+
+
+async def find_typed_patient_for_legacy_async(
+    scope: Scope, legacy_patient_id: str, *, write: bool = False
+) -> dict | None:
+    row = await fetch_one_sql(
+        """SELECT id FROM tasks
+           WHERE workspace_id=? AND reference_id=? AND work_item_type='patient'
+             AND archived_at IS NULL
+           ORDER BY created_at,id LIMIT 1""",
+        (scope.workspace_id, str(legacy_patient_id)),
+    )
+    if not row:
+        return None
+    return await _item(row["id"], str(scope.actor_id), write=write)
+
+
+async def ensure_typed_patient_for_legacy_async(scope: Scope, legacy_patient_id: str) -> dict:
+    existing = await find_typed_patient_for_legacy_async(scope, legacy_patient_id, write=True)
+    if existing:
+        return existing
+
+    # Import locally to keep the typed adapter independent from the legacy
+    # Healthcare repository except at this explicit compatibility boundary.
+    from services.healthcare import service as legacy_service
+
+    patient = await legacy_service.get_entity(scope, "patients", str(legacy_patient_id))
+    if patient.get("status") != "active":
+        raise ValueError("patient_is_archived")
+    await scope.branch(patient["unit_id"], "tasks.manage")
+    workspace = await fetch_one_sql(
+        "SELECT bot_key FROM workspaces WHERE id=? AND status='active'",
+        (scope.workspace_id,),
+    )
+    if not workspace:
+        raise ClinicAccessError("forbidden")
+
+    # Match clinic_migration._stable("patient", legacy_id), so a later full
+    # migration reuses this bridge record instead of creating a duplicate.
+    typed_id = str(
+        uuid.uuid5(uuid.NAMESPACE_URL, f"taskmg:clinic:patient:{legacy_patient_id}")
+    )
+    payload = {
+        "legacy_reference_id": str(legacy_patient_id),
+        "patient_id": patient.get("external_reference"),
+        "doctor_id": patient.get("primary_owner_user_id"),
+        "status": patient.get("status", "active"),
+    }
+    await transaction([
+        ("INSERT OR IGNORE INTO users(user_id) VALUES(?)", (str(scope.actor_id),)),
+        ("""INSERT OR IGNORE INTO tasks(
+             id,bot_key,work_item_type,user_id,title,status,created_at,
+             workspace_id,unit_id,reference_id,assignee_id
+           ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+         (typed_id, workspace["bot_key"], "patient", str(scope.actor_id),
+          text(patient.get("display_name"), max_length=200), "pending", now(),
+          scope.workspace_id, patient["unit_id"], str(legacy_patient_id),
+          patient.get("primary_owner_user_id"))),
+        ("""INSERT OR IGNORE INTO typed_work_item_data(
+             task_id,data_json,created_at,updated_at
+           ) VALUES(?,?,?,?)""", (typed_id, _json(payload), now(), now())),
+        audit(scope, patient["unit_id"], "patient.typed_bridge_created", "task", typed_id),
+    ])
+    return await _item(typed_id, str(scope.actor_id), write=True)
+
+
 async def create_patient_async(scope: Scope, branch_id: str, display_name: str, *, doctor_id: str | None = None, reference_id: str | None = None, patient_id: str | None = None, fields: dict | None = None) -> dict:
     await _validate_branch(scope, branch_id, "patients.manage")
     if doctor_id:
@@ -189,7 +272,7 @@ async def create_child_async(scope: Scope, parent_task_id: str, item_type: str, 
             if _parse(existing.get("data_json")).get("dedupe_key") == str(payload["dedupe_key"]):
                 return await _item(existing["id"], str(scope.actor_id))
     if scheduled_at:
-        payload["scheduled_at"] = utc_date(scheduled_at)
+        payload["scheduled_at"] = await _normalize_scheduled_at(scope.workspace_id, scheduled_at)
     if doctor_id:
         payload["doctor_id"] = str(doctor_id)
     payload.setdefault("status", "scheduled" if item_type == "session" else "due")
@@ -311,4 +394,6 @@ transition = lambda *a, **k: _run(transition_async(*a, **k))
 reschedule = lambda *a, **k: _run(reschedule_async(*a, **k))
 assign = lambda *a, **k: _run(assign_async(*a, **k))
 create_next_followup = lambda *a, **k: _run(create_next_followup_async(*a, **k))
+find_typed_patient_for_legacy = lambda *a, **k: _run(find_typed_patient_for_legacy_async(*a, **k))
+ensure_typed_patient_for_legacy = lambda *a, **k: _run(ensure_typed_patient_for_legacy_async(*a, **k))
 update_item = lambda *a, **k: _run(update_item_async(*a, **k))
