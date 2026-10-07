@@ -8,7 +8,7 @@ import pytest
 from bot_platform import BotProfile
 from services import clinic_typed, contact_point_service
 from webapp import clinic_api
-from webapp.server import WebAppHandler, ThreadingHTTPServer
+from webapp.server import ThreadingHTTPServer, WebAppHandler
 
 
 def _start_server():
