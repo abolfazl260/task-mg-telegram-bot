@@ -2,6 +2,9 @@
 
 from __future__ import annotations  # noqa: I001
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from services.database import fetch_all_sql, fetch_one_sql, transaction
 from services.healthcare.access import ClinicAccessError, ROLE_PERMISSIONS, Scope
 from services.healthcare.terminology import to_healthcare_record
@@ -282,6 +285,20 @@ async def create_case(
         doctor_id
     ) != str(scope.actor_id):
         raise ClinicAccessError("forbidden")
+
+    if expected_at and isinstance(expected_at, str) and len(expected_at) == 10:
+        try:
+            local_date = datetime.strptime(expected_at, "%Y-%m-%d")
+        except ValueError:
+            pass
+        else:
+            workspace = await fetch_one_sql(
+                "SELECT timezone FROM workspaces WHERE id=?", (scope.workspace_id,)
+            )
+            zone = ZoneInfo(
+                (workspace or {}).get("timezone") or HEALTHCARE_CONFIG.default_timezone
+            )
+            expected_at = local_date.replace(tzinfo=zone).isoformat()
 
     row = await create_core_case(
         scope,
