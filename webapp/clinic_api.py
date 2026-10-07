@@ -99,7 +99,9 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
     if path == "/api/clinic/typed/patients" and method == "POST":
         return 201, {"item": await clinic_typed.create_patient_async(
             scope, data.get("branch_id"), data.get("display_name"),
-            doctor_id=data.get("doctor_id"), reference_id=data.get("reference_id"),
+            doctor_id=data.get("doctor_id"),
+            reference_id=data.get("legacy_reference_id"),
+            patient_id=data.get("patient_id") or data.get("reference_id"),
         )}
     if path == "/api/clinic/typed/sessions" and method == "GET":
         from services.work_item_access import workspace_predicate
