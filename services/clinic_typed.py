@@ -49,20 +49,21 @@ async def _validate_branch(scope: Scope, branch_id: str, permission: str):
     return await scope.branch(branch_id, permission)
 
 
-async def create_patient_async(scope: Scope, branch_id: str, display_name: str, *, doctor_id: str | None = None, reference_id: str | None = None) -> dict:
+async def create_patient_async(scope: Scope, branch_id: str, display_name: str, *, doctor_id: str | None = None, reference_id: str | None = None, patient_id: str | None = None) -> dict:
     await _validate_branch(scope, branch_id, "patients.manage")
     if doctor_id:
         await fetch_one_sql("SELECT 1 FROM workspace_memberships WHERE workspace_id=? AND user_id=? AND status='active' AND (unit_id IS NULL OR unit_id=?)", (scope.workspace_id, str(doctor_id), branch_id)) or (_ for _ in ()).throw(ClinicAccessError("forbidden"))
     ws = await fetch_one_sql("SELECT bot_key FROM workspaces WHERE id=?", (scope.workspace_id,))
     bot = ws["bot_key"]
-    patient_id = uuid.uuid4().hex
+    task_id = uuid.uuid4().hex
+    external_patient_id = text(patient_id, max_length=100) if patient_id not in (None, "") else reference_id
     await transaction([
         ("INSERT OR IGNORE INTO users(user_id) VALUES(?)", (str(scope.actor_id),)),
-        ("INSERT INTO tasks(id,bot_key,work_item_type,user_id,title,status,created_at,workspace_id,unit_id,reference_id,assignee_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)", (patient_id, bot, "patient", str(scope.actor_id), text(display_name, max_length=200), "pending", now(), scope.workspace_id, branch_id, reference_id, str(doctor_id) if doctor_id else None)),
-        ("INSERT INTO typed_work_item_data(task_id,data_json,created_at,updated_at) VALUES(?,?,?,?)", (patient_id, _json({"patient_id": reference_id, "doctor_id": doctor_id, "status": "active"}), now(), now())),
-        audit(scope, branch_id, "patient.created", "task", patient_id),
+        ("INSERT INTO tasks(id,bot_key,work_item_type,user_id,title,status,created_at,workspace_id,unit_id,reference_id,assignee_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)", (task_id, bot, "patient", str(scope.actor_id), text(display_name, max_length=200), "pending", now(), scope.workspace_id, branch_id, reference_id, str(doctor_id) if doctor_id else None)),
+        ("INSERT INTO typed_work_item_data(task_id,data_json,created_at,updated_at) VALUES(?,?,?,?)", (task_id, _json({"patient_id": external_patient_id, "doctor_id": doctor_id, "status": "active"}), now(), now())),
+        audit(scope, branch_id, "patient.created", "task", task_id),
     ])
-    return await _item(patient_id, str(scope.actor_id))
+    return await _item(task_id, str(scope.actor_id))
 
 
 async def create_child_async(scope: Scope, parent_task_id: str, item_type: str, title: str, *, scheduled_at: str | None = None, doctor_id: str | None = None, branch_id: str | None = None, fields: dict | None = None) -> dict:
