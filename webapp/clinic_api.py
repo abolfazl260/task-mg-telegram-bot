@@ -83,19 +83,14 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
         if (query.get("doctor_id") or [None])[0]: filters.append("t.assignee_id=?"); params.append((query.get("doctor_id") or [None])[0])
         limit, offset = max(1, min(int((query.get("limit") or ["25"])[0]), 100)), max(0, int((query.get("offset") or ["0"])[0]))
         where = " AND ".join(filters)
-        total = await fetch_one_sql("SELECT COUNT(*) AS n FROM tasks t WHERE " + where, tuple(params))
+        total = await fetch_one_sql("SELECT COUNT(*) AS n FROM tasks t WHERE " + where, tuple(params))  # nosec B608 -- fixed predicates, bound values
         rows = await fetch_all_sql(
-            """SELECT t.*,d.data_json,
-                      COALESCE((
-                          SELECT cp.value
-                          FROM task_contact_points cp
-                          WHERE cp.task_id=t.id AND cp.status='active' AND cp.type='phone'
-                          ORDER BY cp.is_primary DESC,cp.created_at,cp.id
-                          LIMIT 1
-                      ),'') AS primary_phone
-               FROM tasks t
-               LEFT JOIN typed_work_item_data d ON d.task_id=t.id
-               WHERE """ + where + " ORDER BY t.created_at DESC,t.id LIMIT ? OFFSET ?",
+            ("SELECT t.*,d.data_json, "  # nosec B608 -- fixed predicates, bound values
+             "COALESCE((SELECT cp.value FROM task_contact_points cp "
+             "WHERE cp.task_id=t.id AND cp.status='active' AND cp.type='phone' "
+             "ORDER BY cp.is_primary DESC,cp.created_at,cp.id LIMIT 1),'') AS primary_phone "
+             "FROM tasks t LEFT JOIN typed_work_item_data d ON d.task_id=t.id WHERE "
+             + where + " ORDER BY t.created_at DESC,t.id LIMIT ? OFFSET ?"),
             tuple(params) + (limit, offset),
         )
         for row in rows:
