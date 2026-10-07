@@ -94,7 +94,9 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
             tuple(params) + (limit, offset),
         )
         for row in rows:
-            row["typed"] = clinic_typed._parse(row.pop("data_json", "{}"))
+            row["typed"] = clinic_typed._without_medical(
+                clinic_typed._parse(row.pop("data_json", "{}"))
+            )
         return 200, {"items": rows, "total": int((total or {}).get("n") or 0), "limit": limit, "offset": offset}
     if path == "/api/clinic/typed/patients" and method == "POST":
         return 201, {"item": await clinic_typed.create_patient_async(
@@ -145,7 +147,9 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
             tuple(params) + (limit, offset),
         )
         for row in rows:
-            row["typed"] = clinic_typed._parse(row.pop("data_json", "{}"))
+            row["typed"] = clinic_typed._without_medical(
+                clinic_typed._parse(row.pop("data_json", "{}"))
+            )
         return 200, {"items": rows, "total": int((total or {}).get("n") or 0), "limit": limit, "offset": offset}
     if path == "/api/clinic/typed/contact-points" and method == "GET":
         return 200, {"items": await contact_point_service.list_contact_points_async(
