@@ -254,3 +254,99 @@ async def test_manager_can_close_after_creator_or_owner_is_deactivated(clinic):
     assert (await service.get_entity(scope, "tasks", f["task_id"]))[
         "status"
     ] == "cancelled"
+
+
+
+async def test_telegram_session_flow_creates_typed_session_not_legacy_case(clinic, profile):
+    patient_id = clinic['pa']['id']
+    before = await database.fetch_one_sql(
+        "SELECT COUNT(*) AS n FROM cases WHERE workspace_id=? AND reference_id=?",
+        (clinic['owner'].workspace_id, patient_id),
+    )
+
+    message = SimpleNamespace(text=None, reply_text=AsyncMock())
+    query = SimpleNamespace(
+        data=f"clinic:new_session:{patient_id}",
+        answer=AsyncMock(),
+        message=message,
+        edit_message_text=AsyncMock(),
+    )
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_user=SimpleNamespace(id=2),
+        effective_message=message,
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(bot_data={"bot_config": profile}),
+        user_data={
+            "clinic_organization_id": clinic['owner'].workspace_id,
+            "clinic_branch_id": clinic['a'],
+        },
+    )
+
+    await telegram_clinic.clinic_callback(update, context)
+    assert context.user_data["clinic_input"] == "typed_session_title"
+
+    update.callback_query = None
+    message.text = "Initial Telegram visit"
+    await telegram_clinic.handle_clinic_input(update, context)
+    assert context.user_data["clinic_input"] == "typed_session_date"
+
+    query = SimpleNamespace(
+        data="clinic:session_date:1",
+        answer=AsyncMock(),
+        message=message,
+        edit_message_text=AsyncMock(),
+    )
+    update.callback_query = query
+    await telegram_clinic.clinic_callback(update, context)
+
+    after = await database.fetch_one_sql(
+        "SELECT COUNT(*) AS n FROM cases WHERE workspace_id=? AND reference_id=?",
+        (clinic['owner'].workspace_id, patient_id),
+    )
+    assert after['n'] == before['n']
+
+    typed_patient = await database.fetch_one_sql(
+        """SELECT * FROM tasks
+           WHERE workspace_id=? AND reference_id=? AND work_item_type='patient'
+             AND archived_at IS NULL""",
+        (clinic['owner'].workspace_id, patient_id),
+    )
+    assert typed_patient is not None
+
+    session = await database.fetch_one_sql(
+        """SELECT * FROM tasks
+           WHERE workspace_id=? AND parent_task_id=? AND work_item_type='session'
+             AND title=? AND archived_at IS NULL""",
+        (clinic['owner'].workspace_id, typed_patient['id'], 'Initial Telegram visit'),
+    )
+    assert session is not None
+    assert session['status'] == 'scheduled'
+
+
+async def test_clinic_menu_exposes_typed_sessions(clinic, profile):
+    query = SimpleNamespace(edit_message_text=AsyncMock())
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_user=SimpleNamespace(id=1),
+        effective_message=SimpleNamespace(reply_text=AsyncMock()),
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(bot_data={"bot_config": profile}),
+        user_data={
+            "clinic_organization_id": clinic['owner'].workspace_id,
+            "clinic_branch_id": clinic['a'],
+        },
+    )
+
+    await telegram_clinic.clinic_menu(update, context)
+
+    markup = query.edit_message_text.call_args.kwargs["reply_markup"]
+    callbacks = [
+        button.callback_data
+        for row in markup.inline_keyboard
+        for button in row
+        if getattr(button, "callback_data", None)
+    ]
+    assert "clinic:typed:0" in callbacks
