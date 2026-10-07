@@ -57,6 +57,40 @@ async def test_scope_enforced_in_queries_and_valid_id_access(clinic):
     )["total"] == 2
 
 
+async def test_patient_search_uses_core_reference_fields_and_preserves_scope(clinic):
+    scope = clinic["owner"]
+    patient = await service.create_patient(
+        scope,
+        clinic["a"],
+        "Searchable Patient",
+        external_reference="SEARCH-001",
+        phone="+98 912 345 6789",
+    )
+    reception = Scope(scope.organization_id, "2")
+
+    for query in ("Searchable", "SEARCH-001", "345 6789"):
+        page = await service.list_entities(
+            reception, "patients", search=query, limit=20
+        )
+        assert patient["id"] in {item["id"] for item in page["items"]}
+
+    hidden = await service.list_entities(
+        reception, "patients", search="Synthetic B", limit=20
+    )
+    assert clinic["pb"]["id"] not in {item["id"] for item in hidden["items"]}
+
+
+async def test_case_accepts_date_only_expected_at_from_clinic_ui(clinic):
+    case = await service.create_case(
+        clinic["owner"],
+        clinic["pa"]["id"],
+        "Date-only session",
+        "2",
+        expected_at="2026-10-07",
+    )
+    assert case["expected_at"] == service.utc_date("2026-10-07T00:00:00+03:30")
+
+
 async def test_doctor_context_is_independent_from_task_owner(clinic):
     task = await service.create_action(
         clinic["owner"],

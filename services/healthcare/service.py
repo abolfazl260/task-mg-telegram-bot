@@ -2,6 +2,9 @@
 
 from __future__ import annotations  # noqa: I001
 
+from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
+
 from services.database import fetch_all_sql, fetch_one_sql, transaction
 from services.healthcare.access import ClinicAccessError, ROLE_PERMISSIONS, Scope
 from services.healthcare.terminology import to_healthcare_record
@@ -201,8 +204,12 @@ async def list_entities(
     if missing_next_action and kind == "cases":
         pred += " AND e.status='active' AND NOT EXISTS(SELECT 1 FROM tasks na WHERE na.id=e.next_action_task_id AND na.workspace_id=e.workspace_id AND na.case_id=e.id AND na.status IN ('pending','in_progress'))"
     if search and kind == "patients":
-        pred += " AND (e.display_name LIKE ? OR e.external_reference=? OR EXISTS (SELECT 1 FROM contact_points cp WHERE cp.entity_id=e.id AND cp.normalized_value LIKE ?))"
-        params.extend((f"%{text(search)}%", search, f"%{text(search)}%"))
+        query = text(search)
+        pred += (
+            " AND (e.display_name LIKE ? OR e.external_reference=? "
+            "OR e.contact_value LIKE ?)"
+        )
+        params.extend((f"%{query}%", query, f"%{query}%"))
     if search and kind == "cases":
         pred += " AND (e.title LIKE ? OR e.external_reference LIKE ?)"
         params.extend((f"%{text(search)}%", f"%{text(search)}%"))
@@ -278,6 +285,20 @@ async def create_case(
         doctor_id
     ) != str(scope.actor_id):
         raise ClinicAccessError("forbidden")
+
+    if expected_at and isinstance(expected_at, str) and len(expected_at) == 10:
+        try:
+            local_date = date.fromisoformat(expected_at)
+        except ValueError:
+            pass
+        else:
+            workspace = await fetch_one_sql(
+                "SELECT timezone FROM workspaces WHERE id=?", (scope.workspace_id,)
+            )
+            zone = ZoneInfo(
+                (workspace or {}).get("timezone") or HEALTHCARE_CONFIG.default_timezone
+            )
+            expected_at = datetime.combine(local_date, time.min, tzinfo=zone).isoformat()
 
     row = await create_core_case(
         scope,
