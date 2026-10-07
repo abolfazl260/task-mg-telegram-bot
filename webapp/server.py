@@ -63,6 +63,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
         relative=path.removeprefix("/static/") if path.startswith("/static/") else ""
         if path=="/": relative="index.html"
         if path in {"/clinic-report", "/clinic-report/"}: relative="clinic-report.html"
+        if path in {"/clinic", "/clinic/"} or path.startswith("/clinic/"): relative="clinic.html"
         if path in {ADMIN_PATH, ADMIN_PATH+"/"}: relative="admin/index.html"
         if not relative or ".." in Path(relative).parts: return False
         target=(STATIC_DIR/relative).resolve()
@@ -301,7 +302,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
             return
         if path.startswith("/tasks/") or path.startswith("/task/"):
             return handle_public_task_get(self)
-        if path in {"/","/static/index.html",ADMIN_PATH,ADMIN_PATH+"/"} or path.startswith("/static/"): return self._serve_static(path) or self._json(404,{"error":"not_found"})
+        if path in {"/","/static/index.html",ADMIN_PATH,ADMIN_PATH+"/"} or path.startswith("/static/") or path in {"/clinic","/clinic/"} or path.startswith("/clinic/"): return self._serve_static(path) or self._json(404,{"error":"not_found"})
         if path in {"/health","/healthz"}: return self._json(200,{"status":"ok","service":"telegram-webapp"})
         return self._dispatch("GET")
     def do_POST(self): return self._dispatch("POST")
