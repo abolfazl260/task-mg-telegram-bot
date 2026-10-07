@@ -2,7 +2,7 @@
 
 from __future__ import annotations  # noqa: I001
 
-from datetime import datetime
+from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
 from services.database import fetch_all_sql, fetch_one_sql, transaction
@@ -288,7 +288,7 @@ async def create_case(
 
     if expected_at and isinstance(expected_at, str) and len(expected_at) == 10:
         try:
-            local_date = datetime.strptime(expected_at, "%Y-%m-%d")
+            local_date = date.fromisoformat(expected_at)
         except ValueError:
             pass
         else:
@@ -298,7 +298,7 @@ async def create_case(
             zone = ZoneInfo(
                 (workspace or {}).get("timezone") or HEALTHCARE_CONFIG.default_timezone
             )
-            expected_at = local_date.replace(tzinfo=zone).isoformat()
+            expected_at = datetime.combine(local_date, time.min, tzinfo=zone).isoformat()
 
     row = await create_core_case(
         scope,
