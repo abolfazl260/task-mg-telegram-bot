@@ -102,6 +102,7 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
             doctor_id=data.get("doctor_id"),
             reference_id=data.get("legacy_reference_id"),
             patient_id=data.get("patient_id") or data.get("reference_id"),
+            fields=data.get("fields"),
         )}
     if path == "/api/clinic/typed/sessions" and method == "GET":
         from services.work_item_access import workspace_predicate
