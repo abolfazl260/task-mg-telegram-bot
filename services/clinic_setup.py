@@ -7,6 +7,16 @@ from services.database import execute, fetch_all_sql, fetch_one_sql, transaction
 from services.healthcare.service import HEALTHCARE_CONFIG
 from services.operations.service import create_workspace, now
 
+SENSITIVE_MEDICAL_FIELDS = frozenset({
+    'disease_history',
+    'chronic_conditions',
+    'allergies',
+    'medications',
+    'diagnoses',
+    'clinical_notes',
+    'treatment_information',
+})
+
 DEFAULT_FIELDS = {
     'patient': [
         ('patient_id', 'شناسه بیمار', 'text', False), ('first_name', 'نام', 'text', True),
@@ -39,7 +49,7 @@ async def _ensure_definitions(workspace_id, bot_key, configured=None):
                 continue
             exists = await fetch_one_sql("SELECT id FROM task_attribute_definitions WHERE bot_key=? AND workspace_id=? AND work_item_type=? AND field_key=? AND active=1", (bot_key, workspace_id, item_type, key))
             if exists: continue
-            await execute("INSERT INTO task_attribute_definitions(id,bot_key,workspace_id,work_item_type,field_key,label,data_type,required,repeatable,validation_json,active,version,created_at,updated_at,sensitive,view_roles_json,edit_roles_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (uuid.uuid4().hex, bot_key, workspace_id, item_type, key, label, dtype, int(required), 0, '{}', 1, 1, now(), now(), int(key in {'diagnoses','clinical_notes','allergies','medications'}), '["owner","admin","manager","doctor","dentist"]', '["owner","admin","doctor","dentist"]'))
+            await execute("INSERT INTO task_attribute_definitions(id,bot_key,workspace_id,work_item_type,field_key,label,data_type,required,repeatable,validation_json,active,version,created_at,updated_at,sensitive,view_roles_json,edit_roles_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (uuid.uuid4().hex, bot_key, workspace_id, item_type, key, label, dtype, int(required), 0, '{}', 1, 1, now(), now(), int(key in SENSITIVE_MEDICAL_FIELDS), '["owner","admin","manager","doctor","dentist"]', '["owner","admin","doctor","dentist"]'))
             made += 1
     return made
 
