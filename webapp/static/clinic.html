@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>فضای کار کلینیک · TaskMG</title>
+  <link rel="stylesheet" href="/static/clinic.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <div class="clinic-shell" data-auth-protected hidden>
+    <aside class="clinic-sidebar">
+      <div class="clinic-brand">
+        <span class="clinic-brand-icon">✚</span>
+        <div>
+          <strong id="workspace-title">فضای کار کلینیک</strong>
+          <small>TaskMG Healthcare</small>
+        </div>
+      </div>
+
+      <label class="field compact">
+        <span>فضای کاری</span>
+        <select id="workspace-select"></select>
+      </label>
+
+      <nav class="clinic-nav" aria-label="ناوبری کلینیک">
+        <button class="nav-item active" data-route="patients" type="button">
+          <span>👥</span><span>بیماران</span>
+        </button>
+        <button class="nav-item" data-route="sessions" type="button">
+          <span>🗓️</span><span>جلسات</span>
+        </button>
+      </nav>
+
+      <div class="clinic-sidebar-foot">
+        <span id="role-badge" class="role-badge">—</span>
+        <button id="theme-toggle" class="icon-btn" type="button" aria-label="تغییر تم">☾</button>
+      </div>
+    </aside>
+
+    <main class="clinic-main">
+      <header class="clinic-topbar">
+        <div>
+          <div class="eyebrow">Clinic workspace</div>
+          <h1 id="page-title">بیماران</h1>
+          <p id="page-subtitle">مدیریت پرونده بیماران و اطلاعات تماس</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="refresh-btn" class="btn secondary" type="button">↻ به‌روزرسانی</button>
+          <button id="primary-action" class="btn primary" type="button">+ بیمار جدید</button>
+        </div>
+      </header>
+
+      <section id="flash" class="flash" hidden></section>
+
+      <section id="patients-view" class="view-panel">
+        <div class="toolbar">
+          <label class="search-box">
+            <span>⌕</span>
+            <input id="patient-search" type="search" placeholder="جستجو با نام، شماره تماس یا کد بیمار">
+          </label>
+          <select id="patient-branch-filter" class="select-control" aria-label="فیلتر شعبه"></select>
+        </div>
+
+        <div class="surface table-surface">
+          <div class="surface-heading">
+            <div>
+              <h2>لیست بیماران</h2>
+              <p id="patients-count">—</p>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>بیمار</th>
+                  <th>کد بیمار</th>
+                  <th>تماس</th>
+                  <th>وضعیت</th>
+                  <th>تاریخ ایجاد</th>
+                  <th class="actions-col">عملیات</th>
+                </tr>
+              </thead>
+              <tbody id="patients-body"></tbody>
+            </table>
+          </div>
+          <div id="patients-empty" class="empty-state" hidden>
+            <div class="empty-icon">👤</div>
+            <h3>بیماری پیدا نشد</h3>
+            <p>یک بیمار جدید بسازید یا فیلترها را تغییر دهید.</p>
+          </div>
+          <div class="pagination">
+            <button id="patients-prev" class="btn secondary small" type="button">قبلی</button>
+            <span id="patients-page">—</span>
+            <button id="patients-next" class="btn secondary small" type="button">بعدی</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="sessions-view" class="view-panel" hidden>
+        <div class="toolbar">
+          <label class="search-box">
+            <span>⌕</span>
+            <input id="session-search" type="search" placeholder="جستجو در عنوان جلسه یا نام بیمار">
+          </label>
+          <select id="session-status-filter" class="select-control" aria-label="فیلتر وضعیت جلسه">
+            <option value="">همه وضعیت‌ها</option>
+            <option value="scheduled">برنامه‌ریزی‌شده</option>
+            <option value="completed">تکمیل‌شده</option>
+            <option value="cancelled">لغوشده</option>
+            <option value="no_show">عدم حضور</option>
+            <option value="rescheduled">تغییر زمان</option>
+          </select>
+          <select id="session-branch-filter" class="select-control" aria-label="فیلتر شعبه"></select>
+        </div>
+
+        <div class="surface table-surface">
+          <div class="surface-heading">
+            <div>
+              <h2>جلسات بیماران</h2>
+              <p id="sessions-count">—</p>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>بیمار</th>
+                  <th>عنوان جلسه</th>
+                  <th>زمان</th>
+                  <th>نوع</th>
+                  <th>وضعیت</th>
+                  <th class="actions-col">عملیات</th>
+                </tr>
+              </thead>
+              <tbody id="sessions-body"></tbody>
+            </table>
+          </div>
+          <div id="sessions-empty" class="empty-state" hidden>
+            <div class="empty-icon">🗓️</div>
+            <h3>جلسه‌ای وجود ندارد</h3>
+            <p>برای یکی از بیماران جلسه جدید تنظیم کنید.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="patient-detail-view" class="view-panel" hidden>
+        <button id="patient-back" class="back-link" type="button">→ بازگشت به بیماران</button>
+        <div class="detail-header surface">
+          <div class="avatar" id="patient-avatar">ب</div>
+          <div class="detail-title">
+            <div class="eyebrow">پرونده بیمار</div>
+            <h2 id="patient-name">—</h2>
+            <p id="patient-meta">—</p>
+          </div>
+          <button id="patient-edit" class="btn secondary" type="button">ویرایش بیمار</button>
+        </div>
+
+        <div class="detail-tabs" role="tablist">
+          <button class="detail-tab active" data-detail-tab="profile" type="button">مشخصات</button>
+          <button class="detail-tab" data-detail-tab="contact" type="button">تماس‌ها</button>
+          <button class="detail-tab" data-detail-tab="sessions" type="button">جلسات</button>
+          <button class="detail-tab" data-detail-tab="clinical" type="button">اطلاعات بالینی</button>
+        </div>
+
+        <div id="detail-profile" class="detail-panel">
+          <div id="profile-grid" class="profile-grid"></div>
+        </div>
+
+        <div id="detail-contact" class="detail-panel" hidden>
+          <div class="section-actions">
+            <div>
+              <h3>راه‌های تماس</h3>
+              <p>شماره‌ها، ایمیل و آدرس بیمار به‌صورت مستقل نگهداری می‌شوند.</p>
+            </div>
+            <button id="add-contact" class="btn primary small" type="button">+ افزودن تماس</button>
+          </div>
+          <div id="contact-list" class="stack-list"></div>
+        </div>
+
+        <div id="detail-sessions" class="detail-panel" hidden>
+          <div class="section-actions">
+            <div>
+              <h3>جلسات بیمار</h3>
+              <p>جلسات آینده و گذشته در تاریخچه بیمار باقی می‌مانند.</p>
+            </div>
+            <button id="add-patient-session" class="btn primary small" type="button">+ تنظیم جلسه</button>
+          </div>
+          <div id="patient-sessions-list" class="stack-list"></div>
+        </div>
+
+        <div id="detail-clinical" class="detail-panel" hidden>
+          <div id="clinical-grid" class="profile-grid"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="patient-modal" class="modal-backdrop" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="patient-modal-title">
+      <header class="modal-head">
+        <div>
+          <div class="eyebrow">Patient record</div>
+          <h2 id="patient-modal-title">بیمار جدید</h2>
+        </div>
+        <button class="icon-btn" data-close-modal="patient-modal" type="button">✕</button>
+      </header>
+      <form id="patient-form" class="form-grid">
+        <input id="patient-id" type="hidden">
+        <label class="field span-2"><span>نام نمایشی *</span><input id="patient-display-name" maxlength="200" required></label>
+        <label class="field"><span>نام</span><input id="patient-first-name" maxlength="100"></label>
+        <label class="field"><span>نام خانوادگی</span><input id="patient-last-name" maxlength="100"></label>
+        <label class="field"><span>کد بیمار</span><input id="patient-reference" maxlength="100"></label>
+        <label class="field"><span>تاریخ تولد</span><input id="patient-dob" type="date"></label>
+        <label class="field"><span>وضعیت</span>
+          <select id="patient-status">
+            <option value="active">فعال</option>
+            <option value="inactive">غیرفعال</option>
+          </select>
+        </label>
+        <label class="field"><span>شعبه *</span><select id="patient-branch" required></select></label>
+        <label id="new-patient-phone-field" class="field span-2"><span>شماره تماس اولیه</span><input id="patient-phone" inputmode="tel" maxlength="60"></label>
+        <div id="patient-form-error" class="form-error span-2" hidden></div>
+        <footer class="modal-actions span-2">
+          <button class="btn secondary" data-close-modal="patient-modal" type="button">انصراف</button>
+          <button class="btn primary" type="submit">ذخیره بیمار</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+  <div id="contact-modal" class="modal-backdrop" hidden>
+    <section class="modal small-modal" role="dialog" aria-modal="true">
+      <header class="modal-head">
+        <h2 id="contact-modal-title">افزودن راه تماس</h2>
+        <button class="icon-btn" data-close-modal="contact-modal" type="button">✕</button>
+      </header>
+      <form id="contact-form" class="form-grid">
+        <input id="contact-id" type="hidden">
+        <label class="field"><span>نوع</span>
+          <select id="contact-type">
+            <option value="phone">تلفن / موبایل</option>
+            <option value="email">ایمیل</option>
+            <option value="address">آدرس</option>
+            <option value="other">سایر</option>
+          </select>
+        </label>
+        <label class="field"><span>برچسب</span><input id="contact-label" placeholder="mobile / home / emergency"></label>
+        <label class="field span-2"><span>مقدار *</span><input id="contact-value" required maxlength="500"></label>
+        <label class="checkbox-field span-2"><input id="contact-primary" type="checkbox"><span>تماس اصلی</span></label>
+        <div id="contact-form-error" class="form-error span-2" hidden></div>
+        <footer class="modal-actions span-2">
+          <button class="btn secondary" data-close-modal="contact-modal" type="button">انصراف</button>
+          <button class="btn primary" type="submit">ذخیره</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+  <div id="session-modal" class="modal-backdrop" hidden>
+    <section class="modal" role="dialog" aria-modal="true">
+      <header class="modal-head">
+        <div>
+          <div class="eyebrow">Appointment / Session</div>
+          <h2 id="session-modal-title">جلسه جدید</h2>
+        </div>
+        <button class="icon-btn" data-close-modal="session-modal" type="button">✕</button>
+      </header>
+      <form id="session-form" class="form-grid">
+        <input id="session-id" type="hidden">
+        <label class="field span-2"><span>بیمار *</span><select id="session-patient" required></select></label>
+        <label class="field span-2"><span>عنوان / دلیل جلسه *</span><input id="session-title" required maxlength="500"></label>
+        <label class="field"><span>زمان جلسه *</span><input id="session-at" type="datetime-local" required></label>
+        <label class="field"><span>نوع جلسه</span><input id="session-type" placeholder="consultation / treatment / checkup"></label>
+        <label class="field span-2"><span>وضعیت</span>
+          <select id="session-status">
+            <option value="scheduled">برنامه‌ریزی‌شده</option>
+            <option value="completed">تکمیل‌شده</option>
+            <option value="cancelled">لغوشده</option>
+            <option value="no_show">عدم حضور</option>
+            <option value="rescheduled">تغییر زمان</option>
+          </select>
+        </label>
+        <div id="session-form-error" class="form-error span-2" hidden></div>
+        <footer class="modal-actions span-2">
+          <button class="btn secondary" data-close-modal="session-modal" type="button">انصراف</button>
+          <button class="btn primary" type="submit">ذخیره جلسه</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+  <script src="/static/auth-guard.js"></script>
+  <script src="/static/clinic.js"></script>
+</body>
+</html>
