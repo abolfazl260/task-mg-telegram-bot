@@ -302,7 +302,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
             return
         if path.startswith("/tasks/") or path.startswith("/task/"):
             return handle_public_task_get(self)
-        if path in {"/","/static/index.html",ADMIN_PATH,ADMIN_PATH+"/"} or path.startswith("/static/") or path in {"/clinic","/clinic/"} or path.startswith("/clinic/"): return self._serve_static(path) or self._json(404,{"error":"not_found"})
+        if path in {"/","/static/index.html",ADMIN_PATH,ADMIN_PATH+"/"} or path in {"/clinic","/clinic/"} or path.startswith(("/static/","/clinic/")): return self._serve_static(path) or self._json(404,{"error":"not_found"})
         if path in {"/health","/healthz"}: return self._json(200,{"status":"ok","service":"telegram-webapp"})
         return self._dispatch("GET")
     def do_POST(self): return self._dispatch("POST")
