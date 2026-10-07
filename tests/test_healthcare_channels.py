@@ -323,6 +323,7 @@ async def test_telegram_session_flow_creates_typed_session_not_legacy_case(clini
     )
     assert session is not None
     assert session['status'] == 'scheduled'
+    assert session['assignee_id'] == clinic['pa']['primary_owner_user_id']
 
 
 async def test_clinic_menu_exposes_typed_sessions(clinic, profile):
