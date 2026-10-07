@@ -90,6 +90,7 @@ async def dispatch(actor_id, bot_key, method, path, query, data):
         return 201, {"item": await clinic_typed.create_patient_async(
             scope, data.get("branch_id"), data.get("display_name"),
             doctor_id=data.get("doctor_id"), reference_id=data.get("reference_id"),
+            fields=data.get("fields"),
         )}
     if path == "/api/clinic/typed/contact-points" and method == "GET":
         return 200, {"items": await contact_point_service.list_contact_points_async(
