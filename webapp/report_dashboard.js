@@ -1,4 +1,15 @@
 (() => {
+  // The HTML page supplies only report identity; this file owns the complete
+  // dashboard lifecycle and all interactive event handlers.
+  const root = document.getElementById('reportRoot');
+  if (!root) return;
+  const token = root.dataset.reportToken;
+  const details = document.getElementById('details');
+  const app = document.getElementById('app');
+  const priorityTop = document.getElementById('priorityTop');
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[character]));
   const style = document.createElement('style');
   style.textContent = `
 #reportFilters{margin-top:16px!important;padding:22px!important;border-radius:24px!important;border:1px solid #e4e9f2!important;box-shadow:0 14px 38px rgba(15,23,42,.07)!important;background:linear-gradient(180deg,#fff,#fbfcfe)!important}
@@ -388,7 +399,19 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
     const customDates = document.getElementById('customDates');
     if (customDates) customDates.style.display = state.period === 'custom' ? 'grid' : 'none';
 
-    syncFilterControls();
+    const controls = {
+      status: 'filterStatus',
+      priority: 'filterPriority',
+      category: 'filterCategory',
+      assignee: 'filterAssignee',
+      has_deadline: 'filterHasDeadline',
+      overdue: 'filterOverdue',
+      sort: 'taskSort'
+    };
+    Object.entries(controls).forEach(([key, id]) => {
+      const element = document.getElementById(id);
+      if (element) element.value = state.filters[key] || '';
+    });
   }
 
   function bindFilters(options = {}) {
@@ -449,19 +472,7 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
       document.getElementById('exportCsv')?.addEventListener('click', () => downloadExport('csv').catch(e => alert(e.message)));
       document.getElementById('exportPdf')?.addEventListener('click', () => downloadExport('pdf').catch(e => alert(e.message)));
     }
-    const mapping = {
-      status: 'filterStatus',
-      priority: 'filterPriority',
-      category: 'filterCategory',
-      assignee: 'filterAssignee',
-      has_deadline: 'filterHasDeadline',
-      overdue: 'filterOverdue',
-      sort: 'taskSort'
-    };
-    Object.entries(mapping).forEach(([key, id]) => {
-      const el = document.getElementById(id);
-      if (el) el.value = state.filters[key] || '';
-    });
+    syncFilterControls();
     updateFilterSummary();
   }
 
@@ -942,17 +953,24 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
       renderPriority(data);
       renderProductivity(data);
 
-      details.innerHTML = `
-        <div class="section-title">
-          <h2>📊 وضعیت وظایف</h2>
-          <span class="muted">بر اساس فیلتر انتخاب‌شده</span>
-        </div>${pie(data.by_status)}
-      `;
+      // A concurrently loaded summary must not overwrite an actively selected
+      // report section (including a filter-reset refresh).
+      if (!window.activeReportSection) {
+        details.innerHTML = `
+          <div class="section-title">
+            <h2>📊 وضعیت وظایف</h2>
+            <span class="muted">بر اساس فیلتر انتخاب‌شده</span>
+          </div>${pie(data.by_status)}
+        `;
+      }
     } catch (e) {
       app.innerHTML = `<h1>گزارش تحت وب</h1><p class="error">${esc(e.message)}</p>`;
     }
   };
 
+  document.querySelectorAll('[data-section]').forEach(button =>
+    button.addEventListener('click', () => window.loadSection(button.dataset.section, 1))
+  );
   save();
   ensureTasksLink();
   window.loadSummary();
