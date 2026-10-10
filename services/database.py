@@ -27,7 +27,7 @@ SCHEMA = """
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
-PRAGMA busy_timeout = 30000;
+PRAGMA busy_timeout = 2000;
 
 CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,
@@ -713,6 +713,15 @@ async def fetch_all(table, where="", params=()):
 async def fetch_one(table, where, params=()):
     rows = await fetch_all(table, where, params)
     return rows[0] if rows else None
+
+
+async def atomic_write(operation, callback):
+    """Run a short database-only callback under one retryable transaction.
+
+    Callback must not perform network calls or other non-idempotent side
+    effects: a fully rolled-back transaction may be re-executed on SQLITE_BUSY.
+    """
+    return await _write_atomic(await get_db(), operation, callback)
 
 
 async def execute(sql, params=()):
