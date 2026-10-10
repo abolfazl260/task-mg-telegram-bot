@@ -174,7 +174,7 @@ const sandbox = {
     getItem(key) { return stored.get(key) || null; },
     setItem(key, value) { stored.set(key, value); }
   },
-  fetch: fetchResponse, URL: {
+  fetch: fetchResponse, URLSearchParams, URL: {
     createObjectURL() { return 'blob:fake'; },
     revokeObjectURL() {}
   },
