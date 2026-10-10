@@ -116,7 +116,7 @@ def test_backlog_includes_older_tasks_and_team_members_but_not_unauthorized(repo
     )
     after_revocation = _summary()
     assert after_revocation["overdue"] == 2
-    assert after_revocation["completed_in_period"] == 3
+    assert after_revocation["completed_in_period"] == 4  # no completion belonged to revoked team
     monkeypatch.setattr(dashboard, "datetime", original)
 
 
