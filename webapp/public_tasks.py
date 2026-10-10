@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from .report_tokens import resolve_report_token
-from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, create_task, update_task, change_status
+from .tasks_api import WebAppTaskAccessError, get_task, list_tasks_page, task_page_params, create_task, update_task, change_status
 from services.task_service import get_task_comments_async, get_assignment_history_async
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -138,8 +138,16 @@ def handle_public_task_api(handler):
         parts = [token]
 
     if len(parts) == 1 and handler.command == "GET":
-        work_item_type = (parse_qs(urlparse(handler.path).query).get("work_item_type") or [None])[0]
-        _json(handler, 200, {"tasks": handler.server.webapp_runtime.submit(list_tasks(user_id, bot_key, work_item_type=work_item_type))})
+        query = parse_qs(urlparse(handler.path).query)
+        work_item_type = (query.get("work_item_type") or [None])[0]
+        try:
+            limit, offset = task_page_params(query)
+        except ValueError:
+            _json(handler, 400, {"error": "invalid_pagination"})
+            return True
+        _json(handler, 200, handler.server.webapp_runtime.submit(
+            list_tasks_page(user_id, bot_key, work_item_type=work_item_type, limit=limit, offset=offset)
+        ))
         return True
     if len(parts) == 1 and handler.command == "POST":
         data = _body(handler)
