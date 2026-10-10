@@ -1,12 +1,11 @@
 """Multi-profile Habit isolation, legacy migration, and scheduler regressions (#219)."""
-import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from services import habit_service, reminders
-from services.database import fetch_one, fetch_one_sql, migrate_core_schema
+from services.database import CORE_SCHEMA, fetch_one, migrate_core_schema
 
 
 @pytest.mark.asyncio
@@ -49,21 +48,15 @@ async def test_migration_adds_bot_provenance_to_old_schema_without_deleting_logs
     import aiosqlite
     conn = await aiosqlite.connect(":memory:")
     try:
-        await conn.executescript("""
-            CREATE TABLE habits(id TEXT PRIMARY KEY, user_id TEXT, title TEXT);
-            CREATE TABLE habit_logs(id INTEGER PRIMARY KEY, habit_id TEXT, user_id TEXT, done_date TEXT);
-            CREATE TABLE tasks (id TEXT PRIMARY KEY, work_item_type TEXT, parent_task_id TEXT,
-                archived_at TEXT, created_at TEXT, workspace_id TEXT);
-            INSERT INTO habits VALUES ('old-1','100','Preserve me');
-            INSERT INTO habit_logs VALUES (1,'old-1','100','2026-09-01');
-        """)
-        # The full core migration also expects many supporting tables. Verify
-        # the additive habit migration directly using its exact statements.
-        columns = {r[1] for r in await (await conn.execute("PRAGMA table_info(habits)")).fetchall()}
-        if "bot_key" not in columns:
-            await conn.execute("ALTER TABLE habits ADD COLUMN bot_key TEXT NOT NULL DEFAULT 'default'")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_habits_bot_user ON habits(bot_key,user_id)")
-        await conn.commit()
+        current = "id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, bot_key TEXT NOT NULL DEFAULT 'default', title TEXT NOT NULL"
+        legacy = "id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, title TEXT NOT NULL"
+        assert current in CORE_SCHEMA
+        await conn.executescript(CORE_SCHEMA.replace(current, legacy))
+        await conn.execute("INSERT INTO users(user_id) VALUES ('100')")
+        await conn.execute("INSERT INTO habits(id,user_id,title) VALUES ('old-1','100','Preserve me')")
+        await conn.execute("INSERT INTO habit_logs(habit_id,user_id,done_date) VALUES ('old-1','100','2026-09-01')")
+        await migrate_core_schema(conn)
+        await migrate_core_schema(conn)  # repeatable migration
         row = await (await conn.execute("SELECT id,bot_key FROM habits")).fetchone()
         log = await (await conn.execute("SELECT habit_id FROM habit_logs")).fetchone()
         assert row == ("old-1", "default")
@@ -71,11 +64,8 @@ async def test_migration_adds_bot_provenance_to_old_schema_without_deleting_logs
     finally:
         await conn.close()
 
-
 @pytest.mark.asyncio
 async def test_two_bot_reminder_jobs_do_not_deliver_foreign_habits(test_db, monkeypatch):
-    from datetime import date
-    from services import database
     await habit_service.create_habit_async(100, "Alpha only", reminder_time="09:00", bot_key="alpha")
     await habit_service.create_habit_async(100, "Beta only", reminder_time="09:00", bot_key="beta")
     monkeypatch.setattr(reminders, "_user_now", lambda uid: SimpleNamespace(strftime=lambda fmt: "09:00"))
