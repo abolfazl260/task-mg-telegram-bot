@@ -402,7 +402,6 @@
       const t = tasks.find(x => String(x.id) === String(id));
       if (t) t.status = newStatus;
       render();
-      renderTaskPagination();
     } catch (err) {
       console.error(err);
       load();
@@ -435,6 +434,7 @@
       if (categoryFilter) { const current = categoryFilter.value; const cats = [...new Set(tasks.map(t => t.category).filter(Boolean))].sort(); categoryFilter.innerHTML = '<option value="">همه</option>' + cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join(''); categoryFilter.value = cats.includes(current) ? current : ''; }
       if (state) state.hidden = true;
       render();
+      renderTaskPagination();
     } catch (err) {
       if (state) {
         state.hidden = false;
