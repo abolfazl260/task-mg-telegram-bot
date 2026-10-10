@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import atexit
 import logging
+import random
 import sqlite3
 import threading
 import time
+import uuid
 from pathlib import Path
 
 import aiosqlite
@@ -15,15 +17,17 @@ from services.operations.schema import migrate as migrate_operations
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = (BASE_DIR / "data" / "data.db").resolve()
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-SQLITE_TIMEOUT_SECONDS = 30
-SQLITE_BUSY_TIMEOUT_MS = 30000
-SQLITE_MAX_RETRIES = 6
+SQLITE_MAX_RETRIES = 4
+# Keep the total contention budget bounded (5 attempts x 2 seconds,
+# plus short backoff), rather than stacking 30-second busy waits.
+SQLITE_TIMEOUT_SECONDS = 2
+SQLITE_BUSY_TIMEOUT_MS = 2000
 logger = logging.getLogger(__name__)
 SCHEMA = """
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
-PRAGMA busy_timeout = 30000;
+PRAGMA busy_timeout = 2000;
 
 CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,
@@ -475,33 +479,67 @@ class Database:
     def __init__(self):
         self.conn: aiosqlite.Connection | None = None
         self.lock = asyncio.Lock()
+        self._connect_lock = asyncio.Lock()
         self.initialized = False
 
     async def connect(self):
-        if self.conn is None:
-            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-            self.conn = await aiosqlite.connect(str(DB_PATH), timeout=SQLITE_TIMEOUT_SECONDS)
-            self.conn.row_factory = aiosqlite.Row
-            await self.conn.execute("PRAGMA foreign_keys=ON")
-            await self.conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
-            await self.conn.execute("PRAGMA journal_mode=WAL")
-            await self.conn.execute("PRAGMA synchronous=NORMAL")
-        if not self.initialized:
-            await self.conn.executescript(CORE_SCHEMA)
-            await migrate_core_schema(self.conn)
-            await migrate_operations(self.conn)
-            await self.conn.commit()
-            self.initialized = True
-        return self.conn
+        # Multiple startup jobs in the same loop must not create two
+        # connections or run overlapping schema migrations.
+        async with self._connect_lock:
+            if self.initialized and self.conn is not None:
+                return self.conn
+            if self.conn is None:
+                DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+                self.conn = await aiosqlite.connect(str(DB_PATH), timeout=SQLITE_TIMEOUT_SECONDS)
+                self.conn.row_factory = aiosqlite.Row
+            try:
+                await _configure_async_connection(self.conn)
+                path = str(DB_PATH)
+                # Multiple Bot Profiles and the synchronous API bridge use
+                # different loops. One process-wide migration per SQLite file
+                # avoids racing DDL / ALTER TABLE from independent writers.
+                while not _bootstrap_lock.acquire(blocking=False):
+                    await asyncio.sleep(0.025)
+                try:
+                    if path not in _schema_ready_paths:
+                        await self.conn.executescript(CORE_SCHEMA)
+                        await migrate_core_schema(self.conn)
+                        await migrate_operations(self.conn)
+                        await self.conn.commit()
+                        _schema_ready_paths.add(path)
+                    # executescript can override busy_timeout via schema SQL.
+                    await _configure_async_connection(self.conn)
+                finally:
+                    _bootstrap_lock.release()
+                self.initialized = True
+                return self.conn
+            except BaseException:
+                # Partial initialization is never reused; startup can retry.
+                if self.conn is not None:
+                    await self.conn.close()
+                    self.conn = None
+                self.initialized = False
+                raise
 
     async def close(self):
-        if self.conn is not None:
-            conn = self.conn
-            self.conn = None
-            self.initialized = False
-            await conn.close()
+        async with self._connect_lock:
+            if self.conn is not None:
+                conn = self.conn
+                self.conn = None
+                self.initialized = False
+                await conn.close()
 
 _db_by_loop: dict[asyncio.AbstractEventLoop, Database] = {}
+_bootstrap_lock = threading.Lock()
+_schema_ready_paths: set[str] = set()
+
+
+async def _configure_async_connection(conn):
+    await conn.execute("PRAGMA foreign_keys=ON")
+    await conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA synchronous=NORMAL")
+
 _sync_loop: asyncio.AbstractEventLoop | None = None
 _sync_thread: threading.Thread | None = None
 _sync_loop_ready = threading.Event()
@@ -513,7 +551,7 @@ async def get_db() -> Database:
     if db is None:
         db = Database()
         _db_by_loop[loop] = db
-    await db.connect()
+    await _retry_read("connect", db.connect)
     return db
 
 async def init_db():
@@ -593,42 +631,129 @@ def shutdown_sync_loop() -> None:
     if thread is not None and thread.is_alive():
         thread.join(timeout=10)
 
+def _is_locked_error(exc: BaseException) -> bool:
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    code = getattr(exc, "sqlite_errorcode", None)
+    if code is not None:
+        return (code & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+    return any(marker in str(exc).lower() for marker in (
+        "database is locked", "database table is locked", "database is busy",
+    ))
+
+
+def _retry_delay(attempt: int) -> float:
+    return min(0.05 * (2 ** attempt), 0.4) + random.uniform(0, 0.025)
+
+
+def _log_lock(operation, correlation_id, attempt, started, *, exhausted, error):
+    # Emit the full traceback only on terminal failures. SQL parameters,
+    # patient names, tokens and message text are not passed to the logger.
+    logger.warning(
+        "sqlite_contention operation=%s correlation_id=%s attempt=%d "
+        "wait_ms=%d exhausted=%s sqlite_code=%s",
+        operation, correlation_id, attempt + 1,
+        int((time.monotonic() - started) * 1000), exhausted,
+        getattr(error, "sqlite_errorcode", None), exc_info=exhausted,
+    )
+
+
+async def _retry_read(operation, fetch):
+    started = time.monotonic()
+    correlation_id = uuid.uuid4().hex[:12]
+    for attempt in range(SQLITE_MAX_RETRIES + 1):
+        try:
+            return await fetch()
+        except sqlite3.OperationalError as exc:
+            if not _is_locked_error(exc):
+                raise
+            exhausted = attempt == SQLITE_MAX_RETRIES
+            _log_lock(operation, correlation_id, attempt, started, exhausted=exhausted, error=exc)
+            if exhausted:
+                raise
+            await asyncio.sleep(_retry_delay(attempt))
+
+
+async def _write_atomic(db, operation, run):
+    """Retry an entire isolated write, never a partially committed statement."""
+    started = time.monotonic()
+    correlation_id = uuid.uuid4().hex[:12]
+    async with db.lock:
+        for attempt in range(SQLITE_MAX_RETRIES + 1):
+            stage = "begin"
+            try:
+                # BEGIN IMMEDIATE prevents mixing with other work on the
+                # same pooled connection while the write awaits SQLite.
+                await db.conn.execute("BEGIN IMMEDIATE")
+                stage = "statements"
+                result = await run(db.conn)
+                stage = "commit"
+                await db.conn.commit()
+                return result
+            except BaseException as exc:
+                # Rollback is mandatory for errors and cancellations. If a
+                # COMMIT outcome is uncertain, do not replay a write.
+                active = db.conn.in_transaction
+                if active:
+                    await db.conn.rollback()
+                retryable = (
+                    _is_locked_error(exc)
+                    and (stage != "commit" or active)
+                    and attempt < SQLITE_MAX_RETRIES
+                )
+                if _is_locked_error(exc):
+                    _log_lock(operation, correlation_id, attempt, started, exhausted=not retryable, error=exc)
+                if not retryable:
+                    raise
+                await asyncio.sleep(_retry_delay(attempt))
+
+
 async def fetch_all(table, where="", params=()):
-    db = await get_db()
     q = f"SELECT * FROM {table}" + (f" WHERE {where}" if where else "")
-    async with db.conn.execute(q, tuple(params)) as cur:
-        return [dict(r) for r in await cur.fetchall()]
+    return await fetch_all_sql(q, params)
+
 
 async def fetch_one(table, where, params=()):
     rows = await fetch_all(table, where, params)
     return rows[0] if rows else None
 
+
+async def atomic_write(operation, callback):
+    """Run a short database-only callback under one retryable transaction.
+
+    Callback must not perform network calls or other non-idempotent side
+    effects: a fully rolled-back transaction may be re-executed on SQLITE_BUSY.
+    """
+    return await _write_atomic(await get_db(), operation, callback)
+
+
 async def execute(sql, params=()):
     db = await get_db()
-    async with db.lock:
-        cur = await db.conn.execute(sql, tuple(params))
-        await db.conn.commit()
-        return cur.lastrowid
+    async def run(conn):
+        cur = await conn.execute(sql, tuple(params))
+        try:
+            return cur.lastrowid
+        finally:
+            await cur.close()
+    return await _write_atomic(db, "execute", run)
+
 
 async def execute_returning_one(sql, params=()):
     db = await get_db()
-    async with db.lock:
-        cur = await db.conn.execute(sql, tuple(params))
-        row = await cur.fetchone()
-        await db.conn.commit()
-        return dict(row) if row else None
+    async def run(conn):
+        async with conn.execute(sql, tuple(params)) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+    return await _write_atomic(db, "execute_returning_one", run)
+
 
 async def execute_many(sql, rows):
     db = await get_db()
-    async with db.lock:
-        await db.conn.executemany(sql, [tuple(r) for r in rows])
-        await db.conn.commit()
+    prepared = [tuple(r) for r in rows]
+    async def run(conn):
+        await conn.executemany(sql, prepared)
+    await _write_atomic(db, "execute_many", run)
 
-def _is_locked_error(exc: BaseException) -> bool:
-    return isinstance(exc, sqlite3.OperationalError) and any(marker in str(exc).lower() for marker in ("database is locked", "database table is locked", "database is busy"))
-
-def _retry_delay(attempt: int) -> float:
-    return min(0.25 * (2 ** attempt), 4.0)
 
 def _configure_sync_connection(conn: sqlite3.Connection) -> None:
     conn.row_factory = sqlite3.Row
@@ -637,37 +762,32 @@ def _configure_sync_connection(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
 
+
 def _sync_sql(sql, params=(), fetch="none"):
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    last_error = None
-    for attempt in range(SQLITE_MAX_RETRIES + 1):
-        conn = sqlite3.connect(str(DB_PATH), timeout=SQLITE_TIMEOUT_SECONDS)
-        try:
-            _configure_sync_connection(conn)
-            # Synchronous compatibility calls share the same async DB loop.
-            # This keeps the reusable compatibility connection alive between calls.
-            if fetch == "one":
-                return _run(fetch_one_sql(sql, params))
-            if fetch == "all":
-                return _run(fetch_all_sql(sql, params))
-            return _run(execute(sql, params))
-        except sqlite3.OperationalError as exc:
-            last_error = exc
-            if not _is_locked_error(exc) or attempt >= SQLITE_MAX_RETRIES:
-                raise
-            time.sleep(_retry_delay(attempt))
-        finally:
-            conn.close()
-    raise last_error
+    """Compatibility bridge: do not create a second, unused SQLite writer."""
+    if fetch == "one":
+        return _run(fetch_one_sql(sql, params))
+    if fetch == "all":
+        return _run(fetch_all_sql(sql, params))
+    return _run(execute(sql, params))
+
 
 async def fetch_all_sql(sql, params=()):
     db = await get_db()
-    async with db.conn.execute(sql, tuple(params)) as cur:
-        return [dict(r) for r in await cur.fetchall()]
+    async def read():
+        async with db.conn.execute(sql, tuple(params)) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+    return await _retry_read("fetch_all_sql", read)
+
 
 async def fetch_one_sql(sql, params=()):
-    rows = await fetch_all_sql(sql, params)
-    return rows[0] if rows else None
+    db = await get_db()
+    async def read():
+        async with db.conn.execute(sql, tuple(params)) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+    return await _retry_read("fetch_one_sql", read)
+
 
 def sync_query_one(sql, params=()):
     """Execute a parameterized read-only aggregate without materializing a table."""
@@ -690,15 +810,12 @@ def sync_execute_returning_one(sql, params=()):
 
 async def transaction(statements):
     db = await get_db()
-    async with db.lock:
-        await db.conn.execute("BEGIN IMMEDIATE")
-        try:
-            for sql, p in statements:
-                await db.conn.execute(sql, tuple(p))
-            await db.conn.commit()
-        except Exception:
-            await db.conn.rollback()
-            raise
+    prepared = [(sql, tuple(p)) for sql, p in statements]
+    async def run(conn):
+        for sql, p in prepared:
+            await conn.execute(sql, p)
+    await _write_atomic(db, "transaction", run)
+
 
 def sync_transaction(statements):
     return _run(transaction(statements))
