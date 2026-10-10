@@ -364,6 +364,34 @@ async def run_database_backup(
                 raise
 
 
+async def _claim_backup_due() -> bool:
+    """Persist the backup throttle as one atomic Core transaction.
+
+    This avoids blocking the Telegram event loop on sqlite3 BEGIN IMMEDIATE
+    and ensures a single claim wins across independent bot processes.
+    """
+    async def claim(conn):
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS backup_state "
+            "(name TEXT PRIMARY KEY, started_at REAL NOT NULL)"
+        )
+        async with conn.execute(
+            "SELECT started_at FROM backup_state WHERE name='database'"
+        ) as cur:
+            row = await cur.fetchone()
+        wall_now = time.time()
+        if row and wall_now - float(row[0]) < MIN_START_GAP_SECONDS:
+            return False
+        await conn.execute(
+            "INSERT INTO backup_state(name,started_at) VALUES('database',?) "
+            "ON CONFLICT(name) DO UPDATE SET started_at=excluded.started_at",
+            (wall_now,),
+        )
+        return True
+
+    return await database.atomic_write("backup_claim", claim)
+
+
 async def database_backup_job(context) -> None:
     global _backup_running, _last_backup_started_at
 
@@ -375,22 +403,14 @@ async def database_backup_job(context) -> None:
         logger.info("database_backup skipped reason=recent_run")
         return
 
-    # Persist the throttle in SQLite so separate bot/process instances cannot
-    # each send the shared database backup after their own startup.
-    conn = sqlite3.connect(database.DB_PATH, timeout=30)
     try:
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute("CREATE TABLE IF NOT EXISTS backup_state (name TEXT PRIMARY KEY, started_at REAL NOT NULL)")
-        row = conn.execute("SELECT started_at FROM backup_state WHERE name='database'").fetchone()
-        wall_now = time.time()
-        if row and wall_now - float(row[0]) < MIN_START_GAP_SECONDS:
-            conn.rollback()
+        if not await _claim_backup_due():
             logger.info("database_backup skipped reason=persisted_recent_run")
             return
-        conn.execute("INSERT INTO backup_state(name,started_at) VALUES('database',?) ON CONFLICT(name) DO UPDATE SET started_at=excluded.started_at", (wall_now,))
-        conn.commit()
-    finally:
-        conn.close()
+    except sqlite3.OperationalError:
+        # The shared DB service already logged attempts and correlation ID.
+        logger.error("database_backup skipped reason=sqlite_lock_exhausted")
+        return
 
     _backup_running = True
     _last_backup_started_at = now
