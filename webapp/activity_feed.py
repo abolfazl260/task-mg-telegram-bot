@@ -42,6 +42,8 @@ def activity_feed(access, start=None, end=None, query="", limit=100):
     scope = "workspace_id IS NULL AND bot_key=? AND user_id=?"
 
     def date_clause(field):
+        if field not in {"created_at", "completed_at"}:
+            raise ValueError("unsupported_report_time_field")
         # Use range predicates on raw ISO timestamps so SQLite can apply
         # indexes. Retain the old in_range check for unexpected date formats.
         clauses, values = [], []
@@ -97,7 +99,7 @@ def activity_feed(access, start=None, end=None, query="", limit=100):
         comment_sql, comment_params = date_clause("created_at")
         comments = sync_all(
             "task_comments",
-            f"task_id IN (SELECT id FROM tasks WHERE {scope}) AND ({comment_sql})",
+            f"task_id IN (SELECT id FROM tasks WHERE {scope}) AND ({comment_sql})",  # nosec B608 - constant scope and allowlisted column, bound values
             args + comment_params,
         )
     except Exception:
@@ -107,7 +109,7 @@ def activity_feed(access, start=None, end=None, query="", limit=100):
         assignment_sql, assignment_params = date_clause("created_at")
         assignments = sync_all(
             "task_assignment_history",
-            f"task_id IN (SELECT id FROM tasks WHERE {scope}) AND ({assignment_sql})",
+            f"task_id IN (SELECT id FROM tasks WHERE {scope}) AND ({assignment_sql})",  # nosec B608 - constant scope and allowlisted column, bound values
             args + assignment_params,
         )
     except Exception:
