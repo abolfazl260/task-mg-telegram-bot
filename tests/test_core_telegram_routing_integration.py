@@ -1,6 +1,6 @@
-from types import SimpleNamespace
-from datetime import date, datetime
 import uuid
+from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
