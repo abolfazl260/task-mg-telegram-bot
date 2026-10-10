@@ -25,7 +25,7 @@ from .admin_api import (
     deactivate_bot_management,
     get_bot_management_detail,
     get_user_profile,
-    list_user_tasks,
+    list_user_tasks_page,
     list_users,
     system_health,
     task_creation,
@@ -169,7 +169,17 @@ class WebAppHandler(BaseHTTPRequestHandler):
             if remainder.endswith("/tasks"):
                 user_id=remainder[:-6].rstrip("/")
                 if not user_id: return self._json(400,{"error":"invalid_user_id"})
-                return self._json(200,{"tasks":self.server.webapp_runtime.submit(list_user_tasks(user_id,bot_key))})
+                try:
+                    limit=int((query.get("limit") or ["25"])[0])
+                    offset=int((query.get("offset") or ["0"])[0])
+                except ValueError:
+                    return self._json(400,{"error":"invalid_pagination"})
+                view=(query.get("view") or ["created"])[0]
+                if view not in {"created","assigned"}:
+                    return self._json(400,{"error":"invalid_task_view"})
+                return self._json(200,self.server.webapp_runtime.submit(
+                    list_user_tasks_page(user_id,bot_key,view=view,limit=limit,offset=offset)
+                ))
             user_id=remainder.strip("/")
             if not user_id: return self._json(400,{"error":"invalid_user_id"})
             profile=self.server.webapp_runtime.submit(get_user_profile(user_id,bot_key))
