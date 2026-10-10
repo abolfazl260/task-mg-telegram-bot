@@ -4,7 +4,7 @@ The create flow deliberately uses one Telegram Rich Message. Every step edits
 that message in place; legacy inline keyboards are not used for this flow.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from html import escape
 from types import SimpleNamespace
 import sys
