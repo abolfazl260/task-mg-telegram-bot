@@ -1,6 +1,7 @@
 """Regression coverage for Web Report input limits and HTTP error boundaries (#223)."""
 from __future__ import annotations
 
+import io
 import json
 from datetime import date
 from pathlib import Path
@@ -10,7 +11,22 @@ import pytest
 
 from webapp import report_dashboard_service as dashboard
 from webapp import report_routes
-from tests.test_http_error_sanitization import _FakeHandler
+class _FakeHandler:
+    def __init__(self, path):
+        self.path = path
+        self.command = "GET"
+        self.headers = {}
+        self.status = None
+        self.wfile = io.BytesIO()
+
+    def send_response(self, status):
+        self.status = status
+
+    def send_header(self, name, value):
+        pass
+
+    def end_headers(self):
+        pass
 
 
 def response(path, monkeypatch, *, dashboard_fn=None, export_fn=None):
