@@ -257,7 +257,7 @@ def _task_pagination(limit: int, offset: int) -> tuple[int, int]:
 
 async def list_visible_tasks_page_async(
     user_id, team_id=None, *, active=False, work_item_type=None,
-    limit=DEFAULT_TASK_PAGE_SIZE, offset=0,
+    limit=DEFAULT_TASK_PAGE_SIZE, offset=0, sort_key="created",
 ) -> dict:
     """SQL-scoped pagination across personal and current team memberships.
 
@@ -287,11 +287,19 @@ async def list_visible_tasks_page_async(
         conditions.append("t.work_item_type=?")
         params.append(item_type)
     where = " AND ".join(conditions)
+    # Column names and sort expressions are fixed: never interpolate caller SQL.
+    orderings = {
+        "created": "t.created_at DESC,t.id DESC",
+        "deadline": "CASE WHEN COALESCE(t.deadline,'')='' THEN 1 ELSE 0 END,t.deadline ASC,t.id ASC",
+        "priority": "CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 9 END,t.created_at DESC,t.id DESC",
+    }
+    if sort_key not in orderings:
+        raise ValueError("invalid_task_sort")
     count = await fetch_one_sql("SELECT COUNT(*) AS n FROM tasks t WHERE " + where, tuple(params))
     total = int((count or {}).get("n") or 0)
     tasks = await fetch_all_sql(
         "SELECT t.* FROM tasks t WHERE " + where
-        + " ORDER BY t.created_at DESC,t.id DESC LIMIT ? OFFSET ?",
+        + " ORDER BY " + orderings[sort_key] + " LIMIT ? OFFSET ?",
         tuple(params) + (limit, offset),
     )
     return {
