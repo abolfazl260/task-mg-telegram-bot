@@ -10,6 +10,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from services.database import sync_all
+
 from .reports import _task_scope
 
 
