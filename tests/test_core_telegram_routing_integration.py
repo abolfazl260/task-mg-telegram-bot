@@ -1,3 +1,5 @@
+import uuid
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -87,7 +89,7 @@ async def test_add_command_handler_enters_title_state():
     await task_handler.add_task(update, context)
 
     assert context.user_data["step"] == "title"
-    assert context.user_data["new_task"] == {}
+    assert uuid.UUID(context.user_data["new_task"]["_create_request_id"])
     assert context.user_data["create_task_user_id"] == 42
     context.bot._post.assert_awaited_once()
     assert context.bot._post.await_args.args[0] == "sendRichMessage"
@@ -101,13 +103,18 @@ async def test_manual_add_callback_routes_to_same_create_flow():
     await menu.button_handler(update, context)
 
     assert context.user_data["step"] == "title"
-    assert context.user_data["new_task"] == {}
+    assert uuid.UUID(context.user_data["new_task"]["_create_request_id"])
     update.callback_query.answer.assert_awaited()
     assert context.bot._post.await_args.args[0] == "sendRichMessage"
 
 
 @pytest.mark.asyncio
 async def test_priority_deadline_category_and_tag_callbacks_advance_state(monkeypatch):
+    from handlers import create_task_flow
+    monkeypatch.setattr(
+        create_task_flow, "get_current_local_datetime_async",
+        AsyncMock(return_value=(None, datetime(2026, 10, 10, 12, 0))),
+    )
     context = FakeContext()
     context.user_data.update(
         {

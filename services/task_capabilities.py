@@ -5,7 +5,7 @@ from typing import Any, Awaitable, Callable
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 DEFAULT_TASK_OPTIONS={"allow_assignment":True,"allow_tags":True,"allow_comments":True,"allow_categories":True,"allow_priority":True,"allow_search":True,"allow_templates":True,"allow_bulk_import":True,"allow_ai_task_creation":True}
-_WRAPPABLE_CALLBACKS={"assignment_callback","assignment_manage_callback","take_assignment","take_confirm","safe_assignment_confirm","comment_callback","comment_cancel_callback","button_handler","priority_selected","deadline_selected","optional_field_callback","save_task"}
+_WRAPPABLE_CALLBACKS={"assignment_callback","assignment_manage_callback","take_assignment","take_confirm","safe_assignment_confirm","comment_callback","comment_cancel_callback","button_handler","priority_selected","deadline_selected","optional_field_callback","save_task","save_task_with_progress","priority_rich","deadline_rich","optional_with_media_description","assignment_with_rich_final_state"}
 
 def task_options(profile):
     result=DEFAULT_TASK_OPTIONS.copy();raw=(getattr(profile,"settings",{}) or {}).get("task_options",{}) or {};result.update({k:bool(v) for k,v in raw.items() if k in result});return result
@@ -19,6 +19,54 @@ def task_permission_enabled(context,name):
     profile=(bot_data or {}).get("bot_config")
     checker=getattr(profile,"permission_enabled",None)
     return profile is None or checker is None or bool(checker(name))
+
+def task_creation_allowed(context):
+    bot_data = getattr(context, "bot_data", {}) or {}
+    profile = bot_data.get("bot_config")
+    feature_enabled = getattr(profile, "feature_enabled", None)
+    return (profile is None or feature_enabled is None or bool(feature_enabled("tasks"))) and task_permission_enabled(context, "tasks.create")
+
+
+_CREATE_FIELD_RULES = {
+    "priority": ("priority", "priority.set", "allow_priority"),
+    "deadline": ("deadline", "deadline.set", None),
+    "category": ("categories", "categories.manage", "allow_categories"),
+    "tags": ("tags", "tags.manage", "allow_tags"),
+    "assignment": ("assignment", "assignment.manage", "allow_assignment"),
+}
+
+
+def task_creation_field_enabled(context, field):
+    """Single capability contract for create-task UI and its callbacks."""
+    feature, permission, option = _CREATE_FIELD_RULES[field]
+    profile = (getattr(context, "bot_data", {}) or {}).get("bot_config")
+    checker = getattr(profile, "feature_enabled", None)
+    return (
+        task_creation_allowed(context)
+        and (profile is None or checker is None or bool(checker(feature)))
+        and task_permission_enabled(context, permission)
+        and (option is None or task_option_enabled(context, option))
+    )
+
+
+async def _deny_create_operation(update):
+    query = getattr(update, "callback_query", None)
+    if query is not None:
+        await query.answer("ایجاد تسک برای این ربات مجاز نیست.", show_alert=True)
+    elif getattr(update, "effective_message", None) is not None:
+        await update.effective_message.reply_text("⛔️ ایجاد تسک برای این ربات مجاز نیست.")
+
+
+def wrap_rich_create_handler(original):
+    """Do not rely on legacy handler names for the dynamically installed Rich flow."""
+    @wraps(original)
+    async def wrapper(update, context):
+        if not task_creation_allowed(context):
+            await _deny_create_operation(update)
+            return
+        return await original(update, context)
+    return wrapper
+
 
 async def _show_no_assignment_confirmation(update,context):
     task=context.user_data.get("new_task") or {};task["assignee"]=None;task["team_id"]=""
@@ -149,7 +197,8 @@ def install_task_capabilities(app):
         for handler in handlers:
             callback=getattr(handler,"callback",None);name=getattr(callback,"__name__","")
             if name not in _WRAPPABLE_CALLBACKS or getattr(callback,"_task_capability_wrapped",False):continue
-            if name=="save_task":wrapped=wrap_save_task(callback)
+            if name in {"save_task_with_progress","priority_rich","deadline_rich","optional_with_media_description","assignment_with_rich_final_state"}:wrapped=wrap_rich_create_handler(callback)
+            elif name=="save_task":wrapped=wrap_save_task(callback)
             elif name=="priority_selected":wrapped=wrap_priority_selected(callback)
             elif name=="deadline_selected":wrapped=wrap_deadline_selected(callback)
             elif name=="optional_field_callback":wrapped=wrap_optional_field_callback(callback)
