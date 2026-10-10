@@ -289,10 +289,12 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
     }
     const leadDays = prod.lead_time_days != null ? `${prod.lead_time_days} روز` : '—';
     const leadHours = prod.lead_time_hours != null ? `(${prod.lead_time_hours} ساعت)` : '';
-    const onTimeRate = prod.on_time_rate != null ? `${prod.on_time_rate}٪` : '۱۰۰٪';
-    const overdueRate = prod.overdue_rate != null ? `${prod.overdue_rate}٪` : '۰٪';
+    const onTimeRate = prod.on_time_rate != null ? `${prod.on_time_rate}٪` : '—';
+    const overdueRate = prod.overdue_rate != null ? `${prod.overdue_rate}٪` : '—';
     const onTimeCount = prod.completed_on_time || 0;
     const lateCount = prod.completed_late || 0;
+    const eligibleCount = prod.completed_with_deadline || 0;
+    const asOfDate = d.summary?.backlog_as_of_utc || '';
     const openOverdue = prod.open_overdue || 0;
     const openOnTrack = prod.open_on_track || 0;
 
@@ -307,17 +309,17 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
         <div class="prod-metric-box lead-time">
           <span class="p-title">⏱️ میانگین زمان تکمیل (Lead Time)</span>
           <strong class="p-value">${leadDays} <small class="muted" style="font-size:13px;font-weight:normal">${leadHours}</small></strong>
-          <span class="p-sub">فاصله زمانی از ایجاد تا تکمیل نهایی وظیفه</span>
+          <span class="p-sub">وظایف ایجادشده در بازه انتخابی که اکنون تکمیل شده‌اند</span>
         </div>
         <div class="prod-metric-box on-time">
           <span class="p-title">🎯 نرخ انجام به‌موقع (On-Time)</span>
           <strong class="p-value" style="color:#027a48">${onTimeRate}</strong>
-          <span class="p-sub">${onTimeCount} وظیفه تکمیل‌شده در مهلت مقرر</span>
+          <span class="p-sub">${eligibleCount ? `${onTimeCount} از ${eligibleCount} تکمیلِ دارای مهلت در بازه انتخابی` : 'داده کافی برای محاسبه وجود ندارد'}</span>
         </div>
         <div class="prod-metric-box overdue-rate">
           <span class="p-title">⚠️ نرخ تحویل با تأخیر (Delayed)</span>
           <strong class="p-value" style="color:#b42318">${overdueRate}</strong>
-          <span class="p-sub">${lateCount} وظیفه تکمیل‌شده پس از موعد مقرر</span>
+          <span class="p-sub">${eligibleCount ? `${lateCount} از ${eligibleCount} تکمیلِ دارای مهلت در بازه انتخابی` : 'داده کافی برای محاسبه وجود ندارد'}</span>
         </div>
         <div class="prod-metric-box open-status">
           <span class="p-title">📌 وضعیت وظایف باز مهلت‌دار</span>
@@ -325,7 +327,7 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
             <span style="color:#b42318">🔻 ${openOverdue} عقب‌افتاده</span> / 
             <span style="color:#027a48">🟢 ${openOnTrack} در مسیر</span>
           </strong>
-          <span class="p-sub">کنترل پایش وظایف فعال دارای مهلت</span>
+          <span class="p-sub">کل وظایف باز دارای مهلت تا ${esc(asOfDate)} (UTC)، مستقل از زمان ایجاد؛ بر اساس فیلترهای فعال</span>
         </div>
       </div>
     `;
@@ -980,17 +982,17 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
           </div>
         </div>
         <div class="stats">
-          ${stat(s.total || 0, 'کل وظایف', t)}
-          ${stat(s.done || 0, 'انجام‌شده')}
-          ${stat(s.in_progress || 0, 'در حال انجام')}
-          ${stat(s.pending || 0, 'شروع‌نشده')}
-          ${stat(s.cancelled || 0, 'لغوشده')}
+          ${stat(s.total || 0, 'وظایف ایجادشده در بازه', t)}
+          ${stat(s.done || 0, 'از موارد ایجادشده، اکنون تکمیل')}
+          ${stat(s.in_progress || 0, 'از موارد ایجادشده، اکنون در حال انجام')}
+          ${stat(s.pending || 0, 'از موارد ایجادشده، اکنون شروع‌نشده')}
+          ${stat(s.cancelled || 0, 'از موارد ایجادشده، اکنون لغوشده')}
           ${stat((s.completion_rate || 0) + '٪', 'نرخ انجام کل')}
           ${stat(s.lead_time_days != null ? s.lead_time_days + ' روز' : (s.average_completion_days != null ? s.average_completion_days + ' روز' : '—'), '⏱️ میانگین تکمیل')}
-          ${stat(prod.on_time_rate != null ? prod.on_time_rate + '٪' : (s.on_time_rate != null ? s.on_time_rate + '٪' : '—'), '🎯 انجام به‌موقع')}
-          ${stat(prod.overdue_rate != null ? prod.overdue_rate + '٪' : (s.overdue_rate != null ? s.overdue_rate + '٪' : '—'), '⚠️ نرخ تأخیر')}
-          ${stat(s.overdue || 0, 'عقب‌افتاده باز')}
-          ${stat(s.with_deadline || 0, 'دارای مهلت')}
+          ${stat(prod.on_time_rate != null ? prod.on_time_rate + '٪' : (s.on_time_rate != null ? s.on_time_rate + '٪' : '—'), '🎯 انجام به‌موقع در بازه')}
+          ${stat(prod.overdue_rate != null ? prod.overdue_rate + '٪' : (s.overdue_rate != null ? s.overdue_rate + '٪' : '—'), '⚠️ تکمیل دیرهنگام در بازه')}
+          ${stat(s.overdue || 0, 'Backlog باز عقب‌افتاده تا امروز UTC')}
+          ${stat(s.with_deadline || 0, 'دارای مهلت، ایجادشده در بازه')}
         </div>
       `;
 
