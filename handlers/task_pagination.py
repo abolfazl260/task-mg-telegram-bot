@@ -1,6 +1,7 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from services.task_service import (
+    list_visible_tasks_page_async,
     get_active_tasks_async,
     get_unassigned_tasks_async,
     get_task_dashboard_counts_async,
@@ -258,16 +259,26 @@ async def paginated_detail_page(update, context):
 
 
 async def _render_page(update, context, page, sort_key, edit):
-    tasks = await get_active_tasks_async(update.effective_user.id)
-    if not tasks:
+    # Fetch only the current SQL page instead of sorting the complete archive
+    # for every Telegram pagination callback.
+    page = max(1, int(page))
+    page_data = await list_visible_tasks_page_async(
+        update.effective_user.id, active=True, limit=PAGE_SIZE,
+        offset=(page - 1) * PAGE_SIZE, sort_key=sort_key,
+    )
+    total = page_data["total"]
+    if not total:
         await update.effective_message.reply_text("🎉 تسک فعال ندارید")
         return
-    tasks = sort_tasks(tasks, sort_key)
-    total = len(tasks)
     total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
-    page = min(page, total_pages)
+    if page > total_pages:
+        page = total_pages
+        page_data = await list_visible_tasks_page_async(
+            update.effective_user.id, active=True, limit=PAGE_SIZE,
+            offset=(page - 1) * PAGE_SIZE, sort_key=sort_key,
+        )
     start = (page - 1) * PAGE_SIZE
-    page_tasks = tasks[start:start + PAGE_SIZE]
+    page_tasks = page_data["tasks"]
     text = build_detail_table(page_tasks, start_index=start + 1) + f"\n\n📄 صفحه {page} از {total_pages}"
     keyboard = [[
         InlineKeyboardButton("📅 ددلاین", callback_data="sort_deadline"),
