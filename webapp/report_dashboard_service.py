@@ -251,6 +251,10 @@ def _calendar_data(access, start: date, end: date, search: str, filters: dict) -
         "total": len(rows), "page": 1, "pages": 1,
         "page_size": len(rows), "pagination_mode": "none",
         "range": {"start": start.isoformat(), "end": end.isoformat()},
+        "navigation": {
+            "jalali": _jalali_month_navigation(start),
+            "gregorian": _gregorian_month_navigation(start),
+        },
     }
 
 
@@ -411,6 +415,28 @@ def _productivity_metrics(tasks, now=None, *, completed_tasks=None, backlog=None
         "open_overdue": open_overdue,
         "open_on_track": open_on_track,
         "total_with_deadline": sum(bool(task.get("deadline")) for task in tasks),
+    }
+
+
+def _gregorian_month_navigation(start: date) -> dict:
+    """Adjacent Gregorian calendar months for the alternate calendar mode."""
+    def month_bounds(year, month):
+        if month < 1:
+            year, month = year - 1, 12
+        elif month > 12:
+            year, month = year + 1, 1
+        first = date(year, month, 1)
+        last = date(year, month, calendar.monthrange(year, month)[1])
+        if first < MIN_REPORT_DATE or last > MAX_REPORT_DATE:
+            return None
+        return {"start": first.isoformat(), "end": last.isoformat()}
+
+    return {
+        "calendar": "gregorian",
+        "anchor_year": start.year, "anchor_month": start.month,
+        "current": month_bounds(start.year, start.month),
+        "previous": month_bounds(start.year, start.month - 1),
+        "next": month_bounds(start.year, start.month + 1),
     }
 
 
