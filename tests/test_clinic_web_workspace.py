@@ -59,6 +59,15 @@ async def test_typed_patient_list_exposes_typed_fields_and_primary_phone(clinic,
     await clinic_typed.update_item_async(
         patient["id"], "1", fields={"first_name": "Web", "status": "active"}
     )
+    await clinic_typed._save_data(
+        patient["id"],
+        {
+            "patient_id": "WEB-001",
+            "first_name": "Web",
+            "status": "active",
+            "clinical_notes": "legacy patient secret",
+        },
+    )
     await contact_point_service.create_contact_point_async(
         patient["id"], "phone", "+989121234567", "1",
         label="mobile", is_primary=True,
@@ -80,6 +89,7 @@ async def test_typed_patient_list_exposes_typed_fields_and_primary_phone(clinic,
     row = next(item for item in payload["items"] if item["id"] == patient["id"])
     assert row["typed"]["first_name"] == "Web"
     assert row["typed"]["patient_id"] == "WEB-001"
+    assert "clinical_notes" not in row["typed"]
     assert row["primary_phone"] == "+989121234567"
 
 
@@ -98,6 +108,15 @@ async def test_session_list_is_filterable_and_branch_scoped(clinic, clinic_profi
         "Consultation A",
         scheduled_at="2026-10-10T10:00:00+03:30",
         fields={"session_type": "consultation"},
+    )
+    await clinic_typed._save_data(
+        session_a["id"],
+        {
+            "session_type": "consultation",
+            "status": "scheduled",
+            "scheduled_at": "2026-10-10T06:30:00Z",
+            "clinical_notes": "legacy session secret",
+        },
     )
     await clinic_typed.create_child_async(
         clinic["owner"],
@@ -124,3 +143,4 @@ async def test_session_list_is_filterable_and_branch_scoped(clinic, clinic_profi
     assert [row["id"] for row in payload["items"]] == [session_a["id"]]
     assert payload["items"][0]["patient_name"] == "Patient A"
     assert payload["items"][0]["typed"]["session_type"] == "consultation"
+    assert "clinical_notes" not in payload["items"][0]["typed"]
