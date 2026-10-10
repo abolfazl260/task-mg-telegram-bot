@@ -10,6 +10,7 @@ from reportlab.pdfgen import canvas as pdf_canvas
 from webapp import report_pdf_layout as layout
 from webapp.report_export import ReportExportService, export_report
 
+
 def _report():
     return {
         "period": {"gregorian": "2026-08-01 تا 2026-08-31"},
@@ -125,7 +126,7 @@ def test_pdf_supports_empty_single_and_many_row_reports(n):
 
 def test_pdf_missing_unicode_font_fails_explicitly_not_helvetica(monkeypatch):
     monkeypatch.setattr(layout, "FONT_PATHS", ("/no/such/persian-font.ttf",))
-    monkeypatch.setattr(layout.pdfmetrics, "getRegisteredFontNames", lambda: [])
+    monkeypatch.setattr(layout.pdfmetrics, "getRegisteredFontNames", list)
     with pytest.raises(RuntimeError, match="pdf_unicode_font_unavailable"):
         export_report(_report(), "pdf")
 
