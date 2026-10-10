@@ -118,7 +118,7 @@ def _deadline_label(days, today=None):
     return _shared_deadline_label(days, today=today)
 
 
-def _deadline_html(today=None):
+def _deadline_html(today=None, allow_priority_back=True):
     dates = [_button(f"📅 {_deadline_label(i, today)}", f"deadline_{i}", "success" if i == 0 else "primary") for i in range(8)]
     actions = [
         _button("📅 تاریخ دلخواه", "deadline_custom", "primary"),
@@ -129,7 +129,7 @@ def _deadline_html(today=None):
         '<p>زمان موردنظر را انتخاب کنید:</p>'
         + _rows(dates, 2)
         + _rows(actions, 2)
-        + _footer(True, "step_back_priority")
+        + (_footer(True, "step_back_priority") if allow_priority_back else _footer())
     )
 
 
@@ -175,7 +175,7 @@ async def _show_description(message, context):
         '<p>توضیح یا یادداشت را در پیام بعدی ارسال کنید.</p>'
         '<p><i>این بخش اختیاری است.</i></p>'
         + _rows([_button("⏭ بدون توضیحات", "description_skip")])
-        + _footer(True, "step_back_tags")
+        + (_footer(True, "step_back_tags") if task_creation_field_enabled(context, "tags") else _footer())
     )
     await _edit_rich(context, message, html)
 
@@ -226,6 +226,7 @@ async def _show_summary(query, context):
         )
         + _footer()
     )
+    context.user_data["step"] = "summary"
     await _edit_rich(context, query.message, html)
 
 
@@ -305,7 +306,7 @@ def install_create_task_flow(task_module):
                 if task_creation_field_enabled(context, "deadline"):
                     _, local_now = await get_current_local_datetime_async(update.effective_user.id)
                     context.user_data["step"] = "deadline"
-                    await _edit_rich(context, message, _deadline_html(local_now.date()))
+                    await _edit_rich(context, message, _deadline_html(local_now.date(), allow_priority_back=False))
                 else:
                     draft["deadline"] = ""
                     await _show_category(task_module, message, context, update.effective_user.id)
@@ -357,6 +358,16 @@ def install_create_task_flow(task_module):
         query = update.callback_query
         await query.answer()
         data = query.data or ""
+        if data == "step_back_priority":
+            if (
+                not task_creation_field_enabled(context, "priority")
+                or context.user_data.get("step") != "deadline"
+            ):
+                await query.answer("این مرحله قابل بازگشت نیست.", show_alert=True)
+                return
+            context.user_data["step"] = "priority"
+            await _edit_rich(context, query.message, _priority_html())
+            return
         task = context.user_data.get("new_task")
         if not isinstance(task, dict):
             await query.answer("فرایند ایجاد تسک فعال نیست.", show_alert=True)
@@ -433,7 +444,7 @@ def install_create_task_flow(task_module):
     async def tag_callback_rich(update, context):
         query = update.callback_query
         data = query.data or ""
-        if not (data.startswith("tag_") or data.startswith("tags_") or data in {"step_back_category", "step_back_description"}):
+        if not (data.startswith("tag_") or data.startswith("tags_") or data in {"step_back_category", "step_back_description", "step_back_tags"}):
             return
         task = context.user_data.get("new_task")
         if not isinstance(task, dict):
@@ -455,6 +466,9 @@ def install_create_task_flow(task_module):
             context.user_data["step"] = "tags"
             context.user_data["awaiting_tag_input"] = True
             await _edit_rich(context, query.message, '<p><b>➕ تگ جدید</b></p><p>نام تگ را در پیام بعدی ارسال کنید.</p>' + _footer(True, "step_back_category"))
+            return
+        if data == "step_back_tags":
+            await _show_tags(query.message, context)
             return
         if data == "step_back_category":
             await _show_category(task_module, query.message, context, update.effective_user.id)
