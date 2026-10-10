@@ -83,8 +83,8 @@ def test_template_form_keyboard_has_expected_actions():
 
 
 def test_format_habit_includes_status_and_statistics(monkeypatch):
-    monkeypatch.setattr(habits, "stats_for_habit", lambda habit: {"current": 3, "best": 7, "total": 12, "last": "2026-09-07"})
-    text = habits.format_habit({"title": "Reading", "category": "Learning", "repeat_type": "daily", "target": "30 minutes", "reminder_time": "09:00", "start_date": "2026-09-01", "active": "1"})
+    monkeypatch.setattr(habits, "stats_for_habit", lambda habit, user_id: {"current": 3, "best": 7, "total": 12, "last": "2026-09-07"})
+    text = habits.format_habit({"title": "Reading", "category": "Learning", "repeat_type": "daily", "target": "30 minutes", "reminder_time": "09:00", "start_date": "2026-09-01", "active": "1"}, "100")
     assert "🌱 Reading" in text
     assert "📂 دسته‌بندی: Learning" in text
     assert "🔁 تکرار: روزانه" in text
@@ -97,8 +97,9 @@ def test_format_habit_includes_status_and_statistics(monkeypatch):
     assert "🕐 آخرین انجام: 2026-09-07" in text
 
 
-def test_format_habit_includes_inactive_status():
-    text = habits.format_habit({"title": "Reading", "repeat_type": "daily", "active": "0"})
+def test_format_habit_includes_inactive_status(monkeypatch):
+    monkeypatch.setattr(habits, "stats_for_habit", lambda habit, user_id: {"current": 0, "best": 0, "total": 0, "last": "—"})
+    text = habits.format_habit({"title": "Reading", "repeat_type": "daily", "active": "0"}, "100")
     assert "📌 وضعیت: غیرفعال" in text
 
 
