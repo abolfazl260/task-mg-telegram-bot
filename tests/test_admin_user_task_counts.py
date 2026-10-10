@@ -12,7 +12,7 @@ from services import clinic_typed
 from webapp.admin_api import (
     dashboard_stats,
     get_user_profile,
-    list_user_tasks,
+    list_user_tasks_page,
     list_users,
 )
 
@@ -107,30 +107,30 @@ async def test_user_task_list_is_paginated_and_aligned_with_per_user_counts(test
     assert creator["task_count"] == 39
     assert assigned["assigned_task_count"] == 38
 
-    p1 = await list_user_tasks("1", "default", view="created", limit=25, offset=0)
-    p2 = await list_user_tasks("1", "default", view="created", limit=25, offset=25)
+    p1 = await list_user_tasks_page("1", "default", view="created", limit=25, offset=0)
+    p2 = await list_user_tasks_page("1", "default", view="created", limit=25, offset=25)
     assert p1["total"] == p2["total"] == 39
     assert len(p1["tasks"]) == 25
     assert len(p2["tasks"]) == 14
     assert len({t["id"] for t in p1["tasks"] + p2["tasks"]}) == 39
-    assert set(t["bot_key"] for t in p1["tasks"] + p2["tasks"]) == {"default"}
+    assert {t["bot_key"] for t in p1["tasks"] + p2["tasks"]} == {"default"}
     assert all(t["user_id"] == "1" for t in p1["tasks"] + p2["tasks"])
 
-    assigned_page = await list_user_tasks("2", "default", view="assigned", limit=100)
+    assigned_page = await list_user_tasks_page("2", "default", view="assigned", limit=100)
     assert assigned_page["total"] == 38
     assert len(assigned_page["tasks"]) == 38
     assert all(t["assignee_id"] == "2" for t in assigned_page["tasks"])
 
-    self_assigned = await list_user_tasks("1", "default", view="assigned")
+    self_assigned = await list_user_tasks_page("1", "default", view="assigned")
     assert self_assigned["total"] == 1
     assert self_assigned["tasks"][0]["id"] == "A-2"
-    assert (await list_user_tasks("2", "other", view="assigned"))["total"] == 1
-    assert (await list_user_tasks("2", "default", view="created"))["total"] == 1
-    assert (await list_user_tasks("2", "other", view="created"))["total"] == 0
-    assert len((await list_user_tasks("1", "default", limit=1000))["tasks"]) <= 100
-    assert (await list_user_tasks("1", "default", offset=-100))["offset"] == 0
+    assert (await list_user_tasks_page("2", "other", view="assigned"))["total"] == 1
+    assert (await list_user_tasks_page("2", "default", view="created"))["total"] == 1
+    assert (await list_user_tasks_page("2", "other", view="created"))["total"] == 0
+    assert len((await list_user_tasks_page("1", "default", limit=1000))["tasks"]) <= 100
+    assert (await list_user_tasks_page("1", "default", offset=-100))["offset"] == 0
     with pytest.raises(ValueError, match="invalid_user_task_view"):
-        await list_user_tasks("1", view="all")
+        await list_user_tasks_page("1", view="all")
 
 
 @pytest.mark.asyncio
@@ -152,7 +152,7 @@ async def test_clinic_patient_items_are_excluded_from_admin_task_lists(clinic):
         clinic["owner"], clinic["a"], "Protected patient"
     )
     creator = patient["user_id"]
-    created = await list_user_tasks(creator, "clinic")
+    created = await list_user_tasks_page(creator, "clinic")
     assert created["total"] == 0 and created["tasks"] == []
     assert await get_user_profile(creator, "clinic") is None
     assert (await list_users(bot_key="clinic"))["total"] == 0
