@@ -330,8 +330,10 @@ def build_application(profile):
     if _feature(app,"integrations") and _permission(app,"integrations.manage"):
         app.add_handler(CallbackQueryHandler(integration_callback,pattern="^int_"))
     if _feature(app,"reports") and _permission(app,"reports.view"):
-        app.add_handler(CallbackQueryHandler(reports_callback,pattern="^report_"))
+        # Register the specific action first: the generic ^report_ matcher
+        # otherwise consumes report_calendar_pdf without invoking its handler.
         app.add_handler(CallbackQueryHandler(calendar_pdf_callback,pattern="^report_calendar_pdf$"))
+        app.add_handler(CallbackQueryHandler(reports_callback,pattern="^report_"))
     if _feature(app,"templates") and _permission(app,"templates.use"):
         app.add_handler(CallbackQueryHandler(templates_callback,pattern="^template_"))
     if _feature(app,"teams") and _permission(app,"teams.manage"):
