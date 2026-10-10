@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import calendar
 import json
+import re
 from datetime import date, datetime, timedelta, timezone
 from statistics import mean
 
@@ -59,13 +60,40 @@ def gregorian_to_jalali(gy: int, gm: int, gd: int) -> tuple[int, int, int]:
     return jy, jm, jd
 
 
-def _parse_date(value: str | None, fallback: date) -> date:
-    if not value:
-        return fallback
+MAX_CUSTOM_REPORT_DAYS = 366
+MAX_REPORT_PAGE = 10000
+MIN_REPORT_DATE = date(1601, 1, 1)
+MAX_REPORT_DATE = date(9998, 12, 31)
+
+
+class ReportInputError(ValueError):
+    """Safe, stable public input error code (never raw SQL or token contents)."""
+
+
+def _parse_custom_date(value: str | None) -> date:
+    """Accept only an actual ISO calendar date; never silently use today."""
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise ReportInputError("invalid_report_date")
     try:
-        return datetime.fromisoformat(value).date()
-    except (ValueError, TypeError):
-        return fallback
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ReportInputError("invalid_report_date") from exc
+
+
+def _validate_span(start: date, end: date) -> None:
+    if start < MIN_REPORT_DATE or end > MAX_REPORT_DATE:
+        raise ReportInputError("report_date_out_of_range")
+    if end < start:
+        raise ReportInputError("invalid_report_date_range")
+    if (end - start).days >= MAX_CUSTOM_REPORT_DAYS:
+        raise ReportInputError("report_period_too_large")
+
+
+def validate_report_page(page: int) -> int:
+    """Limit pagination even for callers bypassing the HTTP request handler."""
+    if type(page) is not int or not 1 <= page <= MAX_REPORT_PAGE:
+        raise ReportInputError("invalid_report_page")
+    return page
 
 
 def _previous_period(start: date, end: date) -> tuple[date, date]:
@@ -78,16 +106,28 @@ def _previous_period(start: date, end: date) -> tuple[date, date]:
 
 
 def resolve_period(period: str, start_value: str | None = None, end_value: str | None = None) -> tuple[date, date]:
+    """Return a bounded inclusive interval for report sections and full exports."""
     today = datetime.now(timezone.utc).date()
     if period == "today":
-        return today, today
-    if period == "week":
-        return today - timedelta(days=today.weekday()), today
-    if period == "custom":
-        start = _parse_date(start_value, today)
-        end = _parse_date(end_value, today)
-        return (start, end) if start <= end else (end, start)
-    return date(today.year, today.month, 1), date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
+        start, end = today, today
+    elif period == "week":
+        start, end = today - timedelta(days=today.weekday()), today
+    elif period == "month":
+        start, end = (
+            date(today.year, today.month, 1),
+            date(today.year, today.month, calendar.monthrange(today.year, today.month)[1]),
+        )
+    elif period == "custom":
+        if not start_value or not end_value:
+            raise ReportInputError("missing_report_dates")
+        start, end = _parse_custom_date(start_value), _parse_custom_date(end_value)
+        # Preserve historical direct-API behavior for reversed dates.
+        if start > end:
+            start, end = end, start
+    else:
+        raise ReportInputError("invalid_report_period")
+    _validate_span(start, end)
+    return start, end
 
 
 def _decode_filters(search: str) -> tuple[str, dict]:
@@ -271,6 +311,7 @@ def _productivity_metrics(tasks, now=None) -> dict:
 
 def _heatmap_data(tasks, start: date, end: date) -> dict:
     """Build a GitHub-style activity contribution calendar using Jalali dates."""
+    _validate_span(start, end)
     created_counts: dict[str, int] = {}
     completed_counts: dict[str, int] = {}
     deadline_counts: dict[str, int] = {}
@@ -436,6 +477,7 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
     access = _access(token)
     if not access:
         return None
+    validate_report_page(page)
     start, end = resolve_period(period, start_value, end_value)
     query, filters = _decode_filters(search)
     # Without a restrictive structured filter, both populations are identical.
@@ -499,7 +541,6 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
         sort_key = str(filters.get("sort") or "newest")
         selected = _sort_tasks(selected, sort_key)
         total_rows = len(selected)
-        page = max(1, int(page))
         normalized_page_size = int(page_size) if page_size is not None else 25
         if normalized_page_size <= 0:
             # Unpaginated mode is used by exports so CSV/PDF contain the full
