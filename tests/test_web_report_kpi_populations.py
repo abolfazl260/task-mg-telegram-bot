@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -94,7 +94,7 @@ def test_backlog_includes_older_tasks_and_team_members_but_not_unauthorized(repo
     class FixedDatetime(datetime):
         @classmethod
         def now(cls, tz=None):
-            return cls(2026, 10, 10, 12, tzinfo=tz or timezone.utc)
+            return cls(2026, 10, 10, 12, tzinfo=tz or UTC)
 
     monkeypatch.setattr(dashboard, "datetime", FixedDatetime)
     summary = _summary()
@@ -151,7 +151,7 @@ def test_filters_have_separate_documented_populations(report_database, monkeypat
     class FixedDatetime(datetime):
         @classmethod
         def now(cls, tz=None):
-            return cls(2026, 10, 10, 12, tzinfo=tz or timezone.utc)
+            return cls(2026, 10, 10, 12, tzinfo=tz or UTC)
 
     monkeypatch.setattr(dashboard, "datetime", FixedDatetime)
     access = {"user_id": "42", "bot_key": "bot-a"}
@@ -171,7 +171,7 @@ def test_exported_kpis_match_api_and_display_null_as_dash(report_database, monke
     class FixedDatetime(datetime):
         @classmethod
         def now(cls, tz=None):
-            return cls(2026, 10, 10, 12, tzinfo=tz or timezone.utc)
+            return cls(2026, 10, 10, 12, tzinfo=tz or UTC)
 
     monkeypatch.setattr(dashboard, "datetime", FixedDatetime)
     report = dashboard.dashboard_report(
