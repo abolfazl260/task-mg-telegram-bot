@@ -646,12 +646,15 @@ def _retry_delay(attempt: int) -> float:
     return min(0.05 * (2 ** attempt), 0.4) + random.uniform(0, 0.025)
 
 
-def _log_lock(operation, correlation_id, attempt, started, *, exhausted):
+def _log_lock(operation, correlation_id, attempt, started, *, exhausted, error):
+    # Emit the full traceback only on terminal failures. SQL parameters,
+    # patient names, tokens and message text are not passed to the logger.
     logger.warning(
         "sqlite_contention operation=%s correlation_id=%s attempt=%d "
-        "wait_ms=%d exhausted=%s",
+        "wait_ms=%d exhausted=%s sqlite_code=%s",
         operation, correlation_id, attempt + 1,
         int((time.monotonic() - started) * 1000), exhausted,
+        getattr(error, "sqlite_errorcode", None), exc_info=exhausted,
     )
 
 
@@ -665,7 +668,7 @@ async def _retry_read(operation, fetch):
             if not _is_locked_error(exc):
                 raise
             exhausted = attempt == SQLITE_MAX_RETRIES
-            _log_lock(operation, correlation_id, attempt, started, exhausted=exhausted)
+            _log_lock(operation, correlation_id, attempt, started, exhausted=exhausted, error=exc)
             if exhausted:
                 raise
             await asyncio.sleep(_retry_delay(attempt))
@@ -699,7 +702,7 @@ async def _write_atomic(db, operation, run):
                     and attempt < SQLITE_MAX_RETRIES
                 )
                 if _is_locked_error(exc):
-                    _log_lock(operation, correlation_id, attempt, started, exhausted=not retryable)
+                    _log_lock(operation, correlation_id, attempt, started, exhausted=not retryable, error=exc)
                 if not retryable:
                     raise
                 await asyncio.sleep(_retry_delay(attempt))
