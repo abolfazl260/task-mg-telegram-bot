@@ -1,11 +1,11 @@
 """Regression coverage for bounded Core reads and Telegram callback routing."""
 
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
-from telegram.ext import CallbackQueryHandler
 
-from bot_platform import BotProfile, DEFAULT_FEATURES
 from services import task_service, team_service
 
 
@@ -100,23 +100,35 @@ async def test_paged_tasks_sorting_and_bounds(test_db):
 
 
 def test_calendar_pdf_callback_precedes_generic_report_handler():
-    import main as main_module
+    # A separate interpreter avoids startup/import hooks altering shared
+    # handler module globals in unrelated pytest cases.
+    script = """
+from telegram.ext import CallbackQueryHandler
+from bot_platform import BotProfile, DEFAULT_FEATURES
+import main as main_module
 
-    features = {key: False for key in DEFAULT_FEATURES}
-    features.update({"core": True, "tasks": True, "reports": True})
-    profile = BotProfile(
-        key="routing-test", name="Routing test", username="routing_test_bot",
-        token="1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi", features=features,
+features = {key: False for key in DEFAULT_FEATURES}
+features.update({"core": True, "tasks": True, "reports": True})
+profile = BotProfile(
+    key="routing-test", name="Routing test", username="routing_test_bot",
+    token="1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi", features=features,
+)
+app = main_module.build_application(profile)
+handlers = [
+    handler for handler in app.handlers.get(0, [])
+    if isinstance(handler, CallbackQueryHandler)
+    and handler.pattern and handler.pattern.match("report_calendar_pdf")
+]
+assert handlers
+assert handlers[0].callback is main_module.calendar_pdf_callback
+assert any(handler.callback is main_module.reports_callback for handler in handlers)
+"""
+    root = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        [sys.executable, "-c", script], cwd=root,
+        capture_output=True, text=True, check=False, timeout=30,
     )
-    app = main_module.build_application(profile)
-    handlers = [
-        handler for handler in app.handlers.get(0, [])
-        if isinstance(handler, CallbackQueryHandler)
-        and handler.pattern and handler.pattern.match("report_calendar_pdf")
-    ]
-    assert handlers
-    assert handlers[0].callback is main_module.calendar_pdf_callback
-    assert any(handler.callback is main_module.reports_callback for handler in handlers)
+    assert proc.returncode == 0, proc.stderr
 
 
 def test_bounded_web_task_list_has_visible_page_navigation():
