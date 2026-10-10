@@ -1,6 +1,6 @@
 """Minimal role-scoped clinic execution menu using the shared domain service."""
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001 - preserve established import grouping
 
 import logging
 import re
@@ -161,7 +161,7 @@ async def _patient_input(update, context, step, value):
                 reply_markup=_patient_recovery_markup(),
             )
             return
-        except Exception:
+        except Exception:  # noqa: BLE001 - service boundary must retain draft and recover from unexpected storage errors
             logger.error("clinic_flow_failed flow=patient_registration step=patient_reference reason=service_error")
             await update.effective_message.reply_text(
                 "در ثبت بیمار خطایی رخ داد. می‌توانید دوباره تلاش کنید یا از نو شروع کنید.",
