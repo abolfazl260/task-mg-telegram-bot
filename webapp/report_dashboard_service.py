@@ -6,6 +6,8 @@ import re
 from datetime import UTC, date, datetime, timedelta
 from statistics import mean
 
+import jdatetime
+
 from services.database import sync_query_one
 
 from .reports import _access, _change, _jmonth, _priority, _status, _task_rows, _task_scope, _week, _habits, _recent
@@ -149,6 +151,11 @@ def _task_predicate(access, start: date, end: date, search: str = "", filters: d
         # timezone-aware completion timestamps in Python for exact UTC bounds.
         where = "completed_at>=? AND completed_at<? AND status IN ('done','completed')"
         params = [(start - timedelta(days=1)).isoformat(), (end + timedelta(days=2)).isoformat()]
+    elif population == "calendar":
+        # Calendar is selected by due date, not by task creation date.
+        # A date's full event list is needed, regardless of when it was created.
+        where = "substr(deadline,1,10)>=? AND substr(deadline,1,10)<=?"
+        params = [start.isoformat(), end.isoformat()]
     elif population == "open_backlog":
         # Current open backlog is independent of the selected creation period.
         # Exclude future-created records from the as-of-today snapshot.
@@ -202,6 +209,49 @@ def _task_predicate(access, start: date, end: date, search: str = "", filters: d
 def _query_tasks(access, start: date, end: date, search: str = "", filters: dict | None = None):
     where, params = _task_predicate(access, start, end, search, filters)
     return _task_rows(access, where, params)
+
+
+def _query_calendar_tasks(access, start: date, end: date, search: str = "", filters: dict | None = None):
+    """Select every authorized due-date event in the requested calendar range."""
+    where, params = _task_predicate(access, start, end, search, filters, population="calendar")
+    return _task_rows(access, where, params)
+
+
+def _calendar_data(access, start: date, end: date, search: str, filters: dict) -> dict:
+    tasks = _query_calendar_tasks(access, start, end, search, filters)
+    # Preserve the legacy rows shape while removing the misleading 25-row cap.
+    # Each day is a lightweight index; task details are in the complete rows.
+    rows = [_row(task) for task in tasks]
+    rows.sort(key=lambda item: (str(item.get("deadline") or "")[:10], str(item.get("id") or "")))
+    counts = {}
+    for item in rows:
+        day = str(item["deadline"])[:10]
+        counts[day] = counts.get(day, 0) + 1
+    days = []
+    cursor = start
+    while cursor <= end:
+        jy, jm, jd = gregorian_to_jalali(cursor.year, cursor.month, cursor.day)
+        iso = cursor.isoformat()
+        days.append({
+            "date": iso,
+            "jalali_date": f"{jy:04d}/{jm:02d}/{jd:02d}",
+            "jalali_year": jy,
+            "jalali_month": jm,
+            "jalali_month_name": JALALI_MONTH_NAMES[jm],
+            "jalali_day": jd,
+            "gregorian_year": cursor.year,
+            "gregorian_month": cursor.month,
+            "gregorian_day": cursor.day,
+            "weekday": (cursor.weekday() + 2) % 7,
+            "count": counts.get(iso, 0),
+        })
+        cursor += timedelta(days=1)
+    return {
+        "section": "calendar", "rows": rows, "days": days,
+        "total": len(rows), "page": 1, "pages": 1,
+        "page_size": len(rows), "pagination_mode": "none",
+        "range": {"start": start.isoformat(), "end": end.isoformat()},
+    }
 
 
 def _query_completed_tasks(access, start: date, end: date, search: str = "", filters: dict | None = None):
@@ -364,6 +414,33 @@ def _productivity_metrics(tasks, now=None, *, completed_tasks=None, backlog=None
     }
 
 
+def _jalali_month_navigation(start: date) -> dict:
+    """Build adjacent Jalali month bounds, independent of Gregorian months."""
+    jy, jm, _ = gregorian_to_jalali(start.year, start.month, start.day)
+
+    def month_bounds(year: int, month: int):
+        if month < 1:
+            year, month = year - 1, 12
+        elif month > 12:
+            year, month = year + 1, 1
+        next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+        first = jdatetime.date(year, month, 1).togregorian()
+        last = jdatetime.date(next_year, next_month, 1).togregorian() - timedelta(days=1)
+        # The service-level date envelope (#223) also applies to navigation.
+        if first < MIN_REPORT_DATE or last > MAX_REPORT_DATE:
+            return None
+        return {"start": first.isoformat(), "end": last.isoformat()}
+
+    return {
+        "calendar": "jalali",
+        "anchor_year": jy, "anchor_month": jm,
+        "anchor_label": f"{JALALI_MONTH_NAMES[jm]} {jy}",
+        "current": month_bounds(jy, jm),
+        "previous": month_bounds(jy, jm - 1),
+        "next": month_bounds(jy, jm + 1),
+    }
+
+
 def _heatmap_data(tasks, start: date, end: date) -> dict:
     """Build a GitHub-style activity contribution calendar using Jalali dates."""
     created_counts: dict[str, int] = {}
@@ -461,6 +538,7 @@ def _heatmap_data(tasks, start: date, end: date) -> dict:
         "busiest_days": busiest_days,
         "overall_completion_rate": overall_rate,
         "jalali_period": f"{days[0]['jalali_date']} تا {days[-1]['jalali_date']}" if days else "",
+        "navigation": _jalali_month_navigation(start),
     }
 
 
@@ -594,7 +672,12 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
     }
     if section is None:
         return result
-    if section in {"tasks", "deadlines", "calendar"}:
+    if section == "calendar":
+        # Calendar event dates are deadlines, not creation timestamps.
+        # Return every selected-date event; page is deliberately ignored.
+        result.update(_calendar_data(access, start, end, query, filters))
+        return result
+    if section in {"tasks", "deadlines"}:
         selected = [task for task in tasks if section == "tasks" or task.get("deadline")]
         sort_key = str(filters.get("sort") or "newest")
         selected = _sort_tasks(selected, sort_key)
