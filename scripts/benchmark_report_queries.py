@@ -50,8 +50,8 @@ def benchmark(size: int) -> tuple[int, float, float, str]:
             samples.append((time.perf_counter() - started) * 1000)
         return statistics.median(samples)
 
-    full_sql = "SELECT * FROM tasks WHERE " + where
-    count_sql = "SELECT COUNT(*) AS total FROM tasks WHERE " + where
+    full_sql = "SELECT * FROM tasks WHERE " + where  # nosec B608 - fixed synthetic benchmark predicate
+    count_sql = "SELECT COUNT(*) AS total FROM tasks WHERE " + where  # nosec B608 - fixed synthetic benchmark predicate
     full_ms = median_ms(full_sql)
     count_ms = median_ms(count_sql)
     plan = connection.execute("EXPLAIN QUERY PLAN " + count_sql, arguments).fetchone()[3]
