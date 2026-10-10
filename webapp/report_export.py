@@ -2,14 +2,9 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import date
-
 import arabic_reshaper
 from bidi.algorithm import get_display
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfgen import canvas
+from .report_pdf_layout import render_pdf
 
 
 def _kpi_rows(summary):
@@ -60,30 +55,9 @@ class ReportExportService:
 
     @staticmethod
     def pdf_bytes(report: dict) -> bytes:
-        output = io.BytesIO(); page = landscape(A4); pdf = canvas.Canvas(output, pagesize=page); width, height = page
-        font_name = "Helvetica"
-        for path in ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"):
-            try:
-                pdfmetrics.registerFont(TTFont("ReportFont", path)); font_name = "ReportFont"; break
-            except Exception:
-                continue
-        text = ReportExportService._rtl
-        pdf.setFont(font_name, 16); pdf.drawString(36, height - 40, text("گزارش وظایف"))
-        pdf.setFont(font_name, 9); pdf.drawString(36, height - 58, text(report.get("period", {}).get("gregorian", date.today().isoformat())))
-        summary = report.get("summary", {}); y = height - 85
-        for label, value in _kpi_rows(summary):
-            pdf.drawString(36, y, text(f"{label}: {value}")); y -= 14
-        y -= 5; pdf.setFont(font_name, 8)
-        headers = ["شناسه", "عنوان", "وضعیت", "اولویت", "مهلت", "دسته‌بندی", "مسئول"]; x_positions = [36, 100, 330, 410, 475, 555, 635]
-        for x, header in zip(x_positions, headers): pdf.drawString(x, y, text(header))
-        y -= 14
-        for row in (report.get("rows") or []):
-            values = [row.get("id", ""), row.get("title", ""), row.get("status_label", ""), row.get("priority_label", row.get("priority", "")), row.get("deadline", ""), row.get("category", ""), row.get("assignee", "")]
-            for x, value in zip(x_positions, values): pdf.drawString(x, y, text(str(value)[:30]))
-            y -= 12
-            if y < 30:
-                pdf.showPage(); pdf.setFont(font_name, 8); y = height - 35
-        pdf.save(); return output.getvalue()
+        # Layout owns pagination only; authorization and full-filtered rows
+        # remain the responsibility of the existing report route/service.
+        return render_pdf(report, ReportExportService._rtl, _kpi_rows)
 
 
 def export_report(report: dict, fmt: str) -> tuple[bytes, str, str]:
