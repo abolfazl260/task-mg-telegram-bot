@@ -47,7 +47,7 @@ def core_db(monkeypatch):
     task("foreign-assigned", user="99")
     task("revoked", user="99", team="revoked")
     task("clinic-workspace", workspace="clinic")
-    task("malformed", created="2026-10-01", due="2026-10-30bad")
+    task("malformed", created="2026-10-01", due="2026-10-2X")
     conn.execute("UPDATE tasks SET assignee_id='42' WHERE id='foreign-assigned'")
     conn.executemany("INSERT INTO team_members VALUES (?,?,?)", [
         ("shared", "42", "viewer"), ("shared", "99", "owner"),
