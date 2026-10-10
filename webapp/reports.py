@@ -77,9 +77,9 @@ def _heatmap(a):
 
 def _recent(a):
     scope,args=_task_scope(a); tasks={str(t.get("id")):t for t in sync_all("tasks",scope,args)}; events=[]
-    try: comments=sync_all("task_comments","task_id IN (SELECT id FROM tasks WHERE "+scope+")",args)
+    try: comments=sync_all("task_comments","task_id IN (SELECT id FROM tasks WHERE "+scope+")",args)  # nosec B608 - internal fixed predicate, bound user ID
     except Exception: comments=[]
-    try: assigns=sync_all("task_assignment_history","task_id IN (SELECT id FROM tasks WHERE "+scope+")",args)
+    try: assigns=sync_all("task_assignment_history","task_id IN (SELECT id FROM tasks WHERE "+scope+")",args)  # nosec B608 - internal fixed predicate, bound user ID
     except Exception: assigns=[]
     labels={"text":"کامنت ثبت کرد","photo":"تصویر ارسال کرد","voice":"پیام صوتی ارسال کرد","audio":"فایل صوتی ارسال کرد","document":"فایل ارسال کرد","video":"ویدئو ارسال کرد","animation":"گیف ارسال کرد","sticker":"استیکر ارسال کرد"}
     for r in comments:
