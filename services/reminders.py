@@ -122,7 +122,8 @@ def _habit_reminder_times(value):
 
 
 def _habit_job_bot_key(context):
-    profile = context.application.bot_data.get("bot_config")
+    application = getattr(context, "application", None)
+    profile = getattr(application, "bot_data", {}).get("bot_config")
     return profile.key if profile else "default"
 
 
