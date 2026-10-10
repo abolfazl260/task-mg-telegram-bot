@@ -90,6 +90,25 @@
 .busiest-list{display:flex!important;flex-wrap:wrap!important;gap:8px!important}
 .busy-pill{background:#f1f5f9!important;border:1px solid #cbd5e1!important;border-radius:999px!important;padding:5px 12px!important;font-size:12px!important;color:#1e293b!important}
 
+/* Date-oriented report calendar: seven accessible RTL columns at all sizes. */
+.calendar-months{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px;margin:14px 0}
+.calendar-month{background:#f7f6f3;border:1px solid #e9e9e7;border-radius:10px;padding:12px;min-width:0}
+.calendar-month h3{font-size:15px;margin:0 0 12px}
+.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;direction:rtl}
+.calendar-weekday{font-size:11px;font-weight:700;text-align:center;color:#787774;padding:6px 0}
+.calendar-day{border:1px solid #e9e9e7;background:#fff;border-radius:7px;min-height:58px;min-width:0;text-align:center;padding:6px 2px;font:inherit;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:4px;color:#37352f}
+.calendar-day strong{font-size:13px}.calendar-day small{font-size:10px;color:#787774;overflow-wrap:anywhere}
+.calendar-day.has-events{background:#f0f7ff;border-color:#cfe2fb}
+.calendar-day.selected{background:#37352f;color:#fff;border-color:#37352f}
+.calendar-day.selected small{color:#fff}
+.calendar-day:focus-visible{outline:3px solid #2383e2;outline-offset:2px}
+.calendar-placeholder{min-height:58px}
+.calendar-selected-day{border-top:1px solid #e9e9e7;margin-top:16px;padding-top:14px}
+.calendar-selected-day h3{font-size:15px;margin:0 0 10px}
+.calendar-event{background:#fff;border:1px solid #e9e9e7;border-radius:8px;padding:10px;margin-top:8px;overflow-wrap:anywhere}
+.calendar-event strong{display:block;margin-bottom:4px}
+@media(max-width:650px){.calendar-months{grid-template-columns:minmax(0,1fr)}.calendar-month{padding:8px}.calendar-day{min-height:50px;padding:5px 1px}.calendar-day small{font-size:9px}.calendar-placeholder{min-height:50px}}
+
 /* Header link to task management */
 .hero-link{display:inline-flex!important;align-items:center!important;gap:6px!important;text-decoration:none!important;border-radius:14px!important;padding:9px 15px!important;background:#ffffff18!important;border:1px solid #ffffff30!important;color:#fff!important;font-weight:800!important;font-size:13px!important;white-space:nowrap!important;transition:background .18s,transform .18s!important}
 .hero-link:hover{background:#ffffff2b!important;transform:translateY(-1px)!important}
@@ -639,20 +658,24 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
       const busiest = data.busiest_days || [];
       const jalaliPeriod = data.jalali_period || '';
       const dayNames = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'];
-      const firstDate = new Date(`${days[0]?.date || new Date().toISOString().slice(0, 10)}T00:00:00Z`);
-      const monthLabel = jalaliPeriod || 'ماه جاری';
-      const shiftMonth = (delta) => {
-        const d = new Date(Date.UTC(firstDate.getUTCFullYear(), firstDate.getUTCMonth() + delta, 1));
-        const start = d.toISOString().slice(0, 10);
-        const endDate = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
-        const end = endDate.toISOString().slice(0, 10);
-        const p = new URLSearchParams({ period: 'custom', start, end });
+      const nav = data.navigation || {};
+      const monthLabel = nav.anchor_label || 'ماه جلالی';
+      // This view can differ from the global period: show the actual dates
+      // requested and preserve search/structured filters on navigation.
+      const shiftMonth = delta => {
+        const target = delta < 0 ? nav.previous : nav.next;
+        if (!target) return;
+        const p = new URLSearchParams(params());
+        p.set('period', 'custom');
+        p.set('start', target.start);
+        p.set('end', target.end);
         loadSectionWithQuery('heatmap', p);
       };
       window.loadSectionWithQuery = (section, p) => {
         details.innerHTML = '<div class="loading">در حال دریافت گزارش...</div>';
-        getJson(`/api/public-reports/monthly/${encodeURIComponent(token)}/section/${section}?${p.toString()}`)
-          .then(renderFiltered.bind(null, section)).catch(e => { details.innerHTML = `<p class="error">${esc(e.message)}</p>`; });
+        getJson(`/api/public-reports/monthly/${encodeURIComponent(token)}/section/${encodeURIComponent(section)}?${p.toString()}`)
+          .then(d => renderFiltered(section, d))
+          .catch(e => { details.innerHTML = `<p class="error">${esc(e.message)}</p>`; });
       };
       window.__heatmapShift = shiftMonth;
 
@@ -661,13 +684,13 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
           <div>
             <h2>🗓️ تقویم فعالیت روزانه (Heatmap خورشیدی)</h2>
             <div class="muted">
-              نمایش روزهای پرمشغله و نرخ انجام فعالیت‌ها بر اساس گاه‌شمار جلالی ${jalaliPeriod ? `(${esc(jalaliPeriod)})` : ''}
+              بازه نمایش: ${esc(jalaliPeriod)} · جابه‌جایی فقط بر اساس ماه‌های جلالی (فیلترهای گزارش حفظ می‌شوند)
             </div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <button class="heat-nav" onclick="window.__heatmapShift(-1)">‹ ماه قبل</button>
+            <button class="heat-nav" onclick="window.__heatmapShift(-1)" ${!nav.previous ? 'disabled' : ''}>‹ ماه قبل شمسی</button>
             <span class="chip">${esc(monthLabel)}</span>
-            <button class="heat-nav" onclick="window.__heatmapShift(1)">ماه بعد ›</button>
+            <button class="heat-nav" onclick="window.__heatmapShift(1)" ${!nav.next ? 'disabled' : ''}>ماه بعد شمسی ›</button>
             <span class="chip">کل فعالیت‌ها: ${data.total || 0}</span>
             <span class="chip" style="background:#ecfdf3;color:#027a48">تکمیل‌شده: ${data.total_completed || 0}</span>
             <span class="chip" style="background:#eff8ff;color:#175cd3">نرخ تکمیل: ${data.overall_completion_rate || 0}٪</span>
@@ -887,46 +910,108 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
   }
 
   function renderCalendar(d) {
-    let mode = window.calMode || 'jalali';
+    const mode = window.calMode || 'jalali';
+    const days = d.days || [];
     const rows = d.rows || [];
+    const range = d.range || {};
+    const weekdayNames = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'];
+    const gregorianMonths = ['ژانویه', 'فوریه', 'مارس', 'آوریل', 'مه', 'ژوئن',
+      'ژوئیه', 'اوت', 'سپتامبر', 'اکتبر', 'نوامبر', 'دسامبر'];
+    // The selected day is stable across display-mode toggles.
+    let selected = window.selectedCalendarDate;
+    if (!days.some(x => x.date === selected)) {
+      const today = new Date().toISOString().slice(0, 10);
+      selected = days.some(x => x.date === today) ? today : (days.find(x => x.count > 0)?.date || days[0]?.date);
+      window.selectedCalendarDate = selected;
+    }
+
+    const tasksByDay = new Map();
+    rows.forEach(task => {
+      const due = String(task.deadline || '').slice(0, 10);
+      if (!tasksByDay.has(due)) tasksByDay.set(due, []);
+      tasksByDay.get(due).push(task);
+    });
+
+    const groups = [];
+    for (const day of days) {
+      const key = mode === 'jalali'
+        ? `${day.jalali_year}-${day.jalali_month}`
+        : `${day.gregorian_year}-${day.gregorian_month}`;
+      let group = groups[groups.length - 1];
+      if (!group || group.key !== key) {
+        group = {
+          key, days: [],
+          label: mode === 'jalali'
+            ? `${day.jalali_month_name} ${day.jalali_year}`
+            : `${gregorianMonths[day.gregorian_month - 1]} ${day.gregorian_year}`
+        };
+        groups.push(group);
+      }
+      group.days.push(day);
+    }
+    const renderGroup = g => {
+      const first = g.days[0];
+      const blanks = Array.from({ length: first.weekday }, () =>
+        '<span class="calendar-placeholder" aria-hidden="true"></span>').join('');
+      const cells = g.days.map(day => {
+        const label = mode === 'jalali' ? day.jalali_day : day.gregorian_day;
+        const localDate = mode === 'jalali' ? day.jalali_date : day.date;
+        return `<button type="button" class="calendar-day ${day.date === selected ? 'selected' : ''} ${day.count ? 'has-events' : ''}"
+          data-calendar-day="${esc(day.date)}" aria-pressed="${day.date === selected}" aria-label="${esc(localDate)}، ${day.count} وظیفه">
+          <strong>${label}</strong>
+          ${day.count ? `<small>${day.count} وظیفه</small>` : '<small>—</small>'}
+        </button>`;
+      }).join('');
+      return `<section class="calendar-month">
+        <h3>${esc(g.label)}</h3>
+        <div class="calendar-grid" role="grid" aria-label="${esc(g.label)}">
+          ${weekdayNames.map(name => `<span class="calendar-weekday">${name}</span>`).join('')}
+          ${blanks}${cells}
+        </div>
+      </section>`;
+    };
+    const selectedDay = days.find(x => x.date === selected);
+    const dayTitle = selectedDay
+      ? (mode === 'jalali' ? selectedDay.jalali_date : selectedDay.date)
+      : '—';
+    const selectedTasks = tasksByDay.get(selected) || [];
+
     details.innerHTML = `
       <div class="section-title">
         <div>
-          <h2>📅 تقویم</h2>
-          <span class="muted">انتخاب نوع نمایش تاریخ</span>
+          <h2>📅 تقویم مهلت وظایف</h2>
+          <span class="muted">بازه: ${esc(range.start || '')} تا ${esc(range.end || '')} ·
+            ${rows.length} وظیفه دارای مهلت · بدون حذف رویدادها به علت صفحه‌بندی</span>
         </div>
         <div class="switch">
-          <button class="${mode === 'jalali' ? 'active' : ''}" onclick="window.calMode='jalali';renderCalendar(window.calendarData)">شمسی</button>
-          <button class="${mode === 'gregorian' ? 'active' : ''}" onclick="window.calMode='gregorian';renderCalendar(window.calendarData)">میلادی</button>
+          <button type="button" class="${mode === 'jalali' ? 'active' : ''}" data-calendar-mode="jalali">شمسی</button>
+          <button type="button" class="${mode === 'gregorian' ? 'active' : ''}" data-calendar-mode="gregorian">میلادی</button>
         </div>
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th class="row-no">ردیف</th>
-              <th>تاریخ</th>
-              <th>عنوان</th>
-              <th>وضعیت</th>
-              <th>اولویت</th>
-              <th>مسئول</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map((x, i) => `
-              <tr>
-                <td class="row-no">${i + 1}</td>
-                <td>${formatDate(x.deadline, mode, x.deadline_jalali)}</td>
-                <td class="task-title">${esc(x.title)}</td>
-                <td>${esc(x.status_label)}</td>
-                <td>${priority(x.priority)}</td>
-                <td>👤 ${esc(x.assignee || 'بدون مسئول')}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>`;
+      <p class="muted">تاریخ‌های نمایش‌داده‌شده بر اساس مهلت وظایف و فیلترهای فعال هستند، نه تاریخ ایجاد.</p>
+      <div class="calendar-months">${groups.map(renderGroup).join('')}</div>
+      <section class="calendar-selected-day" aria-live="polite">
+        <h3>وظایف روز ${esc(dayTitle)} (${selectedTasks.length})</h3>
+        ${selectedTasks.length ? selectedTasks.map(item => `
+          <article class="calendar-event">
+            <strong>${esc(item.title)}</strong>
+            <div class="muted">شناسه: ${esc(item.id)} · ${esc(item.status_label)}
+             · ${esc(item.priority_label)} · مسئول: ${esc(item.assignee)}</div>
+          </article>`).join('') : '<div class="empty">برای این روز وظیفه دارای مهلتی وجود ندارد.</div>'}
+      </section>`;
     window.calendarData = d;
+    details.querySelectorAll('[data-calendar-day]').forEach(btn =>
+      btn.addEventListener('click', () => {
+        window.selectedCalendarDate = btn.dataset.calendarDay;
+        renderCalendar(d);
+      })
+    );
+    details.querySelectorAll('[data-calendar-mode]').forEach(btn =>
+      btn.addEventListener('click', () => {
+        window.calMode = btn.dataset.calendarMode;
+        renderCalendar(d);
+      })
+    );
   }
 
   function formatDate(v, mode, jalaliValue = '') {
