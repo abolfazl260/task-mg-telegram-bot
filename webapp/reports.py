@@ -17,8 +17,33 @@ def _month():
     n=datetime.now(timezone.utc).date(); return date(n.year,n.month,1),date(n.year,n.month,calendar.monthrange(n.year,n.month)[1])
 def _previous_month(start):
     previous_end=start-timedelta(days=1); return date(previous_end.year,previous_end.month,1),previous_end
-def _task_rows(a,where="",params=()):
-    base="workspace_id IS NULL AND bot_key=? AND user_id=?"; return sync_all("tasks",base+(" AND "+where if where else ""),(a["bot_key"],str(a["user_id"]))+tuple(params))
+def _task_scope(access):
+    """Match Core's personal + live team-membership visibility for web reports.
+
+    General Tasks are shared across Bot Profiles by design; bot_key is
+    provenance, not a report permission boundary. Unrelated, unassigned
+    private tasks and all workspace-backed records are excluded.
+    """
+    uid = str(access["user_id"])
+    predicate = (
+        "workspace_id IS NULL AND ("
+        "((team_id IS NULL OR team_id='') AND user_id=?) OR "
+        "((team_id IS NOT NULL AND team_id!='') AND EXISTS ("
+        "SELECT 1 FROM team_members tm "
+        "WHERE tm.team_id=tasks.team_id AND tm.user_id=?"
+        "))"
+        ")"
+    )
+    return predicate, (uid, uid)
+
+
+def _task_rows(a, where="", params=()):
+    base, scope_params = _task_scope(a)
+    return sync_all(
+        "tasks",
+        base + (" AND (" + where + ")" if where else ""),
+        scope_params + tuple(params),
+    )
 def _task_count(a,start,end):
     endx=end+timedelta(days=1); return len(_task_rows(a,"created_at>=? AND created_at<?",(start.isoformat(),endx.isoformat())))
 def _change(total,previous_total):
@@ -51,10 +76,10 @@ def _heatmap(a):
     n=datetime.now(timezone.utc).date(); start=date(n.year,n.month,1); nxt=date(n.year+(n.month==12),1 if n.month==12 else n.month+1,1); tasks=_task_rows(a,"deadline>=? AND deadline<? AND deadline IS NOT NULL AND deadline!=''",(start.isoformat(),nxt.isoformat())); c=Counter(str(t.get("deadline"))[:10] for t in tasks); vals=[{"day":d,"date":f"{n.year:04d}-{n.month:02d}-{d:02d}","count":c.get(f"{n.year:04d}-{n.month:02d}-{d:02d}",0)} for d in range(1,calendar.monthrange(n.year,n.month)[1]+1)]; mx=max((x["count"] for x in vals),default=0); return {"section":"heatmap","year":n.year,"month":n.month,"month_label":f"{n.year:04d}/{n.month:02d} · {_jmonth(n)}","days":vals,"max_count":mx,"total":sum(x["count"] for x in vals)}
 
 def _recent(a):
-    args=(a["bot_key"],str(a["user_id"])); tasks={str(t.get("id")):t for t in sync_all("tasks","workspace_id IS NULL AND bot_key=? AND user_id=?",args)}; events=[]
-    try: comments=sync_all("task_comments","task_id IN (SELECT id FROM tasks WHERE workspace_id IS NULL AND bot_key=? AND user_id=?)",args)
+    scope,args=_task_scope(a); tasks={str(t.get("id")):t for t in sync_all("tasks",scope,args)}; events=[]
+    try: comments=sync_all("task_comments","task_id IN (SELECT id FROM tasks WHERE "+scope+")",args)  # nosec B608 - internal fixed predicate, bound user ID
     except Exception: comments=[]
-    try: assigns=sync_all("task_assignment_history","task_id IN (SELECT id FROM tasks WHERE workspace_id IS NULL AND bot_key=? AND user_id=?)",args)
+    try: assigns=sync_all("task_assignment_history","task_id IN (SELECT id FROM tasks WHERE "+scope+")",args)  # nosec B608 - internal fixed predicate, bound user ID
     except Exception: assigns=[]
     labels={"text":"کامنت ثبت کرد","photo":"تصویر ارسال کرد","voice":"پیام صوتی ارسال کرد","audio":"فایل صوتی ارسال کرد","document":"فایل ارسال کرد","video":"ویدئو ارسال کرد","animation":"گیف ارسال کرد","sticker":"استیکر ارسال کرد"}
     for r in comments:
