@@ -313,13 +313,14 @@ async def migrate_core_schema(conn) -> None:
     # them to every enabled bot. The habit ID in habit_logs retains the scope.
     async with conn.execute("PRAGMA table_info(habits)") as cursor:
         habit_columns = {row[1] for row in await cursor.fetchall()}
-    if "bot_key" not in habit_columns:
+    if habit_columns:
+        if "bot_key" not in habit_columns:
+            await conn.execute(
+                "ALTER TABLE habits ADD COLUMN bot_key TEXT NOT NULL DEFAULT 'default'"
+            )
         await conn.execute(
-            "ALTER TABLE habits ADD COLUMN bot_key TEXT NOT NULL DEFAULT 'default'"
+            "CREATE INDEX IF NOT EXISTS idx_habits_bot_user ON habits(bot_key, user_id)"
         )
-    await conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_habits_bot_user ON habits(bot_key, user_id)"
-    )
 
     async with conn.execute("PRAGMA table_info(tasks)") as cursor:
         task_columns = {row[1] for row in await cursor.fetchall()}
