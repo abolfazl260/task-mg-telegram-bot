@@ -160,7 +160,7 @@ def _count_query_tasks(access, start: date, end: date, search: str = "", filters
     # visibility must be coordinated with the separate #222 workstream.
     sql = (
         "SELECT COUNT(*) AS total FROM tasks WHERE "
-        "workspace_id IS NULL AND bot_key=? AND user_id=? AND " + where
+        "workspace_id IS NULL AND bot_key=? AND user_id=? AND " + where  # nosec B608 - internally constructed clauses, parameterized user input
     )
     row = sync_query_one(sql, (access["bot_key"], str(access["user_id"])) + params)
     return int(row["total"]) if row else 0
