@@ -5,7 +5,14 @@ from typing import Any, Awaitable, Callable
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 DEFAULT_TASK_OPTIONS={"allow_assignment":True,"allow_tags":True,"allow_comments":True,"allow_categories":True,"allow_priority":True,"allow_search":True,"allow_templates":True,"allow_bulk_import":True,"allow_ai_task_creation":True}
-_WRAPPABLE_CALLBACKS={"assignment_callback","assignment_manage_callback","take_assignment","take_confirm","safe_assignment_confirm","comment_callback","comment_cancel_callback","button_handler","priority_selected","deadline_selected","optional_field_callback","save_task"}
+_WRAPPABLE_CALLBACKS={
+    "assignment_callback", "assignment_with_rich_final_state",
+    "assignment_manage_callback", "take_assignment", "take_confirm",
+    "safe_assignment_confirm", "comment_callback", "comment_cancel_callback",
+    "button_handler", "priority_selected", "priority_rich",
+    "deadline_selected", "deadline_rich", "optional_field_callback",
+    "optional_with_media_description", "save_task", "save_task_with_progress",
+}
 
 def task_options(profile):
     result=DEFAULT_TASK_OPTIONS.copy();raw=(getattr(profile,"settings",{}) or {}).get("task_options",{}) or {};result.update({k:bool(v) for k,v in raw.items() if k in result});return result
@@ -54,6 +61,10 @@ def wrap_save_task(original):
             await message.reply_text("⛔️ افزودن پیوست برای این ربات مجاز نیست.")
             return
         step=context.user_data.get("step");task=context.user_data.get("new_task")
+        # Rich creation performs its own capability-aware transitions. The
+        # legacy fallback below would otherwise send an unrelated inline form.
+        if context.user_data.get("create_task_message_id"):
+            return await original(update,context)
         if not task:return await original(update,context)
         if step=="title" and (not task_option_enabled(context,"allow_priority") or not task_permission_enabled(context,"priority.set")):
             task["priority"]="medium";context.user_data["step"]="deadline"
@@ -72,6 +83,8 @@ def wrap_save_task(original):
 def wrap_priority_selected(original):
     @wraps(original)
     async def wrapper(update,context):
+        if context.user_data.get("create_task_message_id"):
+            return await original(update,context)
         if not task_option_enabled(context,"allow_priority") or not task_permission_enabled(context,"priority.set"):
             query=update.callback_query;await query.answer();context.user_data.setdefault("new_task",{})["priority"]="medium";context.user_data["step"]="deadline"
             from utils.keyboard import deadline_keyboard
@@ -82,6 +95,8 @@ def wrap_priority_selected(original):
 def wrap_deadline_selected(original):
     @wraps(original)
     async def wrapper(update,context):
+        if context.user_data.get("create_task_message_id"):
+            return await original(update,context)
         if not task_permission_enabled(context,"deadline.set"):
             await update.callback_query.answer("تنظیم ددلاین برای این ربات مجاز نیست.",show_alert=True);return
         if not task_option_enabled(context,"allow_categories") or not task_permission_enabled(context,"categories.manage"):
@@ -98,6 +113,8 @@ def wrap_deadline_selected(original):
 def wrap_optional_field_callback(original):
     @wraps(original)
     async def wrapper(update,context):
+        if context.user_data.get("create_task_message_id"):
+            return await original(update,context)
         data=update.callback_query.data or "";task=context.user_data.get("new_task") or {}
         if data.startswith("category_") and (not task_option_enabled(context,"allow_categories") or not task_permission_enabled(context,"categories.manage")):
             task["category"]="";task["tags"]="";context.user_data["new_task"]=task;handler=__import__("handlers.task",fromlist=["_ask_description"]);await handler._ask_description(update.callback_query.message,context);await update.callback_query.answer();return
@@ -121,7 +138,7 @@ def wrap_callback(original):
             if data=="task_confirm_create":await _finalize_without_assignment(update,context)
             else:context.user_data.clear();await update.callback_query.message.reply_text("❌ ایجاد تسک لغو شد.")
             return
-        if data.startswith(("assign_","owner_","take_","asg_","chg_")) and (not task_option_enabled(context,"allow_assignment") or not task_permission_enabled(context,"assignment.manage")):await update.callback_query.answer("تخصیص مسئول برای این ربات مجاز نیست.",show_alert=True);return
+        if data.startswith(("assign_","owner_","take_","asg_","chg_")) and data not in {"assign_confirm_create", "assign_cancel_create"} and (not task_option_enabled(context,"allow_assignment") or not task_permission_enabled(context,"assignment.manage")):await update.callback_query.answer("تخصیص مسئول برای این ربات مجاز نیست.",show_alert=True);return
         if data.startswith("comment_") and (not task_option_enabled(context,"allow_comments") or not task_permission_enabled(context,"comments.manage")):await update.callback_query.answer("کامنت برای این ربات مجاز نیست.",show_alert=True);return
         if data.startswith(("tag_","tags_","step_back_tags")) and (not task_option_enabled(context,"allow_tags") or not task_permission_enabled(context,"tags.manage")):await update.callback_query.answer("تگ برای این ربات مجاز نیست.",show_alert=True);return
         if data in {"template_open", "import_bulk"}:
@@ -149,10 +166,10 @@ def install_task_capabilities(app):
         for handler in handlers:
             callback=getattr(handler,"callback",None);name=getattr(callback,"__name__","")
             if name not in _WRAPPABLE_CALLBACKS or getattr(callback,"_task_capability_wrapped",False):continue
-            if name=="save_task":wrapped=wrap_save_task(callback)
-            elif name=="priority_selected":wrapped=wrap_priority_selected(callback)
-            elif name=="deadline_selected":wrapped=wrap_deadline_selected(callback)
-            elif name=="optional_field_callback":wrapped=wrap_optional_field_callback(callback)
+            if name in {"save_task","save_task_with_progress"}:wrapped=wrap_save_task(callback)
+            elif name in {"priority_selected","priority_rich"}:wrapped=wrap_priority_selected(callback)
+            elif name in {"deadline_selected","deadline_rich"}:wrapped=wrap_deadline_selected(callback)
+            elif name in {"optional_field_callback","optional_with_media_description"}:wrapped=wrap_optional_field_callback(callback)
             else:wrapped=wrap_callback(callback)
             setattr(wrapped,"_task_capability_wrapped",True);handler.callback=wrapped
     state["_task_capabilities_installed"]=True
