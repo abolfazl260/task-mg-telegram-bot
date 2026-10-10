@@ -4,7 +4,7 @@ import sqlite3
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from services.database import execute, fetch_all, fetch_one, sync_all, sync_execute, sync_one, _run as db_run
+from services.database import execute, execute_returning_one, fetch_all, fetch_one, _run as db_run
 
 # قالب‌های آماده عمداً ثابت و داخل کد نگهداری می‌شوند؛ جدول جدیدی لازم نیست.
 TEMPLATES = [
@@ -70,45 +70,55 @@ def get_user_habits(user_id, active_only=False):
     return db_run(get_user_habits_async(user_id, active_only))
 
 
-async def get_habit_async(habit_id):
-    return await fetch_one("habits", "id=?", (habit_id,))
+async def get_habit_async(habit_id, user_id):
+    """Only the authenticated habit owner may retrieve a habit by ID."""
+    return await fetch_one("habits", "id=? AND user_id=?", (habit_id, str(user_id)))
 
 
-def get_habit(habit_id):
-    return db_run(get_habit_async(habit_id))
+def get_habit(habit_id, user_id):
+    return db_run(get_habit_async(habit_id, user_id))
 
 
-async def update_habit_async(habit_id, **changes):
+async def update_habit_async(habit_id, user_id, **changes):
     allowed = {"title", "category", "description", "repeat_type", "target", "reminder_time", "start_date", "active"}
     changes = {k: v for k, v in changes.items() if k in allowed}
-    if not changes or not await get_habit_async(habit_id):
+    if not changes or not await get_habit_async(habit_id, user_id):
         return False
     sets = ",".join(f"{k}=?" for k in changes)
-    await execute(f"UPDATE habits SET {sets} WHERE id=?", (*changes.values(), habit_id))
+    # Owner predicate must also be enforced by the mutation, not only the read.
+    await execute(f"UPDATE habits SET {sets} WHERE id=? AND user_id=?", (*changes.values(), habit_id, str(user_id)))
     return True
 
 
-def update_habit(habit_id, **changes):
-    return db_run(update_habit_async(habit_id, **changes))
+def update_habit(habit_id, user_id, **changes):
+    return db_run(update_habit_async(habit_id, user_id, **changes))
 
 
-async def delete_habit_async(habit_id):
-    if not await get_habit_async(habit_id):
+async def delete_habit_async(habit_id, user_id):
+    if not await get_habit_async(habit_id, user_id):
         return False
-    await execute("DELETE FROM habits WHERE id=?", (habit_id,))
+    await execute("DELETE FROM habits WHERE id=? AND user_id=?", (habit_id, str(user_id)))
     return True
 
 
-def delete_habit(habit_id):
-    return db_run(delete_habit_async(habit_id))
+def delete_habit(habit_id, user_id):
+    return db_run(delete_habit_async(habit_id, user_id))
 
 
 async def mark_done_async(habit_id, user_id, day=None):
+    if not await get_habit_async(habit_id, user_id):
+        return False
     day = day or date.today().isoformat()
-    await _ensure_user_async(user_id)
     try:
-        await execute("INSERT INTO habit_logs(habit_id,user_id,done_date,done_at) VALUES(?,?,?,?)", (habit_id, str(user_id), day, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")))
-        return True
+        # Atomic ownership condition: stale or forged callback IDs cannot
+        # create cross-user completion rows, even if the habit is deleted.
+        row = await execute_returning_one(
+            """INSERT INTO habit_logs(habit_id,user_id,done_date,done_at)
+               SELECT id,user_id,?,? FROM habits WHERE id=? AND user_id=?
+               RETURNING id""",
+            (day, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), habit_id, str(user_id)),
+        )
+        return row is not None
     except sqlite3.IntegrityError:
         return False
 
@@ -117,24 +127,24 @@ def mark_done(habit_id, user_id, day=None):
     return db_run(mark_done_async(habit_id, user_id, day))
 
 
-async def get_logs_async(user_id=None, habit_id=None):
-    where = []
-    params = []
-    if user_id is not None:
-        where.append("user_id=?")
-        params.append(str(user_id))
+async def get_logs_async(user_id, habit_id=None):
+    """Log reads require owner identity, including when habit_id is supplied."""
+    where = "user_id=? AND habit_id IN (SELECT id FROM habits WHERE user_id=?)"
+    params = [str(user_id), str(user_id)]
     if habit_id is not None:
-        where.append("habit_id=?")
+        where += " AND habit_id=?"
         params.append(habit_id)
-    return await fetch_all("habit_logs", " AND ".join(where) if where else "", params)
+    return await fetch_all("habit_logs", where, params)
 
 
-def get_logs(user_id=None, habit_id=None):
+def get_logs(user_id, habit_id=None):
     return db_run(get_logs_async(user_id, habit_id))
 
 
-async def stats_for_habit_async(habit):
-    logs = await get_logs_async(habit_id=habit.get("id"))
+async def stats_for_habit_async(habit, user_id):
+    if not isinstance(habit, dict) or not await get_habit_async(habit.get("id"), user_id):
+        raise PermissionError("habit_access_denied")
+    logs = await get_logs_async(user_id=user_id, habit_id=habit.get("id"))
     days = sorted({x.get("done_date") for x in logs if x.get("done_date")}, reverse=True)
     today = date.today()
     cur = 0
@@ -155,8 +165,8 @@ async def stats_for_habit_async(habit):
     return {"current": cur, "best": best, "total": len(logs), "last": max(days) if days else "—"}
 
 
-def stats_for_habit(habit):
-    return db_run(stats_for_habit_async(habit))
+def stats_for_habit(habit, user_id):
+    return db_run(stats_for_habit_async(habit, user_id))
 
 
 async def get_all_habit_user_ids_async():

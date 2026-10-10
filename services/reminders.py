@@ -167,7 +167,7 @@ async def weekly_habit_reports(context):
         record = None
         record_stats = {"best": 0}
         for habit in habits:
-            stats = await stats_for_habit_async(habit)
+            stats = await stats_for_habit_async(habit, user_id)
             if record is None or stats["best"] > record_stats["best"]:
                 record = habit
                 record_stats = stats

@@ -18,7 +18,7 @@ async def test_habit_service_mark_done_returns_false_on_integrity_error(test_db)
     from services import habit_service
 
     habit_id = await habit_service.create_habit_async("100", "Water")
-    with patch.object(habit_service, "execute", new=AsyncMock(side_effect=habit_service.sqlite3.IntegrityError("duplicate"))):
+    with patch.object(habit_service, "execute_returning_one", new=AsyncMock(side_effect=habit_service.sqlite3.IntegrityError("duplicate"))):
         assert await habit_service.mark_done_async(habit_id, "100", "2026-09-07") is False
 
 
@@ -26,14 +26,14 @@ async def test_habit_service_mark_done_returns_false_on_integrity_error(test_db)
 async def test_habit_service_update_nonexistent_is_false(test_db):
     from services import habit_service
 
-    assert await habit_service.update_habit_async("missing", title="New") is False
+    assert await habit_service.update_habit_async("missing", "100", title="New") is False
 
 
 @pytest.mark.asyncio
 async def test_habit_service_delete_nonexistent_is_false(test_db):
     from services import habit_service
 
-    assert await habit_service.delete_habit_async("missing") is False
+    assert await habit_service.delete_habit_async("missing", "100") is False
 
 
 @pytest.mark.asyncio
