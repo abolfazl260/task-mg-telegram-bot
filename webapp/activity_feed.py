@@ -103,6 +103,16 @@ def activity_feed(access, start=None, end=None, query="", limit=100):
     except Exception:
         comments = []
 
+    try:
+        assignment_sql, assignment_params = date_clause("created_at")
+        assignments = sync_all(
+            "task_assignment_history",
+            f"task_id IN (SELECT id FROM tasks WHERE {scope}) AND ({assignment_sql})",
+            args + assignment_params,
+        )
+    except Exception:
+        assignments = []
+
     comment_labels = {
         "text": "کامنت ثبت کرد",
         "photo": "تصویر ارسال کرد",
@@ -143,16 +153,6 @@ def activity_feed(access, start=None, end=None, query="", limit=100):
             task, row.get("author_name") or row.get("author_username") or "کاربر",
             str(text).replace("\n", " ")[:220], created_at,
         ))
-
-    try:
-        assignment_sql, assignment_params = date_clause("created_at")
-        assignments = sync_all(
-            "task_assignment_history",
-            f"task_id IN (SELECT id FROM tasks WHERE {scope}) AND ({assignment_sql})",
-            args + assignment_params,
-        )
-    except Exception:
-        assignments = []
 
     for row in assignments:
         created_at = row.get("created_at") or ""
