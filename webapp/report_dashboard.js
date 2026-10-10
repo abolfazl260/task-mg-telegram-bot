@@ -358,19 +358,53 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
     </div>`;
   }
 
+  const MAX_CUSTOM_DAYS = 366;
+  function reportInputError(code, fallback = 'خطا در دریافت اطلاعات') {
+    const messages = {
+      report_not_found: 'لینک گزارش معتبر نیست یا منقضی شده است.',
+      invalid_report_date: 'تاریخ شروع و پایان را در قالب صحیح انتخاب کنید.',
+      report_date_out_of_range: 'تاریخ گزارش باید بین سال‌های ۱۹۰۰ تا ۲۱۰۰ باشد.',
+      invalid_report_period: 'نوع بازه گزارش معتبر نیست.',
+      report_period_too_large: 'حداکثر بازه گزارش سفارشی ۳۶۶ روز است.',
+      invalid_report_page: 'شماره صفحه گزارش معتبر نیست.',
+      invalid_report_request: 'پارامترهای گزارش معتبر نیستند.'
+    };
+    return messages[code] || fallback;
+  }
+
+  function validCustomRange(start, end) {
+    if (!start || !end || !/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+      return 'تاریخ شروع و پایان را انتخاب کنید.';
+    }
+    const startMs = Date.parse(start + 'T00:00:00Z');
+    const endMs = Date.parse(end + 'T00:00:00Z');
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 'تاریخ واردشده معتبر نیست.';
+    const days = Math.abs(endMs - startMs) / 86400000 + 1;
+    if (days > MAX_CUSTOM_DAYS) return 'حداکثر بازه گزارش سفارشی ۳۶۶ روز است.';
+    return '';
+  }
+
   async function getJson(url) {
     const r = await fetch(url, { cache: 'no-store' });
     let d = {};
     try {
       d = await r.json();
     } catch {}
-    if (!r.ok) throw new Error(d.error === 'report_not_found' ? 'لینک گزارش معتبر نیست یا منقضی شده است.' : 'خطا در دریافت اطلاعات');
+    if (!r.ok) throw new Error(reportInputError(d.error));
     return d;
   }
 
   async function downloadExport(format) {
+    if (state.period === 'custom') {
+      const error = validCustomRange(state.start, state.end);
+      if (error) throw new Error(error);
+    }
     const r = await fetch(`/api/public-reports/monthly/${encodeURIComponent(token)}/export/${format}?${params()}`, { cache: 'no-store' });
-    if (!r.ok) throw new Error('خطا در ایجاد خروجی گزارش');
+    if (!r.ok) {
+      let d = {};
+      try { d = await r.json(); } catch {}
+      throw new Error(reportInputError(d.error, 'خطا در ایجاد خروجی گزارش'));
+    }
     const blob = await r.blob(), url = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = url;
     a.download = `task-report.${format}`;
@@ -422,6 +456,16 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
       document.querySelectorAll('.filter-period').forEach(button =>
         button.addEventListener('click', () => {
           state.period = button.dataset.period;
+          if (state.period === 'custom' && (!state.start || !state.end)) {
+            const now = new Date();
+            const localDate = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+            state.start = localDate(new Date(now.getFullYear(), now.getMonth(), 1));
+            state.end = localDate(now);
+            const startInput = document.getElementById('filterStart');
+            const endInput = document.getElementById('filterEnd');
+            if (startInput) startInput.value = state.start;
+            if (endInput) endInput.value = state.end;
+          }
           document.querySelectorAll('.filter-period').forEach(x => x.classList.toggle('active', x === button));
           document.getElementById('customDates').style.display = state.period === 'custom' ? 'grid' : 'none';
           save();
@@ -434,9 +478,16 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
         state.search = document.getElementById('taskSearch')?.value.trim() || '';
         state.start = document.getElementById('filterStart')?.value || '';
         state.end = document.getElementById('filterEnd')?.value || '';
-        if (state.period === 'custom' && state.start && state.end && state.start > state.end) {
-          alert('تاریخ شروع باید قبل از تاریخ پایان باشد.');
-          return;
+        if (state.period === 'custom') {
+          const error = validCustomRange(state.start, state.end);
+          if (error) {
+            alert(error);
+            return;
+          }
+          if (state.start > state.end) {
+            alert('تاریخ شروع باید قبل از تاریخ پایان باشد.');
+            return;
+          }
         }
         state.filters.status = document.getElementById('filterStatus')?.value || '';
         state.filters.priority = document.getElementById('filterPriority')?.value || '';

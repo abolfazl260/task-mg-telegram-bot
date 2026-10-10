@@ -15,7 +15,7 @@ from .api import authenticate_telegram_request
 from .config import WEBAPP_BASE_URL
 from .report_tokens import build_report_url, create_report_token
 from .reports import monthly_report, report_section
-from .report_dashboard_service import dashboard_report
+from .report_dashboard_service import dashboard_report, resolve_period, validate_report_page
 from .report_export import export_report
 
 logger = logging.getLogger(__name__)
@@ -82,36 +82,106 @@ def handle_report_get(handler):
     if path=='/report-launch': _html(handler,400,'<h2>این مسیر دیگر استفاده نمی‌شود.</h2><p>گزارش با لینک اختصاصی باز می‌شود.</p>'); return True
     return False
 
+_REPORT_INPUT_ERRORS = frozenset({
+    "invalid_report_page", "invalid_report_date", "invalid_report_period",
+    "report_date_out_of_range", "report_period_too_large",
+})
+
+
+def _request_params(query):
+    # Empty values must not silently become defaults. Cap field count to
+    # prevent a single request from allocating unbounded query dictionaries.
+    q = parse_qs(query, keep_blank_values=True, max_num_fields=32)
+    period = (q.get("period") or ["month"])[0]
+    start_value = (q.get("start") or [None])[0]
+    end_value = (q.get("end") or [None])[0]
+    page = validate_report_page((q.get("page") or ["1"])[0])
+    resolve_period(period, start_value, end_value)
+    return {
+        "page": page, "period": period, "start_value": start_value,
+        "end_value": end_value, "search": (q.get("search") or [""])[0],
+    }
+
+
+def _invalid_report(handler, error):
+    # Never reflect user-supplied values or arbitrary exception details.
+    code = str(error)
+    _json(handler, 400, {"error": code if code in _REPORT_INPUT_ERRORS else "invalid_report_request"})
+
+
 def handle_report_api(handler):
-    parsed=urlparse(handler.path); path=parsed.path
-    if path=='/api/report-token' and handler.command=='GET':
-        q=parse_qs(parsed.query); bot_key=(q.get('bot_key') or [''])[0].strip(); report_type=(q.get('type') or ['monthly'])[0]
-        if not bot_key or report_type!='monthly': _json(handler,400,{'error':'invalid_report_request'}); return True
-        try: user=authenticate_telegram_request(handler.headers.get('X-Telegram-Init-Data',''),bot_key)
-        except Exception: _json(handler,401,{'error':'unauthorized'}); return True
-        token=create_report_token(bot_key,str(user.id),report_type); _json(handler,200,{'url':build_report_url(WEBAPP_BASE_URL,token),'expires_in_days':30}); return True
-    prefix='/api/public-reports/monthly/'
-    if path.startswith(prefix) and handler.command=='GET':
-        rest=path[len(prefix):].strip('/'); parts=rest.split('/'); token=parts[0] if parts else ''; section=None
-        if len(parts)>=3 and parts[1]=='section': section=parts[2]
-        if len(parts)>=3 and parts[1]=='export':
-            fmt=parts[2]
-            q=parse_qs(parsed.query)
+    parsed = urlparse(handler.path)
+    path = parsed.path
+    if path == "/api/report-token" and handler.command == "GET":
+        q = parse_qs(parsed.query)
+        bot_key = (q.get("bot_key") or [""])[0].strip()
+        report_type = (q.get("type") or ["monthly"])[0]
+        if not bot_key or report_type != "monthly":
+            _json(handler, 400, {"error": "invalid_report_request"})
+            return True
+        try:
+            user = authenticate_telegram_request(handler.headers.get("X-Telegram-Init-Data", ""), bot_key)
+        except Exception:
+            _json(handler, 401, {"error": "unauthorized"})
+            return True
+        token = create_report_token(bot_key, str(user.id), report_type)
+        _json(handler, 200, {"url": build_report_url(WEBAPP_BASE_URL, token), "expires_in_days": 30})
+        return True
+
+    prefix = "/api/public-reports/monthly/"
+    if path.startswith(prefix) and handler.command == "GET":
+        rest = path[len(prefix):].strip("/")
+        parts = rest.split("/")
+        token = parts[0] if parts else ""
+        section = parts[2] if len(parts) >= 3 and parts[1] == "section" else None
+        try:
+            params = _request_params(parsed.query)
+        except ValueError as exc:
+            _invalid_report(handler, exc)
+            return True
+        if len(parts) >= 3 and parts[1] == "export":
+            fmt = parts[2]
             try:
-                report=dashboard_report(token,section='tasks',page=1,page_size=0,period=(q.get('period') or ['month'])[0],start_value=(q.get('start') or [None])[0],end_value=(q.get('end') or [None])[0],search=(q.get('search') or [''])[0])
-                if report is None: _json(handler,404,{'error':'report_not_found'}); return True
-                payload,content_type,filename=export_report(report,fmt); handler.send_response(200); handler.send_header('Content-Type',content_type); handler.send_header('Content-Disposition',f'attachment; filename="{filename}"'); handler.send_header('Cache-Control','no-store'); handler.send_header('Content-Length',str(len(payload))); handler.end_headers(); handler.wfile.write(payload); return True
-            except ValueError as exc: _json(handler,400,{'error':str(exc)}); return True
+                report = dashboard_report(
+                    token, section="tasks", page=1, page_size=0,
+                    period=params["period"], start_value=params["start_value"],
+                    end_value=params["end_value"], search=params["search"],
+                )
+                if report is None:
+                    _json(handler, 404, {"error": "report_not_found"})
+                    return True
+                payload, content_type, filename = export_report(report, fmt)
+                handler.send_response(200)
+                handler.send_header("Content-Type", content_type)
+                handler.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                handler.send_header("Cache-Control", "no-store")
+                handler.send_header("Content-Length", str(len(payload)))
+                handler.end_headers()
+                handler.wfile.write(payload)
+                return True
+            except ValueError as exc:
+                _invalid_report(handler, exc)
+                return True
             except Exception:
                 logger.exception("report_http_failure operation=export_report format=%s", fmt)
-                _json(handler,500,{'error':'report_export_failed'}); return True
-        q=parse_qs(parsed.query); page=int((q.get('page') or ['1'])[0]); period=(q.get('period') or ['month'])[0]; start_value=(q.get('start') or [None])[0]; end_value=(q.get('end') or [None])[0]; search=(q.get('search') or [''])[0]
-        try: data=dashboard_report(token,section,page,25,period,start_value,end_value,search)
+                _json(handler, 500, {"error": "report_export_failed"})
+                return True
+        try:
+            data = dashboard_report(
+                token, section, params["page"], 25, params["period"],
+                params["start_value"], params["end_value"], params["search"],
+            )
+        except ValueError as exc:
+            _invalid_report(handler, exc)
+            return True
         except Exception:
             logger.exception("report_http_failure operation=generate_report section=%s", section or "summary")
-            _json(handler,500,{'error':'report_generation_failed'}); return True
-        if data is None:_json(handler,404,{'error':'report_not_found'})
-        else:_json(handler,200,data)
+            _json(handler, 500, {"error": "report_generation_failed"})
+            return True
+        if data is None:
+            _json(handler, 404, {"error": "report_not_found"})
+        else:
+            _json(handler, 200, data)
         return True
     return False
 
