@@ -272,10 +272,11 @@ def test_sql_count_and_task_reader_use_identical_scoped_filters(monkeypatch):
     conn.row_factory = sqlite3.Row
     conn.execute(
         "CREATE TABLE tasks (id TEXT, bot_key TEXT, user_id TEXT, "
-        "workspace_id TEXT, title TEXT, created_at TEXT, status TEXT, "
+        "workspace_id TEXT, team_id TEXT, title TEXT, created_at TEXT, status TEXT, "
         "priority TEXT, category TEXT, assignee_id TEXT, assignee_name TEXT, "
         "assignee_username TEXT, tags TEXT, deadline TEXT)"
     )
+    conn.execute("CREATE TABLE team_members (team_id TEXT, user_id TEXT, role TEXT)")
     sample = [
         ("t1", "bot", "42", None, "matched task", "2026-09-10", "pending", "high", "work"),
         ("t2", "bot", "42", None, "matched task", "2026-09-20", "pending", "high", "work"),
@@ -294,8 +295,9 @@ def test_sql_count_and_task_reader_use_identical_scoped_filters(monkeypatch):
         return [dict(row) for row in conn.execute(sql, params)]
 
     def query_tasks(access, where="", params=()):
-        sql = "SELECT * FROM tasks WHERE workspace_id IS NULL AND bot_key=? AND user_id=? AND " + where  # nosec B608 - test's internal SQL predicate
-        return execute(sql, (access["bot_key"], str(access["user_id"])) + tuple(params))
+        scope, params_scope = dashboard_service._task_scope(access)
+        sql = "SELECT * FROM tasks WHERE " + scope + " AND (" + where + ")"  # nosec B608 - same trusted report predicate
+        return execute(sql, params_scope + tuple(params))
 
     monkeypatch.setattr(dashboard_service, "_task_rows", query_tasks)
     monkeypatch.setattr(
@@ -307,6 +309,6 @@ def test_sql_count_and_task_reader_use_identical_scoped_filters(monkeypatch):
     start, end = date(2026, 9, 1), date(2026, 9, 30)
     rows = dashboard_service._query_tasks(access, start, end, "matched", filters)
     count = dashboard_service._count_query_tasks(access, start, end, "matched", filters)
-    assert count == len(rows) == 2
-    assert {task["id"] for task in rows} == {"t1", "t2"}
+    assert count == len(rows) == 3
+    assert {task["id"] for task in rows} == {"t1", "t2", "t4"}
     conn.close()
