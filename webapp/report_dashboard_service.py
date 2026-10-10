@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import calendar
 import json
+import re
 from datetime import date, datetime, timedelta, timezone
 from statistics import mean
 
@@ -59,13 +60,37 @@ def gregorian_to_jalali(gy: int, gm: int, gd: int) -> tuple[int, int, int]:
     return jy, jm, jd
 
 
-def _parse_date(value: str | None, fallback: date) -> date:
-    if not value:
-        return fallback
+# A leap-year-long export remains supported, but a multi-year heatmap is not.
+# The date envelope prevents arithmetic overflows in previous-period
+# comparisons and calendars at Python's minimum/maximum date boundaries.
+MAX_REPORT_DAYS = 366
+MIN_REPORT_DATE = date(1900, 1, 1)
+MAX_REPORT_DATE = date(2100, 12, 31)
+MAX_REPORT_PAGE = 10_000
+
+
+def _parse_date(value: str | None) -> date:
+    """Require one exact Gregorian YYYY-MM-DD; never silently use today."""
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+        raise ValueError("invalid_report_date")
     try:
-        return datetime.fromisoformat(value).date()
-    except (ValueError, TypeError):
-        return fallback
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("invalid_report_date") from exc
+    if not MIN_REPORT_DATE <= parsed <= MAX_REPORT_DATE:
+        raise ValueError("report_date_out_of_range")
+    return parsed
+
+
+def validate_report_page(page: object) -> int:
+    """Reject malformed, negative and excessive page numbers before DB work."""
+    value = str(page)
+    if not re.fullmatch(r"[0-9]{1,5}", value):
+        raise ValueError("invalid_report_page")
+    parsed = int(value)
+    if not 1 <= parsed <= MAX_REPORT_PAGE:
+        raise ValueError("invalid_report_page")
+    return parsed
 
 
 def _previous_period(start: date, end: date) -> tuple[date, date]:
@@ -78,16 +103,23 @@ def _previous_period(start: date, end: date) -> tuple[date, date]:
 
 
 def resolve_period(period: str, start_value: str | None = None, end_value: str | None = None) -> tuple[date, date]:
+    """Validate the same period contract for dashboard, sections and exports."""
     today = datetime.now(timezone.utc).date()
     if period == "today":
         return today, today
     if period == "week":
         return today - timedelta(days=today.weekday()), today
-    if period == "custom":
-        start = _parse_date(start_value, today)
-        end = _parse_date(end_value, today)
-        return (start, end) if start <= end else (end, start)
-    return date(today.year, today.month, 1), date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
+    if period == "month":
+        return date(today.year, today.month, 1), date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
+    if period != "custom":
+        raise ValueError("invalid_report_period")
+    start, end = _parse_date(start_value), _parse_date(end_value)
+    # Existing API behavior swaps reversed dates; keep that compatibility.
+    if start > end:
+        start, end = end, start
+    if (end - start).days + 1 > MAX_REPORT_DAYS:
+        raise ValueError("report_period_too_large")
+    return start, end
 
 
 def _decode_filters(search: str) -> tuple[str, dict]:
@@ -437,6 +469,7 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
     if not access:
         return None
     start, end = resolve_period(period, start_value, end_value)
+    validated_page = validate_report_page(page)
     query, filters = _decode_filters(search)
     # Without a restrictive structured filter, both populations are identical.
     # This avoids loading the entire reporting interval twice (the UI's sort
@@ -499,7 +532,7 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
         sort_key = str(filters.get("sort") or "newest")
         selected = _sort_tasks(selected, sort_key)
         total_rows = len(selected)
-        page = max(1, int(page))
+        page = validated_page
         normalized_page_size = int(page_size) if page_size is not None else 25
         if normalized_page_size <= 0:
             # Unpaginated mode is used by exports so CSV/PDF contain the full
