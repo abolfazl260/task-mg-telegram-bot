@@ -3,15 +3,178 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import logging
+import re
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from services import clinic_typed
+from services.conversation_state import clear_flow, has_step, start_flow
 from services.date_picker import deadline_label, deadline_value
 from services.healthcare import followups, reports, service
 from services.healthcare.access import ClinicAccessError, Scope, actor_scopes
 from services.operations.service import create_workspace
 from services.permission_service import is_admin
+
+
+logger = logging.getLogger(__name__)
+_PATIENT_FLOW = "patient_registration"
+_PATIENT_DRAFT_KEYS = (
+    "clinic_patient_name", "clinic_patient_family", "clinic_patient_phone",
+    "clinic_patient_org_id", "clinic_patient_branch_id",
+    "clinic_patient_submitting",
+)
+_PATIENT_STEPS = {
+    "patient_name": ("clinic_patient_org_id", "clinic_patient_branch_id"),
+    "patient_family": ("clinic_patient_org_id", "clinic_patient_branch_id", "clinic_patient_name"),
+    "patient_phone": ("clinic_patient_org_id", "clinic_patient_branch_id", "clinic_patient_name", "clinic_patient_family"),
+    "patient_reference": ("clinic_patient_org_id", "clinic_patient_branch_id", "clinic_patient_name", "clinic_patient_family", "clinic_patient_phone"),
+}
+
+
+def _reset_patient(state, *, reason):
+    if clear_flow(state, step_key="clinic_input", flow_key="clinic_flow",
+                  flow_name=_PATIENT_FLOW, draft_keys=_PATIENT_DRAFT_KEYS):
+        logger.info("clinic_flow_reset flow=patient_registration step=%s reason=%s",
+                    state.get("clinic_input") or "cleared", reason)
+    else:
+        # Reject partially written legacy state without deleting other flows.
+        for key in _PATIENT_DRAFT_KEYS:
+            state.pop(key, None)
+        if str(state.get("clinic_input") or "").startswith("patient_"):
+            state.pop("clinic_input", None)
+        if state.get("clinic_flow") == _PATIENT_FLOW:
+            state.pop("clinic_flow", None)
+        logger.info("clinic_flow_reset flow=patient_registration step=unknown reason=%s", reason)
+
+
+def _patient_recovery_markup():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 شروع مجدد ثبت بیمار", callback_data="clinic:new_patient")],
+        [InlineKeyboardButton("◀️ بازگشت به منو", callback_data="clinic:menu")],
+    ])
+
+
+def _looks_like_url(text):
+    return bool(re.search(r"(?:https?://|www\\.|t\\.me/|://)", text, flags=re.I))
+
+
+def _valid_patient_input(step, value):
+    if not value or len(value) > 120 or _looks_like_url(value):
+        return False
+    if step in {"patient_name", "patient_family"}:
+        return value != "-" and not any(x in value for x in "/\\\\@")
+    if step == "patient_phone":
+        return value == "-" or bool(re.fullmatch(r"\\+?[0-9۰-۹٠-٩ ()-]{7,25}", value))
+    if step == "patient_reference":
+        return value == "-" or bool(re.fullmatch(r"[\\w .\\-/]{1,80}", value, re.UNICODE))
+    return False
+
+
+async def _begin_patient(update, context):
+    scope = await _scope(update, context)
+    branch_id = context.user_data.get("clinic_branch_id")
+    if not branch_id:
+        await update.effective_message.reply_text(
+            "ابتدا شعبه کلینیک را در منو انتخاب کنید.",
+            reply_markup=_patient_recovery_markup(),
+        )
+        return
+    await scope.branch(branch_id, "patients.manage")
+    start_flow(
+        context.user_data, step_key="clinic_input", flow_key="clinic_flow",
+        flow_name=_PATIENT_FLOW, initial_step="patient_name",
+        draft_keys=_PATIENT_DRAFT_KEYS,
+        initial_values={
+            "clinic_patient_org_id": scope.organization_id,
+            "clinic_patient_branch_id": branch_id,
+        },
+    )
+    await update.effective_message.reply_text(
+        "نام بیمار را ارسال کنید:", reply_markup=_patient_recovery_markup()
+    )
+
+
+async def _patient_input(update, context, step, value):
+    state = context.user_data
+    if not has_step(
+        state, step_key="clinic_input", flow_key="clinic_flow",
+        flow_name=_PATIENT_FLOW, step=step, required=_PATIENT_STEPS[step],
+    ):
+        _reset_patient(state, reason="missing_or_invalid_stage")
+        await update.effective_message.reply_text(
+            "مراحل ثبت بیمار ناقص یا منقضی شده است. ثبت را دوباره شروع کنید.",
+            reply_markup=_patient_recovery_markup(),
+        )
+        return
+    if not _valid_patient_input(step, value):
+        logger.info("clinic_flow_invalid_input flow=patient_registration step=%s reason=invalid_input", step)
+        await update.effective_message.reply_text(
+            "این ورودی برای مرحله فعلی معتبر نیست. لطفاً مقدار صحیح را ارسال کنید یا - را برای فیلد اختیاری بفرستید.",
+            reply_markup=_patient_recovery_markup(),
+        )
+        return
+    scope = await _scope(update, context)
+    if state["clinic_patient_org_id"] != scope.organization_id or (
+        state["clinic_patient_branch_id"] != state.get("clinic_branch_id")
+    ):
+        _reset_patient(state, reason="organization_or_branch_changed")
+        await update.effective_message.reply_text(
+            "شعبه یا کلینیک تغییر کرده است. ثبت بیمار را مجدد آغاز کنید.",
+            reply_markup=_patient_recovery_markup(),
+        )
+        return
+    if step == "patient_name":
+        state["clinic_patient_name"] = value
+        state["clinic_input"] = "patient_family"
+        await update.effective_message.reply_text("نام خانوادگی بیمار را ارسال کنید:")
+    elif step == "patient_family":
+        state["clinic_patient_family"] = value
+        state["clinic_input"] = "patient_phone"
+        await update.effective_message.reply_text("شماره تماس بیمار را ارسال کنید یا - بفرستید:")
+    elif step == "patient_phone":
+        state["clinic_patient_phone"] = "" if value == "-" else value
+        state["clinic_input"] = "patient_reference"
+        await update.effective_message.reply_text("کد پرونده/شناسه بیمار را ارسال کنید یا - بفرستید:")
+    elif step == "patient_reference":
+        if state.get("clinic_patient_submitting"):
+            await update.effective_message.reply_text(
+                "درخواست ثبت بیمار در حال پردازش است.", reply_markup=_patient_recovery_markup()
+            )
+            return
+        state["clinic_patient_submitting"] = True
+        try:
+            full_name = f"{state['clinic_patient_name']} {state['clinic_patient_family']}".strip()
+            patient = await service.create_patient(
+                scope, state["clinic_patient_branch_id"], full_name,
+                phone=state["clinic_patient_phone"],
+                external_reference=None if value == "-" else value,
+            )
+        except (ClinicAccessError, ValueError):
+            logger.warning("clinic_flow_failed flow=patient_registration step=patient_reference reason=validation_or_access")
+            await update.effective_message.reply_text(
+                "ثبت بیمار انجام نشد. دسترسی یا اطلاعات شعبه را بررسی کنید و دوباره تلاش کنید.",
+                reply_markup=_patient_recovery_markup(),
+            )
+            return
+        except Exception:
+            logger.exception("clinic_flow_failed flow=patient_registration step=patient_reference reason=service_error")
+            await update.effective_message.reply_text(
+                "در ثبت بیمار خطایی رخ داد. می‌توانید دوباره تلاش کنید یا از نو شروع کنید.",
+                reply_markup=_patient_recovery_markup(),
+            )
+            return
+        finally:
+            state.pop("clinic_patient_submitting", None)
+        _reset_patient(state, reason="completed")
+        await update.effective_message.reply_text(
+            f"✅ بیمار ثبت شد.\\n👤 {patient.get('display_name', full_name)}\\n\\nآیا می‌خواهید برای او پرونده عملیاتی ایجاد کنید؟",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("➕ ایجاد پرونده", callback_data=f"clinic:new_case:{patient['id']}"),
+                 InlineKeyboardButton("باز کردن بیمار", callback_data=f"clinic:patient:{patient['id']}")],
+                [InlineKeyboardButton("بعداً", callback_data="clinic:menu")],
+            ]),
+        )
 
 
 async def _scope(update, context):
