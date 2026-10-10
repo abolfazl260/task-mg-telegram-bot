@@ -68,7 +68,7 @@ def test_activity_feed_limits_sql_scans_and_keeps_prior_task_metadata(monkeypatc
         reads.append((table, where, params))
         return [
             dict(row)
-            for row in db.execute(f"SELECT * FROM {table} WHERE {where}", params)
+            for row in db.execute(f"SELECT * FROM {table} WHERE {where}", params)  # nosec B608 - test uses app-generated where and known tables
         ]
 
     monkeypatch.setattr(feed_module, "sync_all", sql_sync_all)
@@ -104,7 +104,7 @@ def test_activity_feed_preserves_unbounded_and_search_contract(monkeypatch):
     def sql_sync_all(table, where, params):
         return [
             dict(row)
-            for row in db.execute(f"SELECT * FROM {table} WHERE {where}", params)
+            for row in db.execute(f"SELECT * FROM {table} WHERE {where}", params)  # nosec B608 - test uses app-generated where and known tables
         ]
 
     monkeypatch.setattr(feed_module, "sync_all", sql_sync_all)
