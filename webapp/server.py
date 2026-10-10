@@ -26,6 +26,7 @@ from .admin_api import (
     get_bot_management_detail,
     get_user_profile,
     list_user_tasks,
+    list_user_tasks_page,
     list_users,
     system_health,
     task_creation,
@@ -178,7 +179,7 @@ class WebAppHandler(BaseHTTPRequestHandler):
                 if view not in {"created","assigned"}:
                     return self._json(400,{"error":"invalid_task_view"})
                 return self._json(200,self.server.webapp_runtime.submit(
-                    list_user_tasks(user_id,bot_key,view=view,limit=limit,offset=offset)
+                    list_user_tasks_page(user_id,bot_key,view=view,limit=limit,offset=offset)
                 ))
             user_id=remainder.strip("/")
             if not user_id: return self._json(400,{"error":"invalid_user_id"})
