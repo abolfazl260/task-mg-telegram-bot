@@ -162,7 +162,7 @@ async def _patient_input(update, context, step, value):
             )
             return
         except Exception:
-            logger.exception("clinic_flow_failed flow=patient_registration step=patient_reference reason=service_error")
+            logger.error("clinic_flow_failed flow=patient_registration step=patient_reference reason=service_error")
             await update.effective_message.reply_text(
                 "در ثبت بیمار خطایی رخ داد. می‌توانید دوباره تلاش کنید یا از نو شروع کنید.",
                 reply_markup=_patient_recovery_markup(),
@@ -172,7 +172,7 @@ async def _patient_input(update, context, step, value):
             state.pop("clinic_patient_submitting", None)
         _reset_patient(state, reason="completed")
         await update.effective_message.reply_text(
-            f"✅ بیمار ثبت شد.\\n👤 {patient.get('display_name', full_name)}\\n\\nآیا می‌خواهید برای او پرونده عملیاتی ایجاد کنید؟",
+            f"✅ بیمار ثبت شد.\n👤 {patient.get('display_name', full_name)}\n\nآیا می‌خواهید برای او پرونده عملیاتی ایجاد کنید؟",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("➕ ایجاد پرونده", callback_data=f"clinic:new_case:{patient['id']}"),
                  InlineKeyboardButton("باز کردن بیمار", callback_data=f"clinic:patient:{patient['id']}")],
