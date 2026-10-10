@@ -60,6 +60,8 @@ def _clear_create_task_state(context) -> None:
         "new_task", "step", "tag_suggestions", "awaiting_tag_input",
         "create_task_finalizing", "create_task_message_id", "create_task_user_id",
         "_create_selected_team_id", "created_task_id", "_create_task_submitting",
+        "create_task_request_id", "create_task_media_saved",
+        "description_media", "description_text_parts",
     ):
         context.user_data.pop(key, None)
 
