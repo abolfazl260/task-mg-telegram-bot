@@ -295,10 +295,10 @@ async def list_visible_tasks_page_async(
     }
     if sort_key not in orderings:
         raise ValueError("invalid_task_sort")
-    count = await fetch_one_sql("SELECT COUNT(*) AS n FROM tasks t WHERE " + where, tuple(params))
+    count = await fetch_one_sql("SELECT COUNT(*) AS n FROM tasks t WHERE " + where, tuple(params))  # nosec B608 - fixed predicates with bound values
     total = int((count or {}).get("n") or 0)
     tasks = await fetch_all_sql(
-        "SELECT t.* FROM tasks t WHERE " + where
+        "SELECT t.* FROM tasks t WHERE " + where  # nosec B608 - only fixed SQL fragments and bound values
         + " ORDER BY " + orderings[sort_key] + " LIMIT ? OFFSET ?",
         tuple(params) + (limit, offset),
     )
