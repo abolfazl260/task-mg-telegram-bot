@@ -28,7 +28,7 @@ _PATIENT_STEPS = {
     "patient_name": ("clinic_patient_org_id", "clinic_patient_branch_id"),
     "patient_family": ("clinic_patient_org_id", "clinic_patient_branch_id", "clinic_patient_name"),
     "patient_phone": ("clinic_patient_org_id", "clinic_patient_branch_id", "clinic_patient_name", "clinic_patient_family"),
-    "patient_reference": ("clinic_patient_org_id", "clinic_patient_branch_id", "clinic_patient_name", "clinic_patient_family", "clinic_patient_phone"),
+    "patient_reference": ("clinic_patient_org_id", "clinic_patient_branch_id", "clinic_patient_name", "clinic_patient_family"),
 }
 
 
@@ -100,7 +100,7 @@ async def _patient_input(update, context, step, value):
     if not has_step(
         state, step_key="clinic_input", flow_key="clinic_flow",
         flow_name=_PATIENT_FLOW, step=step, required=_PATIENT_STEPS[step],
-    ):
+    ) or (step == "patient_reference" and "clinic_patient_phone" not in state):
         _reset_patient(state, reason="missing_or_invalid_stage")
         await update.effective_message.reply_text(
             "مراحل ثبت بیمار ناقص یا منقضی شده است. ثبت را دوباره شروع کنید.",
@@ -284,6 +284,29 @@ async def handle_clinic_input(update, context):
     if not step or not update.effective_message or not update.effective_message.text:
         return False
     value = update.effective_message.text.strip()
+    if step in _PATIENT_STEPS:
+        try:
+            await _patient_input(update, context, step, value)
+        except ClinicAccessError:
+            _reset_patient(context.user_data, reason="access_revoked")
+            await update.effective_message.reply_text(
+                "دسترسی شما به کلینیک یا شعبه برقرار نیست. از منو دوباره شروع کنید.",
+                reply_markup=_patient_recovery_markup(),
+            )
+        return True
+    if str(step).startswith("patient_") or step not in {
+        "branch_name", "patient_search", "followup_title", "followup_custom_date",
+        "typed_session_title", "typed_session_custom_date", "typed_case_title",
+        "typed_reschedule",
+    }:
+        logger.warning("clinic_flow_reset flow=clinic step=%s reason=unknown_step", str(step)[:50])
+        _reset_patient(context.user_data, reason="unknown_step")
+        context.user_data.pop("clinic_input", None)
+        await update.effective_message.reply_text(
+            "مرحله مکالمه نامعتبر یا منقضی شده است. از منو دوباره شروع کنید.",
+            reply_markup=_patient_recovery_markup(),
+        )
+        return True
     profile = context.application.bot_data.get("bot_config")
     try:
         memberships = await actor_scopes(str(update.effective_user.id), profile.key)
@@ -295,18 +318,6 @@ async def handle_clinic_input(update, context):
             context.user_data.pop("clinic_input", None)
             await update.effective_message.reply_text("✅ شعبه کلینیک تعریف شد.")
             await clinic_menu(update, context)
-        elif step == "patient_name":
-            context.user_data["clinic_patient_name"] = value
-            context.user_data["clinic_input"] = "patient_family"
-            await update.effective_message.reply_text("نام خانوادگی بیمار را ارسال کنید:")
-        elif step == "patient_family":
-            context.user_data["clinic_patient_family"] = value
-            context.user_data["clinic_input"] = "patient_phone"
-            await update.effective_message.reply_text("شماره تماس بیمار را ارسال کنید یا - بفرستید:")
-        elif step == "patient_phone":
-            context.user_data["clinic_patient_phone"] = "" if value == "-" else value
-            context.user_data["clinic_input"] = "patient_reference"
-            await update.effective_message.reply_text("کد پرونده/شناسه بیمار را ارسال کنید یا - بفرستید:")
         elif step == "patient_search":
             context.user_data.pop("clinic_input", None)
             await _patient_list(update, context, Scope(memberships[0]["organization_id"], str(update.effective_user.id)), 0, value)
@@ -361,12 +372,12 @@ async def handle_clinic_input(update, context):
             context.user_data.pop("clinic_input", None)
             await update.effective_message.reply_text("✅ زمان جلسه تغییر کرد.")
         else:
-            unit_id = context.user_data.get("clinic_branch_id") or next((m.get("branch_id") for m in memberships if m.get("branch_id")), None)
-            if not unit_id: raise ValueError("branch_required")
-            full_name = f"{context.user_data.pop('clinic_patient_name')} {context.user_data.pop('clinic_patient_family')}".strip()
-            item = await service.create_patient(Scope(memberships[0]["organization_id"], str(update.effective_user.id)), unit_id, full_name, phone=context.user_data.pop("clinic_patient_phone", ""), external_reference=None if value == "-" else value)
+            logger.warning("clinic_flow_reset flow=clinic step=%s reason=unhandled_step", str(step)[:50])
             context.user_data.pop("clinic_input", None)
-            await update.effective_message.reply_text(f"✅ بیمار ثبت شد.\n👤 {item.get('display_name', full_name)}\n\nآیا می‌خواهید برای او پرونده عملیاتی ایجاد کنید؟", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("➕ ایجاد پرونده", callback_data=f"clinic:new_case:{item['id']}"), InlineKeyboardButton("باز کردن بیمار", callback_data=f"clinic:patient:{item['id']}")], [InlineKeyboardButton("بعداً", callback_data="clinic:menu")]]))
+            await update.effective_message.reply_text(
+                "این مرحله قابل انجام نیست. از منو دوباره شروع کنید.",
+                reply_markup=_patient_recovery_markup(),
+            )
         return True
     except (ClinicAccessError, ValueError):
         context.user_data.pop("clinic_input", None)
@@ -383,11 +394,16 @@ async def clinic_callback(update, context):
             context.user_data["clinic_input"] = "branch_name"
             return await query.message.reply_text("نام شعبه کلینیک را ارسال کنید:")
         if query.data == "clinic:new_patient":
-            context.user_data["clinic_input"] = "patient_name"
-            return await query.message.reply_text("نام و نام خانوادگی بیمار را ارسال کنید:")
+            return await _begin_patient(update, context)
+        if query.data == "clinic:cancel_patient":
+            _reset_patient(context.user_data, reason="cancelled")
+            return await query.message.reply_text(
+                "ثبت بیمار لغو شد.", reply_markup=_patient_recovery_markup()
+            )
         if parts[1] == "branch":
             scope = await _scope(update, context)
             await scope.branch(parts[2], "patients.view")
+            _reset_patient(context.user_data, reason="branch_changed")
             context.user_data["clinic_branch_id"] = parts[2]
             return await clinic_menu(update, context)
         if parts[1] == "org":
@@ -397,10 +413,13 @@ async def clinic_callback(update, context):
             memberships = await actor_scopes(str(update.effective_user.id), profile.key)
             if not any(m["organization_id"] == parts[2] for m in memberships):
                 raise ClinicAccessError("forbidden")
+            _reset_patient(context.user_data, reason="organization_changed")
             context.user_data["clinic_organization_id"] = parts[2]
+            context.user_data.pop("clinic_branch_id", None)
             return await clinic_menu(update, context)
         scope = await _scope(update, context)
         if parts[1] == "menu":
+            _reset_patient(context.user_data, reason="menu")
             return await clinic_menu(update, context)
         if parts[1] == "metrics":
             data = await reports.metrics(scope)
