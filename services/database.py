@@ -190,13 +190,17 @@ CREATE TABLE IF NOT EXISTS task_contact_points (
 CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_bot_key ON tasks(bot_key);
 CREATE INDEX IF NOT EXISTS idx_tasks_bot_user ON tasks(bot_key,user_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_report_created ON tasks(bot_key,user_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_report_completed ON tasks(bot_key,user_id,completed_at);
 CREATE INDEX IF NOT EXISTS idx_tasks_bot_status ON tasks(bot_key,status);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks(deadline);
 CREATE INDEX IF NOT EXISTS idx_tasks_team_id ON tasks(team_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee_id ON tasks(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_comments_task_id ON task_comments(task_id);
+CREATE INDEX IF NOT EXISTS idx_comments_task_created ON task_comments(task_id,created_at);
 CREATE INDEX IF NOT EXISTS idx_assignment_task_id ON task_assignment_history(task_id);
+CREATE INDEX IF NOT EXISTS idx_assignment_task_created ON task_assignment_history(task_id,created_at);
 CREATE INDEX IF NOT EXISTS idx_members_user_id ON team_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_habits_user_id ON habits(user_id);
 CREATE INDEX IF NOT EXISTS idx_habit_logs_user_date ON habit_logs(user_id,done_date);
@@ -650,6 +654,13 @@ async def fetch_all_sql(sql, params=()):
 async def fetch_one_sql(sql, params=()):
     rows = await fetch_all_sql(sql, params)
     return rows[0] if rows else None
+
+def sync_query_one(sql, params=()):
+    """Execute a parameterized read-only aggregate without materializing a table."""
+    if not sql.lstrip().upper().startswith("SELECT "):
+        raise ValueError("query_must_be_select")
+    return _run(fetch_one_sql(sql, params))
+
 
 def sync_all(table, where="", params=()):
     return _run(fetch_all(table, where, params))
