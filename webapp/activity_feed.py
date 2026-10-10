@@ -7,7 +7,7 @@ any existing task/report data.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from services.database import sync_all
 
@@ -39,7 +39,29 @@ def _event(event_id, kind, icon, title, task, actor="کاربر", text="", creat
 
 def activity_feed(access, start=None, end=None, query="", limit=100):
     args = (access["bot_key"], str(access["user_id"]))
-    tasks = sync_all("tasks", "workspace_id IS NULL AND bot_key=? AND user_id=?", args)
+    scope = "workspace_id IS NULL AND bot_key=? AND user_id=?"
+
+    def date_clause(field):
+        if field not in {"created_at", "completed_at"}:
+            raise ValueError("unsupported_report_time_field")
+        # Use range predicates on raw ISO timestamps so SQLite can apply
+        # indexes. Retain the old in_range check for unexpected date formats.
+        clauses, values = [], []
+        if start:
+            clauses.append(f"{field}>=?")
+            values.append(start.isoformat())
+        if end:
+            clauses.append(f"{field}<?")
+            values.append((end + timedelta(days=1)).isoformat())
+        return " AND ".join(clauses) if clauses else "1=1", tuple(values)
+
+    created_sql, created_params = date_clause("created_at")
+    completed_sql, completed_params = date_clause("completed_at")
+    tasks = sync_all(
+        "tasks",
+        f"{scope} AND (({created_sql}) OR ({completed_sql}))",
+        args + created_params + completed_params,
+    )
     task_map = {str(task.get("id")): task for task in tasks}
     events = []
 
@@ -74,13 +96,24 @@ def activity_feed(access, start=None, end=None, query="", limit=100):
             ))
 
     try:
+        comment_sql, comment_params = date_clause("created_at")
         comments = sync_all(
             "task_comments",
-            "task_id IN (SELECT id FROM tasks WHERE workspace_id IS NULL AND bot_key=? AND user_id=?)",
-            args,
+            f"task_id IN (SELECT id FROM tasks WHERE {scope}) AND ({comment_sql})",  # nosec B608 - constant scope and allowlisted column, bound values
+            args + comment_params,
         )
     except Exception:
         comments = []
+
+    try:
+        assignment_sql, assignment_params = date_clause("created_at")
+        assignments = sync_all(
+            "task_assignment_history",
+            f"task_id IN (SELECT id FROM tasks WHERE {scope}) AND ({assignment_sql})",  # nosec B608 - constant scope and allowlisted column, bound values
+            args + assignment_params,
+        )
+    except Exception:
+        assignments = []
 
     comment_labels = {
         "text": "کامنت ثبت کرد",
@@ -92,6 +125,18 @@ def activity_feed(access, start=None, end=None, query="", limit=100):
         "animation": "گیف ارسال کرد",
         "sticker": "استیکر ارسال کرد",
     }
+    # Comments/assignments can refer to tasks created before the selected
+    # period. Retrieve metadata for those specific IDs rather than every task.
+    missing_ids = {
+        str(row.get("task_id")) for row in comments + assignments if row.get("task_id")
+    } - task_map.keys()
+    missing = sorted(missing_ids)
+    for offset in range(0, len(missing), 400):
+        chunk = missing[offset:offset + 400]
+        placeholders = ",".join("?" for _ in chunk)
+        for task in sync_all("tasks", f"{scope} AND id IN ({placeholders})", args + tuple(chunk)):
+            task_map[str(task.get("id"))] = task
+
     for row in comments:
         created_at = row.get("created_at") or ""
         if not in_range(created_at):
@@ -110,15 +155,6 @@ def activity_feed(access, start=None, end=None, query="", limit=100):
             task, row.get("author_name") or row.get("author_username") or "کاربر",
             str(text).replace("\n", " ")[:220], created_at,
         ))
-
-    try:
-        assignments = sync_all(
-            "task_assignment_history",
-            "task_id IN (SELECT id FROM tasks WHERE workspace_id IS NULL AND bot_key=? AND user_id=?)",
-            args,
-        )
-    except Exception:
-        assignments = []
 
     for row in assignments:
         created_at = row.get("created_at") or ""

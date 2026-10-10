@@ -5,6 +5,8 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from statistics import mean
 
+from services.database import sync_query_one
+
 from .reports import _access, _change, _jmonth, _priority, _status, _task_rows, _week, _habits, _recent
 from .activity_feed import activity_feed
 
@@ -103,7 +105,7 @@ def _decode_filters(search: str) -> tuple[str, dict]:
     return raw, {"q": raw}
 
 
-def _query_tasks(access, start: date, end: date, search: str = "", filters: dict | None = None):
+def _task_predicate(access, start: date, end: date, search: str = "", filters: dict | None = None):
     query, structured = _decode_filters(search) if filters is None else (str(filters.get("q") or "").strip(), filters)
     where = "created_at>=? AND created_at<?"
     params = [start.isoformat(), (end + timedelta(days=1)).isoformat()]
@@ -142,7 +144,26 @@ def _query_tasks(access, start: date, end: date, search: str = "", filters: dict
         clause = "deadline IS NOT NULL AND deadline!='' AND substr(deadline,1,10)<? AND status NOT IN ('done','cancelled','canceled')"
         where += f" AND ({clause if overdue == 'yes' else f'NOT ({clause})'})"
         params.append(today)
-    return _task_rows(access, where, tuple(params))
+    return where, tuple(params)
+
+
+
+def _query_tasks(access, start: date, end: date, search: str = "", filters: dict | None = None):
+    where, params = _task_predicate(access, start, end, search, filters)
+    return _task_rows(access, where, params)
+
+
+def _count_query_tasks(access, start: date, end: date, search: str = "", filters: dict | None = None):
+    """Count earlier-period tasks in SQLite rather than pulling every historical row."""
+    where, params = _task_predicate(access, start, end, search, filters)
+    # Match the same ownership and bot scope as _task_rows; changing report
+    # visibility must be coordinated with the separate #222 workstream.
+    sql = (
+        "SELECT COUNT(*) AS total FROM tasks WHERE "
+        "workspace_id IS NULL AND bot_key=? AND user_id=? AND " + where  # nosec B608 - internally constructed clauses, parameterized user input
+    )
+    row = sync_query_one(sql, (access["bot_key"], str(access["user_id"])) + params)
+    return int(row["total"]) if row else 0
 
 
 def _filter_options(tasks):
@@ -420,8 +441,14 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
         return None
     start, end = resolve_period(period, start_value, end_value)
     query, filters = _decode_filters(search)
-    base_tasks = _query_tasks(access, start, end, query, {"q": query})
+    # Without a restrictive structured filter, both populations are identical.
+    # This avoids loading the entire reporting interval twice (the UI's sort
+    # selection does not change the filter options population).
     tasks = _query_tasks(access, start, end, query, filters)
+    constrained = any(str(filters.get(key) or "").strip() for key in (
+        "status", "priority", "category", "assignee", "has_deadline", "overdue"
+    ))
+    base_tasks = _query_tasks(access, start, end, query, {"q": query}) if constrained else tasks
     filtered_task_ids = {str(task.get("id")) for task in tasks}
     statuses, priorities, categories = {}, {}, {}
     for task in tasks:
@@ -440,7 +467,7 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
     previous_start, previous_end = _previous_period(start, end)
     # Compare like-for-like datasets: the previous period must use the same
     # search term and structured filters as the current period.
-    previous_total = len(_query_tasks(access, previous_start, previous_end, query, filters))
+    previous_total = _count_query_tasks(access, previous_start, previous_end, query, filters)
     productivity = _productivity_metrics(tasks)
     result = {
         "report_type": "dashboard",
@@ -474,22 +501,22 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
         selected = [task for task in tasks if section == "tasks" or task.get("deadline")]
         sort_key = str(filters.get("sort") or "newest")
         selected = _sort_tasks(selected, sort_key)
-        rows = [_row(task) for task in selected]
-        total_rows = len(rows)
+        total_rows = len(selected)
         page = max(1, int(page))
         normalized_page_size = int(page_size) if page_size is not None else 25
         if normalized_page_size <= 0:
             # Unpaginated mode is used by exports so CSV/PDF contain the full
             # filtered task set rather than only the first dashboard page.
-            visible_rows = rows
+            visible_tasks = selected
             page = 1
             response_page_size = total_rows
             pages = 1
         else:
             start_index = (page - 1) * normalized_page_size
-            visible_rows = rows[start_index:start_index + normalized_page_size]
+            visible_tasks = selected[start_index:start_index + normalized_page_size]
             response_page_size = normalized_page_size
             pages = max(1, (total_rows + normalized_page_size - 1) // normalized_page_size)
+        visible_rows = [_row(task) for task in visible_tasks]
         result.update({"section": section, "rows": visible_rows, "page": page, "page_size": response_page_size,
                        "total": total_rows, "pages": pages, "sort": sort_key})
         return result
