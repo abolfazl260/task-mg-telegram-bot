@@ -5,7 +5,7 @@ exercise the database timeout, WAL and retry behavior without touching the
 real application database.
 """
 
-import asyncio
+import asyncio  # noqa: I001 - preserve existing import order in legacy stress test
 import sqlite3
 import time
 
@@ -13,6 +13,12 @@ import aiosqlite
 import pytest
 
 from services import database
+
+
+# This explicit stress test uses 100 independent writers and 2,500 commits.
+# Its queueing budget must not track the shorter production DB retry timeout.
+# It does not modify the production database or production settings.
+STRESS_BUSY_TIMEOUT_MS = 30_000
 
 
 @pytest.mark.asyncio
@@ -31,11 +37,11 @@ async def test_concurrent_sqlite_load_uses_isolated_database(tmp_path, monkeypat
     async def worker(worker_id: int, operations: int = 25):
         conn = await aiosqlite.connect(
             str(db_path),
-            timeout=database.SQLITE_TIMEOUT_SECONDS,
+            timeout=STRESS_BUSY_TIMEOUT_MS / 1000,
         )
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA journal_mode=WAL")
-        await conn.execute(f"PRAGMA busy_timeout={database.SQLITE_BUSY_TIMEOUT_MS}")
+        await conn.execute(f"PRAGMA busy_timeout={STRESS_BUSY_TIMEOUT_MS}")
         try:
             for operation in range(operations):
                 await conn.execute(

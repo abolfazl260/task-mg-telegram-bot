@@ -12,6 +12,26 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfgen import canvas
 
 
+def _kpi_rows(summary):
+    """Export the same labeled KPI populations shown by the dashboard."""
+    def rate(value):
+        return "—" if value is None else f"{value}%"
+
+    return [
+        ("وظایف ایجادشده در بازه", summary.get("total", 0)),
+        ("از وظایف ایجادشده، اکنون تکمیل", summary.get("done", 0)),
+        ("از وظایف ایجادشده، اکنون در حال انجام", summary.get("in_progress", 0)),
+        ("از وظایف ایجادشده، اکنون شروع‌نشده", summary.get("pending", 0)),
+        ("از وظایف ایجادشده، اکنون لغوشده", summary.get("cancelled", 0)),
+        ("تکمیل‌شده در بازه انتخابی", summary.get("completed_in_period", 0)),
+        ("تکمیل‌شده دارای مهلت معتبر در بازه", summary.get("completed_with_deadline", 0)),
+        ("نرخ تکمیل به‌موقع در بازه", rate(summary.get("on_time_rate"))),
+        ("نرخ تکمیل با تأخیر در بازه", rate(summary.get("overdue_rate"))),
+        (f"وظایف باز عقب‌افتاده تا {summary.get('backlog_as_of_utc') or 'امروز'} UTC",
+         summary.get("overdue", 0)),
+    ]
+
+
 class ReportExportService:
     """Format report data without coupling HTTP handlers to export details."""
 
@@ -25,11 +45,8 @@ class ReportExportService:
         summary = report.get("summary", {})
         writer.writerow([])
         writer.writerow(["شاخص", "مقدار"])
-        writer.writerow(["کل وظایف", summary.get("total", 0)])
-        writer.writerow(["انجام‌شده", summary.get("done", 0)])
-        writer.writerow(["در حال انجام", summary.get("in_progress", 0)])
-        writer.writerow(["شروع‌نشده", summary.get("pending", 0)])
-        writer.writerow(["لغوشده", summary.get("cancelled", 0)])
+        for label, value in _kpi_rows(summary):
+            writer.writerow([label, value])
         writer.writerow([])
         writer.writerow(["شناسه", "عنوان", "وضعیت", "اولویت", "مهلت", "دسته‌بندی", "مسئول"])
         for row in rows:
@@ -54,7 +71,7 @@ class ReportExportService:
         pdf.setFont(font_name, 16); pdf.drawString(36, height - 40, text("گزارش وظایف"))
         pdf.setFont(font_name, 9); pdf.drawString(36, height - 58, text(report.get("period", {}).get("gregorian", date.today().isoformat())))
         summary = report.get("summary", {}); y = height - 85
-        for label, value in [("کل وظایف", summary.get("total", 0)), ("انجام‌شده", summary.get("done", 0)), ("در حال انجام", summary.get("in_progress", 0)), ("شروع‌نشده", summary.get("pending", 0)), ("لغوشده", summary.get("cancelled", 0))]:
+        for label, value in _kpi_rows(summary):
             pdf.drawString(36, y, text(f"{label}: {value}")); y -= 14
         y -= 5; pdf.setFont(font_name, 8)
         headers = ["شناسه", "عنوان", "وضعیت", "اولویت", "مهلت", "دسته‌بندی", "مسئول"]; x_positions = [36, 100, 330, 410, 475, 555, 635]
