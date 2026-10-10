@@ -132,6 +132,13 @@ def test_dashboard_trend_reuses_current_search_and_filters_for_previous_period(m
         return current_tasks if start.month == 8 else previous_tasks
 
     monkeypatch.setattr(dashboard_service, "_query_tasks", fake_query)
+    count_calls = []
+
+    def fake_count(access, start, end, search="", filters=None):
+        count_calls.append({"start": start, "end": end, "search": search, "filters": dict(filters or {})})
+        return len(previous_tasks)
+
+    monkeypatch.setattr(dashboard_service, "_count_query_tasks", fake_count)
 
     search = '{"q":"needle","priority":"high","sort":"newest"}'
     result = dashboard_report(
@@ -142,7 +149,7 @@ def test_dashboard_trend_reuses_current_search_and_filters_for_previous_period(m
         search=search,
     )
 
-    previous_call = calls[-1]
+    previous_call = count_calls[-1]
     assert previous_call["start"] == date(2026, 7, 1)
     assert previous_call["search"] == "needle"
     assert previous_call["filters"]["priority"] == "high"
@@ -196,3 +203,110 @@ def test_clear_filters_ui_resets_controls_and_refreshes_filter_card():
     assert "state.period = 'month'" in clear_handler
     assert "syncFilterControls();" in clear_handler
     assert "existingFilters.outerHTML = filterCard(data.filter_options || {});" in source
+
+
+def test_dashboard_avoids_duplicate_full_reads_and_formats_only_requested_page(monkeypatch):
+    records = [
+        {
+            "id": f"task-{index:04d}",
+            "title": f"Task {index}",
+            "status": "pending",
+            "priority": "medium",
+            "created_at": f"2026-08-{index % 28 + 1:02d}T12:00:00Z",
+        }
+        for index in range(200)
+    ]
+    calls = []
+    formatted = []
+
+    def query(access, start, end, search="", filters=None):
+        calls.append(dict(filters or {}))
+        return records
+
+    monkeypatch.setattr(dashboard_service, "_access", lambda token: {"bot_key": "bot", "user_id": "1"})
+    monkeypatch.setattr(dashboard_service, "_query_tasks", query)
+    monkeypatch.setattr(dashboard_service, "_count_query_tasks", lambda *args, **kwargs: 0)
+    actual_row = dashboard_service._row
+
+    def count_row(task):
+        formatted.append(task["id"])
+        return actual_row(task)
+
+    monkeypatch.setattr(dashboard_service, "_row", count_row)
+    output = dashboard_report(
+        "token", section="tasks", page=3, page_size=25,
+        period="custom", start_value="2026-08-01", end_value="2026-08-31",
+    )
+    assert len(calls) == 1, "No duplicate unfiltered task query"
+    assert len(formatted) == 25, "Only page-visible tasks must be formatted"
+    assert output["total"] == 200
+    assert output["page"] == 3
+    assert output["page_size"] == 25
+    assert len(output["rows"]) == 25
+
+
+def test_filtered_report_fetches_options_population_separately(monkeypatch):
+    records = [{"id": "task-1", "status": "pending", "priority": "high"}]
+    calls = []
+
+    def query(access, start, end, search="", filters=None):
+        calls.append(dict(filters or {}))
+        return records
+
+    monkeypatch.setattr(dashboard_service, "_access", lambda token: {"bot_key": "bot", "user_id": "1"})
+    monkeypatch.setattr(dashboard_service, "_query_tasks", query)
+    monkeypatch.setattr(dashboard_service, "_count_query_tasks", lambda *args, **kwargs: 0)
+    dashboard_report(
+        "token", period="custom", start_value="2026-08-01",
+        end_value="2026-08-31", search='{"priority":"high","sort":"oldest"}',
+    )
+    assert len(calls) == 2
+    assert calls[0]["priority"] == "high"
+    assert calls[1] == {"q": ""}
+
+
+def test_sql_count_and_task_reader_use_identical_scoped_filters(monkeypatch):
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        "CREATE TABLE tasks (id TEXT, bot_key TEXT, user_id TEXT, "
+        "workspace_id TEXT, title TEXT, created_at TEXT, status TEXT, "
+        "priority TEXT, category TEXT, assignee_id TEXT, assignee_name TEXT, "
+        "assignee_username TEXT, tags TEXT, deadline TEXT)"
+    )
+    sample = [
+        ("t1", "bot", "42", None, "matched task", "2026-09-10", "pending", "high", "work"),
+        ("t2", "bot", "42", None, "matched task", "2026-09-20", "pending", "high", "work"),
+        ("t3", "bot", "42", None, "matched task", "2026-09-21", "done", "high", "work"),
+        ("t4", "other", "42", None, "matched task", "2026-09-10", "pending", "high", "work"),
+        ("t5", "bot", "99", None, "matched task", "2026-09-10", "pending", "high", "work"),
+        ("t6", "bot", "42", "clinic", "matched task", "2026-09-10", "pending", "high", "work"),
+    ]
+    conn.executemany(
+        "INSERT INTO tasks(id,bot_key,user_id,workspace_id,title,created_at,"
+        "status,priority,category) VALUES (?,?,?,?,?,?,?,?,?)",
+        sample,
+    )
+
+    def execute(sql, params):
+        return [dict(row) for row in conn.execute(sql, params)]
+
+    def query_tasks(access, where="", params=()):
+        sql = "SELECT * FROM tasks WHERE workspace_id IS NULL AND bot_key=? AND user_id=? AND " + where
+        return execute(sql, (access["bot_key"], str(access["user_id"])) + tuple(params))
+
+    monkeypatch.setattr(dashboard_service, "_task_rows", query_tasks)
+    monkeypatch.setattr(
+        dashboard_service, "sync_query_one",
+        lambda sql, params=(): execute(sql, params)[0],
+    )
+    access = {"bot_key": "bot", "user_id": "42"}
+    filters = {"q": "matched", "status": "pending", "priority": "high", "category": "work"}
+    start, end = date(2026, 9, 1), date(2026, 9, 30)
+    rows = dashboard_service._query_tasks(access, start, end, "matched", filters)
+    count = dashboard_service._count_query_tasks(access, start, end, "matched", filters)
+    assert count == len(rows) == 2
+    assert {task["id"] for task in rows} == {"t1", "t2"}
+    conn.close()
