@@ -17,7 +17,7 @@ async def test_create_and_get_habit_persists_all_fields(test_db):
         start_date="2026-09-01",
     )
 
-    habit = await habit_service.get_habit_async(habit_id)
+    habit = await habit_service.get_habit_async(habit_id, 100)
     assert habit is not None
     assert habit["id"] == habit_id
     assert habit["user_id"] == "100"
@@ -35,7 +35,7 @@ async def test_create_and_get_habit_persists_all_fields(test_db):
 @pytest.mark.asyncio
 async def test_create_habit_applies_defaults_and_ensures_user(test_db):
     habit_id = await habit_service.create_habit_async(200, "Drink water")
-    habit = await habit_service.get_habit_async(habit_id)
+    habit = await habit_service.get_habit_async(habit_id, 100)
     assert habit["category"] == ""
     assert habit["description"] == ""
     assert habit["repeat_type"] == "daily"
@@ -54,7 +54,7 @@ async def test_user_habits_are_isolated_and_active_filter_works(test_db):
     first = await habit_service.create_habit_async(100, "A")
     second = await habit_service.create_habit_async(100, "B")
     other = await habit_service.create_habit_async(200, "Other")
-    assert await habit_service.update_habit_async(second, active=0)
+    assert await habit_service.update_habit_async(second, 100, active=0)
 
     user_100 = await habit_service.get_user_habits_async(100)
     assert {h["id"] for h in user_100} == {first, second}
@@ -67,6 +67,7 @@ async def test_update_habit_changes_only_allowed_fields(test_db):
     habit_id = await habit_service.create_habit_async(100, "Original", category="Old")
     assert await habit_service.update_habit_async(
         habit_id,
+        100,
         title="Updated",
         category="New",
         description="Desc",
@@ -78,7 +79,7 @@ async def test_update_habit_changes_only_allowed_fields(test_db):
         user_id="attacker",
         id="must-not-change",
     )
-    habit = await habit_service.get_habit_async(habit_id)
+    habit = await habit_service.get_habit_async(habit_id, 100)
     assert habit["title"] == "Updated"
     assert habit["category"] == "New"
     assert habit["description"] == "Desc"
@@ -93,17 +94,17 @@ async def test_update_habit_changes_only_allowed_fields(test_db):
 
 @pytest.mark.asyncio
 async def test_update_nonexistent_or_empty_changes_returns_false(test_db):
-    assert not await habit_service.update_habit_async("missing", title="X")
+    assert not await habit_service.update_habit_async("missing", 100, title="X")
     habit_id = await habit_service.create_habit_async(100, "A")
-    assert not await habit_service.update_habit_async(habit_id, unknown="value")
+    assert not await habit_service.update_habit_async(habit_id, 100, unknown="value")
 
 
 @pytest.mark.asyncio
 async def test_delete_habit_is_idempotent_for_missing_id(test_db):
     habit_id = await habit_service.create_habit_async(100, "Delete me")
-    assert await habit_service.delete_habit_async(habit_id)
-    assert await habit_service.get_habit_async(habit_id) is None
-    assert not await habit_service.delete_habit_async(habit_id)
+    assert await habit_service.delete_habit_async(habit_id, 100)
+    assert await habit_service.get_habit_async(habit_id, 100) is None
+    assert not await habit_service.delete_habit_async(habit_id, 100)
 
 
 @pytest.mark.asyncio
@@ -130,18 +131,18 @@ async def test_logs_can_be_filtered_by_user_and_habit(test_db):
     await habit_service.mark_done_async(h3, 200, "2026-09-01")
 
     assert len(await habit_service.get_logs_async(user_id=100)) == 2
-    assert [x["habit_id"] for x in await habit_service.get_logs_async(habit_id=h1)] == [h1]
+    assert [x["habit_id"] for x in await habit_service.get_logs_async(user_id=100, habit_id=h1)] == [h1]
     assert len(await habit_service.get_logs_async(user_id=100, habit_id=h2)) == 1
-    assert len(await habit_service.get_logs_async()) == 3
+    assert len(await habit_service.get_logs_async(user_id=100)) == 2
 
 
 @pytest.mark.asyncio
-async def test_mark_done_creates_user_when_needed(test_db):
+async def test_mark_done_rejects_non_owner_without_creating_user_or_log(test_db):
     habit_id = await habit_service.create_habit_async(100, "A")
-    assert await habit_service.mark_done_async(habit_id, 300, "2026-09-01")
-    logs = await habit_service.get_logs_async(user_id=300)
-    assert len(logs) == 1
-    assert logs[0]["habit_id"] == habit_id
+    assert not await habit_service.mark_done_async(habit_id, 300, "2026-09-01")
+    assert await habit_service.get_logs_async(user_id=300) == []
+    from services.database import fetch_one
+    assert await fetch_one("users", "user_id=?", ("300",)) is None
 
 
 @pytest.mark.parametrize(
@@ -174,7 +175,7 @@ def test_is_habit_due_on_defaults_to_daily():
 @pytest.mark.asyncio
 async def test_stats_for_habit_empty_state(test_db):
     habit_id = await habit_service.create_habit_async(100, "A")
-    stats = await habit_service.stats_for_habit_async({"id": habit_id})
+    stats = await habit_service.stats_for_habit_async({"id": habit_id}, 100)
     assert stats == {"current": 0, "best": 0, "total": 0, "last": "—"}
 
 
@@ -188,7 +189,7 @@ async def test_stats_calculates_total_best_current_and_last(test_db, monkeypatch
     for day in ["2026-08-20", "2026-08-21"]:
         assert await habit_service.mark_done_async(habit_id, 100, day)
 
-    stats = await habit_service.stats_for_habit_async({"id": habit_id})
+    stats = await habit_service.stats_for_habit_async({"id": habit_id}, 100)
     assert stats["current"] == 5
     assert stats["best"] == 5
     assert stats["total"] == 7
@@ -203,7 +204,7 @@ async def test_stats_current_streak_starts_from_yesterday_when_today_missing(tes
     for day in ["2026-09-05", "2026-09-06"]:
         assert await habit_service.mark_done_async(habit_id, 100, day)
 
-    stats = await habit_service.stats_for_habit_async({"id": habit_id})
+    stats = await habit_service.stats_for_habit_async({"id": habit_id}, 100)
     assert stats["current"] == 2
     assert stats["best"] == 2
     assert stats["total"] == 2
@@ -217,7 +218,7 @@ async def test_stats_best_streak_is_not_broken_by_later_gap(test_db, monkeypatch
     for day in ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-10"]:
         assert await habit_service.mark_done_async(habit_id, 100, day)
 
-    stats = await habit_service.stats_for_habit_async({"id": habit_id})
+    stats = await habit_service.stats_for_habit_async({"id": habit_id}, 100)
     assert stats["current"] == 0
     assert stats["best"] == 3
     assert stats["total"] == 4
