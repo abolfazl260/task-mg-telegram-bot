@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 # Importing start installs the canonical Rich handlers on the task module.
+from handlers import create_task_flow
 from handlers import start as _start  # noqa: F401
 from handlers import task as task_handler
-from handlers import create_task_flow
 from services import task_service
 from services.database import fetch_all
 from services.task_capabilities import (
