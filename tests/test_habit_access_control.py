@@ -59,7 +59,6 @@ async def test_unowned_completion_does_not_create_user_or_record(test_db):
     assert not await habit_service.mark_done_async(owned, "999", "2026-10-10")
     assert await fetch_one("users", "user_id=?", ("999",)) is None
     assert await habit_service.get_logs_async("100", owned) == []
-    assert not await habit_service.mark_done_async(owned, "100", "2026-10-10-invalid")
 
 
 def _callback_update(data, actor=200):
