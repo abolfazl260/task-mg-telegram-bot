@@ -163,7 +163,7 @@ async def _show_tags(message, context):
     if buttons:
         html += _rows(buttons, 2)
     html += _rows([_button("➕ تگ جدید", "tag_new", "success"), _button("⏭ بدون تگ", "tags_skip")], 2)
-    html += _footer(True, "step_back_category")
+    html += (_footer(True, "step_back_category") if task_creation_field_enabled(context, "category") else _footer())
     context.user_data["step"] = "tags"
     await _edit_rich(context, message, html)
 
@@ -392,6 +392,15 @@ def install_create_task_flow(task_module):
     async def optional_rich(update, context):
         query = update.callback_query
         data = query.data or ""
+        if data.startswith("category_") and (
+            not task_creation_field_enabled(context, "category")
+            or context.user_data.get("step") != "category"
+        ):
+            await query.answer("انتخاب دسته‌بندی در این مرحله مجاز نیست.", show_alert=True)
+            return
+        if data == "description_skip" and context.user_data.get("step") != "description":
+            await query.answer("این مرحله دیگر فعال نیست.", show_alert=True)
+            return
         if data == "category_skip":
             await query.answer()
             context.user_data.setdefault("new_task", {})["category"] = ""
@@ -430,6 +439,11 @@ def install_create_task_flow(task_module):
         if not isinstance(task, dict):
             await query.answer("فرایند ایجاد تسک فعال نیست.", show_alert=True)
             return
+        if data.startswith(("tag_", "tags_")) and (
+            not task_creation_field_enabled(context, "tags") or context.user_data.get("step") != "tags"
+        ):
+            await query.answer("این قابلیت در مرحله فعلی مجاز نیست.", show_alert=True)
+            return
         await query.answer()
         if data in {"tags_skip", "tag_none"}:
             task["tags"] = ""
@@ -467,6 +481,8 @@ def install_create_task_flow(task_module):
     async def tag_text_rich(update, context):
         if context.user_data.get("step") != "tags":
             return False
+        if not task_creation_field_enabled(context, "tags"):
+            return False
         text = str(getattr(update.effective_message, "text", "") or "").strip()
         if not text:
             return False
@@ -484,6 +500,9 @@ def install_create_task_flow(task_module):
         if not data.startswith("assign_") and data not in {"step_back_tags", CREATE_CANCEL_CALLBACK}:
             return await original_assignment(update, context)
         await query.answer()
+        if data not in {CREATE_CANCEL_CALLBACK, "assign_confirm_create"} and not task_creation_field_enabled(context, "assignment"):
+            await query.answer("انتخاب مسئول برای این ربات مجاز نیست.", show_alert=True)
+            return
         if data == CREATE_CANCEL_CALLBACK:
             await _edit_rich(context, query.message, '<p><b>❌ ایجاد تسک لغو شد.</b></p>')
             clear_create_task_state(context)
@@ -491,10 +510,12 @@ def install_create_task_flow(task_module):
         if data == "assign_self":
             user = update.effective_user
             context.user_data.setdefault("new_task", {})["assignee"] = {"user_id": str(user.id), "display_name": user.full_name, "username": user.username or ""}
+            context.user_data["new_task"]["team_id"] = ""
             await _show_summary(query, context)
             return
         if data == "assign_none":
             context.user_data.setdefault("new_task", {})["assignee"] = None
+            context.user_data["new_task"]["team_id"] = ""
             await _show_summary(query, context)
             return
         if data == "assign_change_create":
@@ -505,12 +526,17 @@ def install_create_task_flow(task_module):
             return
         if data == "assign_teams":
             teams = await task_module.aget_user_teams(update.effective_user.id) if hasattr(task_module, "aget_user_teams") else []
+            teams = [item for item in teams if item.get("role") in {"owner", "editor"}]
             buttons = [_button(f"📌 {(x.get('team') or {}).get('name') or 'تیم'}", f"assign_team_{(x.get('team') or {}).get('team_id')}") for x in teams]
             html = '<p><b>👥 انتخاب تیم</b></p><p>تیم موردنظر را انتخاب کنید:</p>' + (_rows(buttons, 2) if buttons else '<p>تیمی پیدا نشد.</p>') + _footer(True, "assign_change_create")
             await _edit_rich(context, query.message, html)
             return
         if data.startswith("assign_team_"):
             team_id = data.replace("assign_team_", "", 1)
+            permitted_teams = await task_module.aget_user_teams(update.effective_user.id) if hasattr(task_module, "aget_user_teams") else []
+            if not any(x.get("role") in {"owner", "editor"} and str((x.get("team") or {}).get("team_id")) == team_id for x in permitted_teams):
+                await query.answer("اجازه تخصیص در این تیم را ندارید.", show_alert=True)
+                return
             context.user_data["_create_selected_team_id"] = team_id
             members = await task_module.aget_team_members(team_id) if hasattr(task_module, "aget_team_members") else []
             buttons = [_button(f"👤 {task_module.member_display(m)}", f"assign_member_{m.get('user_id')}") for m in members]
@@ -520,7 +546,11 @@ def install_create_task_flow(task_module):
             member_id = data.replace("assign_member_", "", 1)
             team_id = context.user_data.get("_create_selected_team_id")
             members = await task_module.aget_team_members(team_id) if team_id and hasattr(task_module, "aget_team_members") else []
-            member = next((m for m in members if str(m.get("user_id")) == member_id), {"user_id": member_id, "display_name": "عضو تیم"})
+            member = next((m for m in members if str(m.get("user_id")) == member_id), None)
+            if member is None:
+                await query.answer("عضو انتخاب‌شده در این تیم وجود ندارد.", show_alert=True)
+                return
+            context.user_data.setdefault("new_task", {})["team_id"] = team_id
             context.user_data.setdefault("new_task", {})["assignee"] = member
             await _show_summary(query, context)
             return
