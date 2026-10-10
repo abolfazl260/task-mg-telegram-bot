@@ -74,6 +74,7 @@ from handlers.task import (
     cancel_task,
     comment_callback,
     comment_cancel_callback,
+    deadline_selected,
     detail_page,
     done_task,
     download_csv,
