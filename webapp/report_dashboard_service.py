@@ -3,7 +3,7 @@ from __future__ import annotations
 import calendar
 import json
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from statistics import mean
 
 from services.database import sync_query_one
@@ -104,7 +104,7 @@ def _previous_period(start: date, end: date) -> tuple[date, date]:
 
 def resolve_period(period: str, start_value: str | None = None, end_value: str | None = None) -> tuple[date, date]:
     """Validate the same period contract for dashboard, sections and exports."""
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     if period == "today":
         return today, today
     if period == "week":
@@ -191,7 +191,7 @@ def _task_predicate(access, start: date, end: date, search: str = "", filters: d
     elif has_deadline == "no":
         where += " AND (deadline IS NULL OR deadline='')"
     if overdue in {"yes", "no"}:
-        today = datetime.now(timezone.utc).date().isoformat()
+        today = datetime.now(UTC).date().isoformat()
         clause = "deadline IS NOT NULL AND deadline!='' AND substr(deadline,1,10)<? AND status NOT IN ('done','cancelled','canceled')"
         where += f" AND ({clause if overdue == 'yes' else f'NOT ({clause})'})"
         params.append(today)
@@ -215,7 +215,7 @@ def _query_completed_tasks(access, start: date, end: date, search: str = "", fil
     eligible = []
     for task in candidates:
         completed = _parse_datetime(task.get("completed_at"))
-        if completed and start <= completed.astimezone(timezone.utc).date() <= end:
+        if completed and start <= completed.astimezone(UTC).date() <= end:
             eligible.append(task)
     return eligible
 
@@ -275,7 +275,7 @@ def _parse_datetime(value: str | None):
     raw = str(value).strip().replace("Z", "+00:00")
     try:
         dt = datetime.fromisoformat(raw)
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
     except (ValueError, TypeError):
         return None
 
@@ -299,8 +299,8 @@ def _productivity_metrics(tasks, now=None, *, completed_tasks=None, backlog=None
     With no explicit completed set, preserve the utility's direct-call behavior
     by using the supplied tasks for both cohorts.
     """
-    now = now or datetime.now(timezone.utc)
-    today_str = now.astimezone(timezone.utc).date().isoformat()
+    now = now or datetime.now(UTC)
+    today_str = now.astimezone(UTC).date().isoformat()
     durations_days = []
     for task in tasks:
         if (task.get("status") or "").lower() not in {"done", "completed"}:
@@ -327,7 +327,7 @@ def _productivity_metrics(tasks, now=None, *, completed_tasks=None, backlog=None
         if completed is None:
             continue
         completed_with_deadline += 1
-        if completed.astimezone(timezone.utc).date() <= deadline_day:
+        if completed.astimezone(UTC).date() <= deadline_day:
             completed_on_time += 1
         else:
             completed_late += 1
@@ -481,7 +481,7 @@ def _overdue_seconds(task, now=None):
     deadline = _parse_datetime(task.get("deadline"))
     if not deadline or (task.get("status") or "") in {"done", "completed", "cancelled", "canceled"}:
         return 0
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     return max(0, (now - deadline).total_seconds())
 
 
@@ -492,16 +492,16 @@ def _priority_rank(task):
 def _sort_tasks(tasks, sort_key="newest"):
     """Sort the complete filtered task set before pagination."""
     sort_key = sort_key if sort_key in SORT_OPTIONS else "newest"
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if sort_key == "newest":
-        return sorted(tasks, key=lambda x: (_parse_datetime(x.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc), str(x.get("id") or "")), reverse=True)
+        return sorted(tasks, key=lambda x: (_parse_datetime(x.get("created_at")) or datetime.min.replace(tzinfo=UTC), str(x.get("id") or "")), reverse=True)
     if sort_key == "oldest":
-        return sorted(tasks, key=lambda x: (_parse_datetime(x.get("created_at")) or datetime.max.replace(tzinfo=timezone.utc), str(x.get("id") or "")))
+        return sorted(tasks, key=lambda x: (_parse_datetime(x.get("created_at")) or datetime.max.replace(tzinfo=UTC), str(x.get("id") or "")))
     if sort_key == "overdue":
-        return sorted(tasks, key=lambda x: (_overdue_seconds(x, now), _parse_datetime(x.get("deadline")) or datetime.max.replace(tzinfo=timezone.utc)), reverse=True)
+        return sorted(tasks, key=lambda x: (_overdue_seconds(x, now), _parse_datetime(x.get("deadline")) or datetime.max.replace(tzinfo=UTC)), reverse=True)
     if sort_key == "priority":
-        return sorted(tasks, key=lambda x: (_priority_rank(x), _parse_datetime(x.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc)), reverse=True)
-    return sorted(tasks, key=lambda x: (_duration_seconds(x), _parse_datetime(x.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc)), reverse=True)
+        return sorted(tasks, key=lambda x: (_priority_rank(x), _parse_datetime(x.get("created_at")) or datetime.min.replace(tzinfo=UTC)), reverse=True)
+    return sorted(tasks, key=lambda x: (_duration_seconds(x), _parse_datetime(x.get("created_at")) or datetime.min.replace(tzinfo=UTC)), reverse=True)
 
 
 def _jalali_date(value: str | None) -> str:
@@ -560,7 +560,7 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
     done = statuses.get("done", 0) + statuses.get("completed", 0)
     cancelled = statuses.get("cancelled", statuses.get("canceled", 0))
     deadline_tasks = [task for task in tasks if task.get("deadline")]
-    utc_today = datetime.now(timezone.utc).date()
+    utc_today = datetime.now(UTC).date()
     overdue_snapshot = _open_deadline_counts(access, utc_today, query, filters)
     completed_in_period = _query_completed_tasks(access, start, end, query, filters)
     previous_start, previous_end = _previous_period(start, end)
