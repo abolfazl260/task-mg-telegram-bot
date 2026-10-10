@@ -170,6 +170,7 @@ async def test_scheduled_job_prevents_overlapping_runs(monkeypatch):
     monkeypatch.setattr(database_backup, "run_database_backup", fake_run)
     monkeypatch.setattr(database_backup, "_backup_running", False)
     monkeypatch.setattr(database_backup, "_last_backup_started_at", 0.0)
+    monkeypatch.setattr(database_backup, "_claim_backup_due", AsyncMock(return_value=True))
 
     context = SimpleNamespace(bot=object())
     first = asyncio.create_task(database_backup.database_backup_job(context))
