@@ -4,7 +4,12 @@ import sqlite3
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
+from bot_context import get_current_bot_key
 from services.database import execute, execute_returning_one, fetch_all, fetch_one, _run as db_run
+
+
+def _bot(bot_key=None):
+    return str(bot_key or get_current_bot_key() or 'default')
 
 # قالب‌های آماده عمداً ثابت و داخل کد نگهداری می‌شوند؛ جدول جدیدی لازم نیست.
 TEMPLATES = [
@@ -47,13 +52,13 @@ def _ensure_user(user_id):
     return db_run(_ensure_user_async(user_id))
 
 
-async def create_habit_async(user_id, title, category="", description="", repeat_type="daily", target="", reminder_time="", start_date=""):
+async def create_habit_async(user_id, title, category="", description="", repeat_type="daily", target="", reminder_time="", start_date="", *, bot_key=None):
     await _ensure_user_async(user_id)
     hid = str(uuid.uuid4())[:8]
     await execute(
-        """INSERT INTO habits(id,user_id,title,category,description,repeat_type,target,reminder_time,start_date,active,created_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-        (hid, str(user_id), title, category or "", description or "", repeat_type, target or "", reminder_time or "", start_date or date.today().isoformat(), 1, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")),
+        """INSERT INTO habits(id,user_id,bot_key,title,category,description,repeat_type,target,reminder_time,start_date,active,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (hid, str(user_id), _bot(bot_key), title, category or "", description or "", repeat_type, target or "", reminder_time or "", start_date or date.today().isoformat(), 1, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")),
     )
     return hid
 
@@ -62,31 +67,31 @@ def create_habit(*args, **kwargs):
     return db_run(create_habit_async(*args, **kwargs))
 
 
-async def get_user_habits_async(user_id, active_only=False):
-    return await fetch_all("habits", "user_id=?" + (" AND active=1" if active_only else ""), (str(user_id),))
+async def get_user_habits_async(user_id, active_only=False, *, bot_key=None):
+    return await fetch_all("habits", "bot_key=? AND user_id=?" + (" AND active=1" if active_only else ""), (_bot(bot_key), str(user_id)))
 
 
-def get_user_habits(user_id, active_only=False):
-    return db_run(get_user_habits_async(user_id, active_only))
+def get_user_habits(user_id, active_only=False, *, bot_key=None):
+    return db_run(get_user_habits_async(user_id, active_only, bot_key=bot_key))
 
 
-async def get_habit_async(habit_id, user_id):
-    """Only the authenticated habit owner may retrieve a habit by ID."""
-    return await fetch_one("habits", "id=? AND user_id=?", (habit_id, str(user_id)))
+async def get_habit_async(habit_id, user_id, *, bot_key=None):
+    """Require both the authenticated owner and the active Bot Profile."""
+    return await fetch_one("habits", "id=? AND user_id=? AND bot_key=?", (habit_id, str(user_id), _bot(bot_key)))
 
 
-def get_habit(habit_id, user_id):
-    return db_run(get_habit_async(habit_id, user_id))
+def get_habit(habit_id, user_id, *, bot_key=None):
+    return db_run(get_habit_async(habit_id, user_id, bot_key=bot_key))
 
 
-async def update_habit_async(habit_id, user_id, **changes):
+async def update_habit_async(habit_id, user_id, *, bot_key=None, **changes):
     allowed = {"title", "category", "description", "repeat_type", "target", "reminder_time", "start_date", "active"}
     changes = {k: v for k, v in changes.items() if k in allowed}
-    if not changes or not await get_habit_async(habit_id, user_id):
+    if not changes or not await get_habit_async(habit_id, user_id, bot_key=bot_key):
         return False
     sets = ",".join(f"{k}=?" for k in changes)
     # Owner predicate must also be enforced by the mutation, not only the read.
-    await execute(f"UPDATE habits SET {sets} WHERE id=? AND user_id=?", (*changes.values(), habit_id, str(user_id)))
+    await execute(f"UPDATE habits SET {sets} WHERE id=? AND user_id=? AND bot_key=?", (*changes.values(), habit_id, str(user_id), _bot(bot_key)))
     return True
 
 
@@ -94,10 +99,10 @@ def update_habit(habit_id, user_id, **changes):
     return db_run(update_habit_async(habit_id, user_id, **changes))
 
 
-async def delete_habit_async(habit_id, user_id):
-    if not await get_habit_async(habit_id, user_id):
+async def delete_habit_async(habit_id, user_id, *, bot_key=None):
+    if not await get_habit_async(habit_id, user_id, bot_key=bot_key):
         return False
-    await execute("DELETE FROM habits WHERE id=? AND user_id=?", (habit_id, str(user_id)))
+    await execute("DELETE FROM habits WHERE id=? AND user_id=? AND bot_key=?", (habit_id, str(user_id), _bot(bot_key)))
     return True
 
 
@@ -105,8 +110,8 @@ def delete_habit(habit_id, user_id):
     return db_run(delete_habit_async(habit_id, user_id))
 
 
-async def mark_done_async(habit_id, user_id, day=None):
-    if not await get_habit_async(habit_id, user_id):
+async def mark_done_async(habit_id, user_id, day=None, *, bot_key=None):
+    if not await get_habit_async(habit_id, user_id, bot_key=bot_key):
         return False
     day = day or date.today().isoformat()
     try:
@@ -114,9 +119,9 @@ async def mark_done_async(habit_id, user_id, day=None):
         # create cross-user completion rows, even if the habit is deleted.
         row = await execute_returning_one(
             """INSERT INTO habit_logs(habit_id,user_id,done_date,done_at)
-               SELECT id,user_id,?,? FROM habits WHERE id=? AND user_id=?
+               SELECT id,user_id,?,? FROM habits WHERE id=? AND user_id=? AND bot_key=?
                RETURNING id""",
-            (day, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), habit_id, str(user_id)),
+            (day, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), habit_id, str(user_id), _bot(bot_key)),
         )
         return row is not None
     except sqlite3.IntegrityError:
@@ -127,24 +132,24 @@ def mark_done(habit_id, user_id, day=None):
     return db_run(mark_done_async(habit_id, user_id, day))
 
 
-async def get_logs_async(user_id, habit_id=None):
-    """Log reads require owner identity, including when habit_id is supplied."""
-    where = "user_id=? AND habit_id IN (SELECT id FROM habits WHERE user_id=?)"
-    params = [str(user_id), str(user_id)]
+async def get_logs_async(user_id, habit_id=None, *, bot_key=None):
+    """Owner and Bot Profile are mandatory for log retrieval."""
+    where = "user_id=? AND habit_id IN (SELECT id FROM habits WHERE user_id=? AND bot_key=?)"
+    params = [str(user_id), str(user_id), _bot(bot_key)]
     if habit_id is not None:
         where += " AND habit_id=?"
         params.append(habit_id)
     return await fetch_all("habit_logs", where, params)
 
 
-def get_logs(user_id, habit_id=None):
-    return db_run(get_logs_async(user_id, habit_id))
+def get_logs(user_id, habit_id=None, *, bot_key=None):
+    return db_run(get_logs_async(user_id, habit_id, bot_key=bot_key))
 
 
-async def stats_for_habit_async(habit, user_id):
-    if not isinstance(habit, dict) or not await get_habit_async(habit.get("id"), user_id):
+async def stats_for_habit_async(habit, user_id, *, bot_key=None):
+    if not isinstance(habit, dict) or not await get_habit_async(habit.get("id"), user_id, bot_key=bot_key):
         raise PermissionError("habit_access_denied")
-    logs = await get_logs_async(user_id=user_id, habit_id=habit.get("id"))
+    logs = await get_logs_async(user_id=user_id, habit_id=habit.get("id"), bot_key=bot_key)
     days = sorted({x.get("done_date") for x in logs if x.get("done_date")}, reverse=True)
     today = date.today()
     cur = 0
@@ -165,13 +170,13 @@ async def stats_for_habit_async(habit, user_id):
     return {"current": cur, "best": best, "total": len(logs), "last": max(days) if days else "—"}
 
 
-def stats_for_habit(habit, user_id):
-    return db_run(stats_for_habit_async(habit, user_id))
+def stats_for_habit(habit, user_id, *, bot_key=None):
+    return db_run(stats_for_habit_async(habit, user_id, bot_key=bot_key))
 
 
-async def get_all_habit_user_ids_async():
-    return sorted({x.get("user_id") for x in await fetch_all("habits") if x.get("user_id")})
+async def get_all_habit_user_ids_async(*, bot_key=None):
+    return sorted({x.get("user_id") for x in await fetch_all("habits", "bot_key=?", (_bot(bot_key),)) if x.get("user_id")})
 
 
-def get_all_habit_user_ids():
-    return db_run(get_all_habit_user_ids_async())
+def get_all_habit_user_ids(*, bot_key=None):
+    return db_run(get_all_habit_user_ids_async(bot_key=bot_key))
