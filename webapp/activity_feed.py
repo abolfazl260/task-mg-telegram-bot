@@ -10,6 +10,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from services.database import sync_all
+from .reports import _task_scope
 
 
 def _parse(value):
@@ -38,8 +39,7 @@ def _event(event_id, kind, icon, title, task, actor="کاربر", text="", creat
 
 
 def activity_feed(access, start=None, end=None, query="", limit=100):
-    args = (access["bot_key"], str(access["user_id"]))
-    scope = "workspace_id IS NULL AND bot_key=? AND user_id=?"
+    scope, args = _task_scope(access)
 
     def date_clause(field):
         if field not in {"created_at", "completed_at"}:
