@@ -5,7 +5,6 @@ Every test uses a temporary database. No production path or user payloads.
 import asyncio
 import logging
 import sqlite3
-import time
 
 import pytest
 
@@ -78,11 +77,10 @@ async def test_persistent_lock_exhausts_budget_logs_correlation_and_recovers(tem
     external = sqlite3.connect(path, timeout=0.1)
     external.execute("BEGIN IMMEDIATE")
     try:
-        with caplog.at_level(logging.WARNING, logger=database.__name__):
-            with pytest.raises(sqlite3.OperationalError):
-                await database.execute(
-                    "UPDATE users SET messages_count=messages_count+1 WHERE user_id='lock-user'"
-                )
+        with caplog.at_level(logging.WARNING, logger=database.__name__), pytest.raises(sqlite3.OperationalError):
+            await database.execute(
+                "UPDATE users SET messages_count=messages_count+1 WHERE user_id='lock-user'"
+            )
         rows = [r.message for r in caplog.records if "sqlite_contention" in r.message]
         assert len(rows) == 3
         assert all("correlation_id=" in msg and "operation=execute" in msg for msg in rows)
