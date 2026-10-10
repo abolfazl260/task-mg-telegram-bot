@@ -3,6 +3,9 @@
 from html import escape
 import logging
 import sys
+import uuid
+
+from services.task_capabilities import task_creation_allowed, task_creation_field_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -164,8 +167,9 @@ def _summary_rich_html(task, context):
         '<p><b>آیا اطلاعات مورد تأیید است؟</b></p>'
         '<tg-button-row align="center">'
         '<tg-button type="callback_data" style="success" data="assign_confirm_create">✅ تایید و ثبت</tg-button>'
-        '<tg-button type="callback_data" style="primary" data="assign_change_create">✏️ تغییر مسئول</tg-button>'
-        '</tg-button-row>'
+        + ('<tg-button type="callback_data" style="primary" data="assign_change_create">✏️ تغییر مسئول</tg-button>'
+           if task_creation_field_enabled(context, "assignment") else '')
+        + '</tg-button-row>'
         '<tg-button-row align="center">'
         '<tg-button type="callback_data" style="link" data="assign_cancel_create">❌ لغو</tg-button>'
         '</tg-button-row>'
@@ -354,50 +358,95 @@ def install_create_task_rich_progress(task_module):
         query = update.callback_query
         if (query.data or "") != "assign_confirm_create":
             return await original_assignment(update, context)
-        await query.answer()
-        task = context.user_data.get("new_task") or {}
-        if not isinstance(task, dict):
-            await rich_flow._edit_rich(context, query.message, '<p><b>⚠️ اطلاعات ایجاد تسک پیدا نشد.</b></p>')
+        if not task_creation_allowed(context):
+            await query.answer("ایجاد تسک مجاز نیست.", show_alert=True)
             return
+        if context.user_data.get("create_task_finalizing"):
+            await query.answer("ثبت تسک در حال پردازش است.", show_alert=True)
+            return
+        expected_message_id = context.user_data.get("create_task_message_id")
+        message_id = getattr(query.message, "message_id", None)
+        if expected_message_id and message_id and str(expected_message_id) != str(message_id):
+            await query.answer("این فرم دیگر فعال نیست.", show_alert=True)
+            return
+        task = context.user_data.get("new_task")
+        if not isinstance(task, dict):
+            await query.answer("پیش‌نویس تسک پیدا نشد.", show_alert=True)
+            return
+
+        # Re-check capabilities at the write boundary. A profile can change
+        # while a draft is open; stale fields must not bypass current policy.
+        if not task_creation_field_enabled(context, "priority"):
+            task["priority"] = "medium"
+        if not task_creation_field_enabled(context, "deadline"):
+            task["deadline"] = ""
+        if not task_creation_field_enabled(context, "category"):
+            task["category"] = ""
+        if not task_creation_field_enabled(context, "tags"):
+            task["tags"] = ""
+        if not task_creation_field_enabled(context, "assignment"):
+            task["assignee"] = None
+            task["team_id"] = ""
+
         if not task.get("description"):
             task["description"] = _description_text(context)
         error = rich_flow.validate_create_task_draft(task)
         if error:
-            await rich_flow._edit_rich(context, query.message, f'<p><b>⚠️ {escape(error)}</b></p>')
+            await query.answer(error, show_alert=True)
             return
 
-        uid = update.effective_user.id
-        task_id = await task_module._finalize_task(uid, task)
+        # Older in-flight drafts get an ID once, before any database write.
+        task.setdefault("_create_request_id", str(uuid.uuid4()))
+        context.user_data["create_task_finalizing"] = True
+        await query.answer()
         try:
-            from services.task_media import save_task_media_async
-            await save_task_media_async(task_id, _description_media(context), update.effective_user.id)
-        except Exception:
-            logger.exception("Failed to persist task attachments task_id=%s", task_id)
-
-        assignee = task.get("assignee")
-        saved = None
-        try:
-            saved = await task_module.get_task_by_id_async(task_id)
-        except Exception:
-            pass
-
-        final_html = _success_rich_html(task_id, task, context)
-        payload = _rich_media_payload(context)
-        data = {
-            "chat_id": query.message.chat_id,
-            "message_id": context.user_data.get("create_task_message_id"),
-            "rich_message": {"html": final_html, "is_rtl": True},
-        }
-        if payload:
-            data["rich_message"]["media"] = _clean_media_payload(payload)
-        await context.bot._post("editMessageText", data=data)
-
-        if assignee:
+            uid = update.effective_user.id
+            task_id = await task_module._finalize_task(uid, task)
+            attachment_error = False
             try:
-                await task_module._notify_assignment(context, saved or task, assignee, update.effective_user)
+                from services.task_media import save_task_media_async
+                await save_task_media_async(task_id, _description_media(context), uid)
             except Exception:
-                logger.exception("Failed to notify assignee task_id=%s", task_id)
-        context.user_data.clear()
+                attachment_error = True
+                logger.exception("Failed to persist task attachments task_id=%s", task_id)
+
+            saved = None
+            try:
+                saved = await task_module.get_task_by_id_async(task_id)
+            except Exception:
+                logger.exception("Failed to load newly created task task_id=%s", task_id)
+            final_html = _success_rich_html(task_id, task, context)
+            if attachment_error:
+                final_html += '<p><b>⚠️ تسک ثبت شد، اما ذخیره برخی پیوست‌ها ناموفق بود.</b></p>'
+            payload = _rich_media_payload(context)
+            data = {
+                "chat_id": query.message.chat_id,
+                "message_id": context.user_data.get("create_task_message_id"),
+                "rich_message": {"html": final_html, "is_rtl": True},
+            }
+            if payload:
+                data["rich_message"]["media"] = _clean_media_payload(payload)
+            await context.bot._post("editMessageText", data=data)
+
+            assignee = task.get("assignee")
+            if assignee:
+                try:
+                    await task_module._notify_assignment(context, saved or task, assignee, update.effective_user)
+                except Exception:
+                    logger.exception("Failed to notify assignee task_id=%s", task_id)
+            rich_flow.clear_create_task_state(context)
+        except Exception:
+            # Keep the request UUID and draft for a safe retry. A previous
+            # successful INSERT is recognized by the database on retry.
+            logger.exception("Rich task creation confirmation failed")
+            try:
+                await query.message.reply_text(
+                    "⚠️ تأیید ثبت با خطا مواجه شد. می‌توانید دوباره تأیید کنید؛ تسک تکراری ساخته نمی‌شود."
+                )
+            except Exception:
+                logger.exception("Failed to deliver create-task retry hint")
+        finally:
+            context.user_data.pop("create_task_finalizing", None)
 
     task_module.assignment_callback = assignment_with_rich_final_state
     if main_module is not None:
