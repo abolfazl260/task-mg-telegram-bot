@@ -17,8 +17,9 @@ def _fixture_connection():
         CREATE TABLE tasks (
           id TEXT PRIMARY KEY, bot_key TEXT, user_id TEXT, workspace_id TEXT,
           title TEXT, status TEXT, created_at TEXT, completed_at TEXT,
-          assignee_name TEXT, creator_name TEXT
+          assignee_name TEXT, creator_name TEXT, team_id TEXT
         );
+        CREATE TABLE team_members (team_id TEXT, user_id TEXT, role TEXT);
         CREATE TABLE task_comments (
           id INTEGER PRIMARY KEY, task_id TEXT, author_name TEXT,
           content_json TEXT, created_at TEXT
@@ -43,7 +44,7 @@ def _fixture_connection():
         ("workspace", "bot", "42", "clinic", "Forbidden workspace", "pending",
          "2026-10-06T09:00:00Z", "", "", "Owner"),
     ]
-    db.executemany("INSERT INTO tasks VALUES (?,?,?,?,?,?,?,?,?,?)", tasks)
+    db.executemany("INSERT INTO tasks(id,bot_key,user_id,workspace_id,title,status,created_at,completed_at,assignee_name,creator_name) VALUES (?,?,?,?,?,?,?,?,?,?)", tasks)
     comments = [
         (1, "old-active", "Editor", json.dumps({"type": "text", "text": "Working"}), "2026-10-04T10:00:00Z"),
         (2, "other-bot", "Editor", json.dumps({"type": "text", "text": "Hidden"}), "2026-10-04T10:00:00Z"),
@@ -76,15 +77,17 @@ def test_activity_feed_limits_sql_scans_and_keeps_prior_task_metadata(monkeypatc
     output = feed_module.activity_feed(
         access, start=date(2026, 10, 1), end=date(2026, 10, 10)
     )
-    assert output["total"] == 4
+    assert output["total"] == 6
     ids = {event["id"] for event in output["events"]}
     assert ids == {
         "task-completed-old-done",
         "task-created-new",
         "comment-1",
         "assignment-1",
+        "task-created-other-bot",
+        "comment-2",
     }
-    assert all("Forbidden" not in event["task_title"] for event in output["events"])
+    assert all("Forbidden other user" != event["task_title"] and "Forbidden workspace" != event["task_title"] for event in output["events"])
     old_event = next(event for event in output["events"] if event["id"] == "comment-1")
     assert old_event["task_title"] == "Old but changed now"
     assert len(reads) == 4, "Three bounded event scans and one scoped task metadata lookup"
@@ -110,7 +113,7 @@ def test_activity_feed_preserves_unbounded_and_search_contract(monkeypatch):
     monkeypatch.setattr(feed_module, "sync_all", sql_sync_all)
     access = {"bot_key": "bot", "user_id": "42"}
     all_events = feed_module.activity_feed(access)
-    assert all_events["total"] == 7
+    assert all_events["total"] == 9
     matched = feed_module.activity_feed(access, query="Working")
     assert matched["total"] == 1
     assert matched["events"][0]["id"] == "comment-1"
