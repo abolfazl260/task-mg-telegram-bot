@@ -35,7 +35,7 @@ async def test_create_and_get_habit_persists_all_fields(test_db):
 @pytest.mark.asyncio
 async def test_create_habit_applies_defaults_and_ensures_user(test_db):
     habit_id = await habit_service.create_habit_async(200, "Drink water")
-    habit = await habit_service.get_habit_async(habit_id, 100)
+    habit = await habit_service.get_habit_async(habit_id, 200)
     assert habit["category"] == ""
     assert habit["description"] == ""
     assert habit["repeat_type"] == "daily"
@@ -76,7 +76,7 @@ async def test_update_habit_changes_only_allowed_fields(test_db):
         reminder_time="10:00",
         start_date="2026-09-07",
         active=0,
-        user_id="attacker",
+        owner_id="attacker",
         id="must-not-change",
     )
     habit = await habit_service.get_habit_async(habit_id, 100)
