@@ -137,10 +137,29 @@ def _decode_filters(search: str) -> tuple[str, dict]:
     return raw, {"q": raw}
 
 
-def _task_predicate(access, start: date, end: date, search: str = "", filters: dict | None = None):
+def _task_predicate(access, start: date, end: date, search: str = "", filters: dict | None = None,
+                    population: str = "created"):
+    """Share report filters while keeping independent KPI populations."""
     query, structured = _decode_filters(search) if filters is None else (str(filters.get("q") or "").strip(), filters)
-    where = "created_at>=? AND created_at<?"
-    params = [start.isoformat(), (end + timedelta(days=1)).isoformat()]
+    if population == "created":
+        where = "created_at>=? AND created_at<?"
+        params = [start.isoformat(), (end + timedelta(days=1)).isoformat()]
+    elif population == "completed":
+        # Extend the indexed range by one day each side, then normalize
+        # timezone-aware completion timestamps in Python for exact UTC bounds.
+        where = "completed_at>=? AND completed_at<? AND status IN ('done','completed')"
+        params = [(start - timedelta(days=1)).isoformat(), (end + timedelta(days=2)).isoformat()]
+    elif population == "open_backlog":
+        # Current open backlog is independent of the selected creation period.
+        # Exclude future-created records from the as-of-today snapshot.
+        where = (
+            "deadline IS NOT NULL AND deadline!='' AND "
+            "status NOT IN ('done','completed','cancelled','canceled') AND "
+            "(created_at IS NULL OR created_at='' OR created_at<?)"
+        )
+        params = [(end + timedelta(days=1)).isoformat()]
+    else:
+        raise ValueError("invalid_report_population")
 
     if query:
         normalized = STATUS_ALIASES.get(query.lower(), query)
@@ -183,6 +202,41 @@ def _task_predicate(access, start: date, end: date, search: str = "", filters: d
 def _query_tasks(access, start: date, end: date, search: str = "", filters: dict | None = None):
     where, params = _task_predicate(access, start, end, search, filters)
     return _task_rows(access, where, params)
+
+
+def _query_completed_tasks(access, start: date, end: date, search: str = "", filters: dict | None = None):
+    """Completed *in* period, including work created before the period.
+
+    Normalize ISO timestamps into UTC before checking inclusive calendar
+    boundaries; the SQL candidate window allows up to +/- 24h offsets.
+    """
+    where, params = _task_predicate(access, start, end, search, filters, population="completed")
+    candidates = _task_rows(access, where, params)
+    eligible = []
+    for task in candidates:
+        completed = _parse_datetime(task.get("completed_at"))
+        if completed and start <= completed.astimezone(timezone.utc).date() <= end:
+            eligible.append(task)
+    return eligible
+
+
+def _open_deadline_counts(access, today: date, search: str = "", filters: dict | None = None):
+    """Count open, authorized, due-date-bearing tasks as of UTC today in SQL."""
+    where, params = _task_predicate(
+        access, today, today, search, filters, population="open_backlog"
+    )
+    scope, scope_params = _task_scope(access)
+    sql = (
+        "SELECT "
+        "COALESCE(SUM(CASE WHEN substr(deadline,1,10)<? THEN 1 ELSE 0 END),0) AS open_overdue, "
+        "COALESCE(SUM(CASE WHEN substr(deadline,1,10)>=? THEN 1 ELSE 0 END),0) AS open_on_track "
+        "FROM tasks WHERE " + scope + " AND (" + where + ")"
+    )  # nosec B608 - internal fixed predicate with bound values and Core authorization
+    result = sync_query_one(sql, (today.isoformat(), today.isoformat()) + scope_params + params)
+    return {
+        "open_overdue": int(result["open_overdue"]) if result else 0,
+        "open_on_track": int(result["open_on_track"]) if result else 0,
+    }
 
 
 def _count_query_tasks(access, start: date, end: date, search: str = "", filters: dict | None = None):
@@ -239,53 +293,67 @@ def _average_completion(tasks) -> float | None:
     return round(mean(durations), 1) if durations else None
 
 
-def _productivity_metrics(tasks, now=None) -> dict:
-    """Calculate Lead Time, Cycle Time, and On-time vs Overdue rates."""
+def _productivity_metrics(tasks, now=None, *, completed_tasks=None, backlog=None) -> dict:
+    """Measure created-cohort lead time, completed-cohort punctuality and open backlog.
+
+    With no explicit completed set, preserve the utility's direct-call behavior
+    by using the supplied tasks for both cohorts.
+    """
     now = now or datetime.now(timezone.utc)
-    today_str = now.date().isoformat()
-    
+    today_str = now.astimezone(timezone.utc).date().isoformat()
     durations_days = []
+    for task in tasks:
+        if (task.get("status") or "").lower() not in {"done", "completed"}:
+            continue
+        created = _parse_datetime(task.get("created_at"))
+        completed = _parse_datetime(task.get("completed_at"))
+        if created and completed and completed >= created:
+            durations_days.append((completed - created).total_seconds() / 86400.0)
+
+    completion_cohort = tasks if completed_tasks is None else completed_tasks
     completed_with_deadline = 0
     completed_on_time = 0
     completed_late = 0
-    
-    total_with_deadline = 0
-    open_overdue = 0
-    open_on_track = 0
-
-    for task in tasks:
-        status = (task.get("status") or "").lower()
-        is_completed = status in {"done", "completed"}
-        deadline_raw = str(task.get("deadline") or "").strip()
-        deadline_date_str = deadline_raw[:10] if len(deadline_raw) >= 10 else ""
-        
-        created = _parse_datetime(task.get("created_at"))
+    for task in completion_cohort:
+        if (task.get("status") or "").lower() not in {"done", "completed"}:
+            continue
         completed = _parse_datetime(task.get("completed_at"))
-        
-        if is_completed and created and completed and completed >= created:
-            durations_days.append((completed - created).total_seconds() / 86400.0)
-            
-        if deadline_date_str:
-            total_with_deadline += 1
-            if is_completed:
-                completed_with_deadline += 1
-                completed_date_str = completed.date().isoformat() if completed else (str(task.get("completed_at") or "").strip())[:10]
-                if not completed_date_str or completed_date_str <= deadline_date_str:
-                    completed_on_time += 1
-                else:
-                    completed_late += 1
-            elif status not in {"cancelled", "canceled"}:
-                if deadline_date_str < today_str:
-                    open_overdue += 1
-                else:
-                    open_on_track += 1
+        deadline_raw = str(task.get("deadline") or "").strip()
+        try:
+            deadline_day = date.fromisoformat(deadline_raw[:10])
+        except (TypeError, ValueError):
+            continue
+        # A missing/unparseable completion is not evidence of an on-time finish.
+        if completed is None:
+            continue
+        completed_with_deadline += 1
+        if completed.astimezone(timezone.utc).date() <= deadline_day:
+            completed_on_time += 1
+        else:
+            completed_late += 1
+
+    if backlog is None:
+        open_overdue, open_on_track = 0, 0
+        for task in tasks:
+            status = (task.get("status") or "").lower()
+            if status in {"done", "completed", "cancelled", "canceled"}:
+                continue
+            deadline_raw = str(task.get("deadline") or "")[:10]
+            try:
+                deadline_day = date.fromisoformat(deadline_raw)
+            except ValueError:
+                continue
+            if deadline_day.isoformat() < today_str:
+                open_overdue += 1
+            else:
+                open_on_track += 1
+    else:
+        open_overdue, open_on_track = backlog["open_overdue"], backlog["open_on_track"]
 
     avg_lead_time_days = round(mean(durations_days), 1) if durations_days else None
     avg_lead_time_hours = round(avg_lead_time_days * 24, 1) if avg_lead_time_days is not None else None
-    
-    on_time_rate = round(completed_on_time / completed_with_deadline * 100) if completed_with_deadline > 0 else (100 if completed_with_deadline == 0 and not open_overdue else 0)
-    overdue_rate = round(completed_late / completed_with_deadline * 100) if completed_with_deadline > 0 else 0
-    
+    on_time_rate = round(completed_on_time / completed_with_deadline * 100) if completed_with_deadline else None
+    overdue_rate = round(completed_late / completed_with_deadline * 100) if completed_with_deadline else None
     return {
         "lead_time_days": avg_lead_time_days,
         "lead_time_hours": avg_lead_time_hours,
@@ -297,7 +365,7 @@ def _productivity_metrics(tasks, now=None) -> dict:
         "overdue_rate": overdue_rate,
         "open_overdue": open_overdue,
         "open_on_track": open_on_track,
-        "total_with_deadline": total_with_deadline,
+        "total_with_deadline": sum(bool(task.get("deadline")) for task in tasks),
     }
 
 
@@ -492,13 +560,14 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
     done = statuses.get("done", 0) + statuses.get("completed", 0)
     cancelled = statuses.get("cancelled", statuses.get("canceled", 0))
     deadline_tasks = [task for task in tasks if task.get("deadline")]
-    today = datetime.now(timezone.utc).date().isoformat()
-    overdue = sum(1 for task in deadline_tasks if str(task.get("deadline"))[:10] < today and task.get("status") not in {"done", "cancelled", "canceled"})
+    utc_today = datetime.now(timezone.utc).date()
+    overdue_snapshot = _open_deadline_counts(access, utc_today, query, filters)
+    completed_in_period = _query_completed_tasks(access, start, end, query, filters)
     previous_start, previous_end = _previous_period(start, end)
     # Compare like-for-like datasets: the previous period must use the same
     # search term and structured filters as the current period.
     previous_total = _count_query_tasks(access, previous_start, previous_end, query, filters)
-    productivity = _productivity_metrics(tasks)
+    productivity = _productivity_metrics(tasks, completed_tasks=completed_in_period, backlog=overdue_snapshot)
     result = {
         "report_type": "dashboard",
         "filter": {"period": period, "start": start.isoformat(), "end": end.isoformat(), "search": query, "filters": filters},
@@ -508,7 +577,8 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
         "summary": {
             "total": total, "total_change": _change(total, previous_total), "done": done,
             "in_progress": statuses.get("in_progress", 0), "pending": statuses.get("pending", 0),
-            "cancelled": cancelled, "active": total - done - cancelled, "overdue": overdue,
+            "cancelled": cancelled, "active": total - done - cancelled,
+            "overdue": overdue_snapshot["open_overdue"], "backlog_as_of_utc": utc_today.isoformat(),
             "with_deadline": len(deadline_tasks), "without_deadline": total - len(deadline_tasks),
             "completion_rate": round(done / total * 100) if total else 0,
             "average_completion_days": productivity["lead_time_days"],
@@ -519,6 +589,8 @@ def dashboard_report(token: str, section: str | None = None, page: int = 1, page
             "overdue_rate": productivity["overdue_rate"],
             "completed_on_time": productivity["completed_on_time"],
             "completed_late": productivity["completed_late"],
+            "completed_in_period": len(completed_in_period),
+            "completed_with_deadline": productivity["completed_with_deadline"],
             "productivity": productivity,
         },
         "by_status": [{"key": k, "label": _status(k), "count": v} for k, v in statuses.items()],
