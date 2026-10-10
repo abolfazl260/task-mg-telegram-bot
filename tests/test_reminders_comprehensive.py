@@ -305,7 +305,7 @@ async def test_weekly_habit_reports_runs_only_friday_at_18_and_builds_report(con
         {"habit_id": "h1", "done_date": "2026-09-09"},
         {"habit_id": "h2", "done_date": "2026-09-07"},
     ]))
-    monkeypatch.setattr(reminders, "stats_for_habit_async", lambda habit: _async_value(
+    monkeypatch.setattr(reminders, "stats_for_habit_async", lambda habit, user_id: _async_value(
         {"best": 5 if habit["id"] == "h2" else 3}
     ))
 
@@ -376,7 +376,7 @@ async def test_weekly_habit_reports_continues_when_telegram_send_fails(context, 
         {"id": "h1", "title": "Habit"}
     ]))
     monkeypatch.setattr(reminders, "get_logs_async", lambda **kwargs: _async_value([]))
-    monkeypatch.setattr(reminders, "stats_for_habit_async", lambda habit: _async_value({"best": 0}))
+    monkeypatch.setattr(reminders, "stats_for_habit_async", lambda habit, user_id: _async_value({"best": 0}))
 
     await reminders.weekly_habit_reports(context)
     assert context.bot.messages == []
