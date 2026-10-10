@@ -91,6 +91,9 @@
 .busy-pill{background:#f1f5f9!important;border:1px solid #cbd5e1!important;border-radius:999px!important;padding:5px 12px!important;font-size:12px!important;color:#1e293b!important}
 
 /* Date-oriented report calendar: seven accessible RTL columns at all sizes. */
+.calendar-nav{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.calendar-nav button{border:1px solid #deddd9;background:#fff;color:#37352f;border-radius:6px;font:inherit;padding:7px 11px;cursor:pointer}
+.calendar-nav button:disabled{opacity:.45;cursor:default}
 .calendar-months{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px;margin:14px 0}
 .calendar-month{background:#f7f6f3;border:1px solid #e9e9e7;border-radius:10px;padding:12px;min-width:0}
 .calendar-month h3{font-size:15px;margin:0 0 12px}
@@ -671,12 +674,6 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
         p.set('end', target.end);
         loadSectionWithQuery('heatmap', p);
       };
-      window.loadSectionWithQuery = (section, p) => {
-        details.innerHTML = '<div class="loading">در حال دریافت گزارش...</div>';
-        getJson(`/api/public-reports/monthly/${encodeURIComponent(token)}/section/${encodeURIComponent(section)}?${p.toString()}`)
-          .then(d => renderFiltered(section, d))
-          .catch(e => { details.innerHTML = `<p class="error">${esc(e.message)}</p>`; });
-      };
       window.__heatmapShift = shiftMonth;
 
       details.innerHTML = `
@@ -909,11 +906,37 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
       </div>`;
   }
 
+  function loadSectionWithQuery(section, p) {
+    details.innerHTML = '<div class="loading">در حال دریافت گزارش...</div>';
+    // Pass filters and date overrides together; do not mutate summary filters.
+    return getJson(`/api/public-reports/monthly/${encodeURIComponent(token)}/section/${encodeURIComponent(section)}?${p.toString()}`)
+      .then(data => renderFiltered(section, data))
+      .catch(e => { details.innerHTML = `<p class="error">${esc(e.message)}</p>`; });
+  }
+
+  function calendarShift(direction, data) {
+    const mode = window.calMode || 'jalali';
+    const nav = data.navigation?.[mode] || {};
+    const target = direction < 0 ? nav.previous : nav.next;
+    if (!target) return;
+    const p = new URLSearchParams(params());
+    p.set('period', 'custom');
+    p.set('start', target.start);
+    p.set('end', target.end);
+    window.selectedCalendarDate = '';
+    loadSectionWithQuery('calendar', p);
+  }
+
+  window.__calendarShift = direction => {
+    if (window.calendarData) calendarShift(direction, window.calendarData);
+  };
+
   function renderCalendar(d) {
     const mode = window.calMode || 'jalali';
     const days = d.days || [];
     const rows = d.rows || [];
     const range = d.range || {};
+    const monthNav = d.navigation?.[mode] || {};
     const weekdayNames = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'];
     const gregorianMonths = ['ژانویه', 'فوریه', 'مارس', 'آوریل', 'مه', 'ژوئن',
       'ژوئیه', 'اوت', 'سپتامبر', 'اکتبر', 'نوامبر', 'دسامبر'];
@@ -988,6 +1011,10 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
           <button type="button" class="${mode === 'gregorian' ? 'active' : ''}" data-calendar-mode="gregorian">میلادی</button>
         </div>
       </div>
+      <nav class="calendar-nav" aria-label="جابه‌جایی ماه‌های تقویم">
+        <button type="button" data-calendar-shift="-1" ${!monthNav.previous ? 'disabled' : ''}>‹ ماه قبل ${mode === 'jalali' ? 'شمسی' : 'میلادی'}</button>
+        <button type="button" data-calendar-shift="1" ${!monthNav.next ? 'disabled' : ''}>ماه بعد ${mode === 'jalali' ? 'شمسی' : 'میلادی'} ›</button>
+      </nav>
       <p class="muted">تاریخ‌های نمایش‌داده‌شده بر اساس مهلت وظایف و فیلترهای فعال هستند، نه تاریخ ایجاد.</p>
       <div class="calendar-months">${groups.map(renderGroup).join('')}</div>
       <section class="calendar-selected-day" aria-live="polite">
@@ -1011,6 +1038,9 @@ main{max-width:1180px!important;padding:28px 24px 72px!important}
         window.calMode = btn.dataset.calendarMode;
         renderCalendar(d);
       })
+    );
+    details.querySelectorAll('[data-calendar-shift]').forEach(btn =>
+      btn.addEventListener('click', () => calendarShift(Number(btn.dataset.calendarShift), d))
     );
   }
 
