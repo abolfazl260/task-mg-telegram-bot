@@ -4,7 +4,7 @@ import sqlite3
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from services.database import execute, fetch_all, fetch_one, sync_all, sync_execute, sync_one, _run as db_run
+from services.database import execute, execute_returning_one, fetch_all, fetch_one, _run as db_run
 
 # قالب‌های آماده عمداً ثابت و داخل کد نگهداری می‌شوند؛ جدول جدیدی لازم نیست.
 TEMPLATES = [
@@ -112,12 +112,13 @@ async def mark_done_async(habit_id, user_id, day=None):
     try:
         # Atomic ownership condition: stale or forged callback IDs cannot
         # create cross-user completion rows, even if the habit is deleted.
-        await execute(
+        row = await execute_returning_one(
             """INSERT INTO habit_logs(habit_id,user_id,done_date,done_at)
-               SELECT id,user_id,?,? FROM habits WHERE id=? AND user_id=?""",
+               SELECT id,user_id,?,? FROM habits WHERE id=? AND user_id=?
+               RETURNING id""",
             (day, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), habit_id, str(user_id)),
         )
-        return True
+        return row is not None
     except sqlite3.IntegrityError:
         return False
 
