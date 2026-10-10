@@ -145,8 +145,8 @@ def _create_from_template(user_id, context):
     return hid
 
 
-def format_habit(habit):
-    st = stats_for_habit(habit)
+def format_habit(habit, user_id):
+    st = stats_for_habit(habit, user_id)
     active = "فعال" if habit.get("active") == "1" else "غیرفعال"
     return (
         f"🌱 {habit.get('title','—')}\n\n"
@@ -257,7 +257,7 @@ async def handle_habit_callback(update, context):
         if not h or h.get("template_key") != key:
             _prepare_template(context, tpl)
         hid = _create_from_template(user_id, context)
-        await query.message.reply_text(f"✅ عادت با موفقیت ثبت شد\n🆔 {hid}\n\n{format_habit(get_habit(hid))}")
+        await query.message.reply_text(f"✅ عادت با موفقیت ثبت شد\n🆔 {hid}\n\n{format_habit(get_habit(hid, user_id), user_id)}")
     elif data == "habit_list":
         habits = get_user_habits(user_id)
         if not habits:
@@ -270,7 +270,7 @@ async def handle_habit_callback(update, context):
                 [InlineKeyboardButton(toggle_label, callback_data=f"habit_toggle_{h['id']}")],
                 [BACK_TO_HABITS_BUTTON],
             ])
-            await query.message.reply_text(format_habit(h), reply_markup=kb)
+            await query.message.reply_text(format_habit(h, user_id), reply_markup=kb)
     elif data == "habit_today":
         habits = [h for h in get_user_habits(user_id, active_only=True) if is_habit_due_on(h)]
         if not habits:
@@ -279,12 +279,18 @@ async def handle_habit_callback(update, context):
         await query.message.reply_text("🌱 عادت‌های امروز\n\nکدام مورد انجام شد؟", reply_markup=_habit_buttons(habits, "habit_done"))
     elif data.startswith("habit_done_"):
         hid = data.replace("habit_done_", "")
-        mark_done(hid, user_id)
-        st = stats_for_habit(get_habit(hid))
+        if not mark_done(hid, user_id):
+            await query.message.reply_text("⚠️ عادت پیدا نشد، دسترسی ندارید یا انجام امروز قبلاً ثبت شده است.")
+            return
+        owned = get_habit(hid, user_id)
+        if not owned:
+            await query.message.reply_text("⚠️ عادت پیدا نشد یا دسترسی ندارید.")
+            return
+        st = stats_for_habit(owned, user_id)
         await query.message.reply_text(f"✅ ثبت شد\n\nآفرین!\n\n🔥 زنجیره فعلی:\n{st['current']} روز\n\n🏆 بهترین رکورد:\n{st['best']} روز")
     elif data == "habit_records":
         habits = get_user_habits(user_id)
-        text = "🔥 رکوردهای من\n\n" + "\n\n".join(format_habit(h) for h in habits) if habits else "رکوردی وجود ندارد."
+        text = "🔥 رکوردهای من\n\n" + "\n\n".join(format_habit(h, user_id) for h in habits) if habits else "رکوردی وجود ندارد."
         await query.message.reply_text(text)
     elif data == "habit_dashboard":
         await query.message.reply_text(build_dashboard(user_id))
@@ -297,32 +303,43 @@ async def handle_habit_callback(update, context):
         )
     elif data.startswith("habit_rempick_"):
         hid = data.replace("habit_rempick_", "")
-        h = get_habit(hid)
+        h = get_habit(hid, user_id)
+        if not h:
+            await query.message.reply_text("⚠️ عادت پیدا نشد یا دسترسی ندارید.")
+            return
         await query.message.reply_text(
             f"⏰ زمان یادآوری\n\nبرنامه فعلی: {reminder_label(h)}\n"
             "یک ساعت را انتخاب کنید یا یادآوری را خاموش کنید:",
             reply_markup=_reminder_keyboard(hid),
         )
     elif data.startswith("habit_remtime_"):
-        _, _, hid, value = data.split("_", 3)
-        update_habit(hid, reminder_time="" if value == "none" else value)
-        await query.message.reply_text(f"✅ زمان یادآوری ذخیره شد.\n\n{format_habit(get_habit(hid))}")
+        parts = data.split("_", 3)
+        if len(parts) != 4 or not update_habit(
+            parts[2], user_id, reminder_time="" if parts[3] == "none" else parts[3]
+        ):
+            await query.message.reply_text("⚠️ عادت پیدا نشد یا دسترسی ندارید.")
+            return
+        owned = get_habit(parts[2], user_id)
+        await query.message.reply_text(f"✅ زمان یادآوری ذخیره شد.\n\n{format_habit(owned, user_id)}")
     elif data.startswith("habit_toggle_"):
         hid = data.replace("habit_toggle_", "")
-        h = get_habit(hid)
+        h = get_habit(hid, user_id)
         if h and h.get("user_id") == str(user_id):
             new_active = "0" if h.get("active") == "1" else "1"
-            update_habit(hid, active=new_active)
+            update_habit(hid, user_id, active=new_active)
             status = "فعال شد" if new_active == "1" else "غیرفعال شد"
-            await query.message.reply_text(f"✅ عادت {status}.\n\n{format_habit(get_habit(hid))}")
+            await query.message.reply_text(f"✅ عادت {status}.\n\n{format_habit(get_habit(hid, user_id), user_id)}")
     elif data.startswith("habit_del_"):
         hid = data.replace("habit_del_", "")
-        h = get_habit(hid)
+        h = get_habit(hid, user_id)
         if h and h.get("user_id") == str(user_id):
-            delete_habit(hid)
+            delete_habit(hid, user_id)
             await query.message.reply_text("✅ عادت حذف شد.")
     elif data.startswith("habit_edit_"):
         hid = data.replace("habit_edit_", "")
+        if not get_habit(hid, user_id):
+            await query.message.reply_text("⚠️ عادت پیدا نشد یا دسترسی ندارید.")
+            return
         context.user_data["habit_edit_id"] = hid
         context.user_data["habit_step"] = "edit_title"
         await query.message.reply_text("عنوان جدید عادت را وارد کنید:")
@@ -388,9 +405,10 @@ async def handle_habit_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["habit_step"] = None
         await update.message.reply_text(_template_form_text(h), reply_markup=_template_form_keyboard(h["template_key"])); return True
     if step == "edit_title":
-        update_habit(context.user_data.get("habit_edit_id"), title=text)
+        updated = update_habit(context.user_data.get("habit_edit_id"), update.effective_user.id, title=text)
         context.user_data.pop("habit_step", None); context.user_data.pop("habit_edit_id", None)
-        await update.message.reply_text("✅ عادت ویرایش شد."); return True
+        await update.message.reply_text("✅ عادت ویرایش شد." if updated else "⚠️ عادت پیدا نشد یا دسترسی ندارید.")
+        return True
     return False
 
 
@@ -423,7 +441,7 @@ def build_dashboard(user_id):
     logs = get_logs(user_id=user_id)
     today = date.today().isoformat()
     done_today = {l["habit_id"] for l in logs if l.get("done_date") == today}
-    best = sorted([(stats_for_habit(h)["best"], h["title"]) for h in habits], reverse=True)
+    best = sorted([(stats_for_habit(h, user_id)["best"], h["title"]) for h in habits], reverse=True)
     week_start = date.today() - timedelta(days=6)
     lines = ["📊 داشبورد عادت‌ها\n", f"تعداد عادت فعال:\n{len(habits)}\n", f"عملکرد امروز:\n{len(done_today)} از {len(habits)} انجام شده\n"]
     lines.append("🔥 بهترین زنجیره:\n")
