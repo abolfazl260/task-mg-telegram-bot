@@ -44,9 +44,9 @@ def _user_scope(bot_key: str) -> tuple[str, list[str]]:
 def _task_count_columns(bot_key: str) -> tuple[str, list[str]]:
     bot_clause = " AND t.bot_key=?" if bot_key else ""
     sql = (
-        "(SELECT COUNT(*) FROM tasks t WHERE t.workspace_id IS NULL "
-        "AND t.user_id=u.user_id" + bot_clause + ") AS task_count, "
-        "(SELECT COUNT(*) FROM tasks t WHERE t.workspace_id IS NULL "
+        "(SELECT COUNT(*) FROM tasks t WHERE t.workspace_id IS NULL "  # nosec B608 - static SQL fragments; bound bot key
+        "AND t.user_id=u.user_id" + bot_clause + ") AS task_count, "  # nosec B608 - static SQL; bound key
+        "(SELECT COUNT(*) FROM tasks t WHERE t.workspace_id IS NULL "  # nosec B608 - static SQL fragments; bound bot key
         "AND t.assignee_id=u.user_id" + bot_clause + ") AS assigned_task_count"
     )
     return sql, ([bot_key, bot_key] if bot_key else [])
@@ -70,7 +70,7 @@ async def list_users(bot_key: str = "", search: str = "", limit: int = 50, offse
 
     count_columns, count_args = _task_count_columns(bot_key)
     query = (
-        "SELECT u.user_id,u.full_name,u.username,u.first_seen,u.last_seen,"
+        "SELECT u.user_id,u.full_name,u.username,u.first_seen,u.last_seen,"  # nosec B608 - static SQL; bound filters
         "(SELECT COUNT(*) FROM team_members tm WHERE tm.user_id=u.user_id) AS team_count,"
         + count_columns + " FROM users u " + clauses
         + " ORDER BY COALESCE(u.last_seen,u.first_seen) DESC,u.user_id"
@@ -95,7 +95,7 @@ async def get_user_profile(user_id: str, bot_key: str = "") -> dict | None:
         scope = "WHERE u.user_id=?"
         where_args = [user_id]
     query = (
-        "SELECT u.*,"
+        "SELECT u.*,"  # nosec B608 - static SQL; bound user ID
         "(SELECT COUNT(*) FROM team_members tm WHERE tm.user_id=u.user_id) AS team_count,"
         + count_columns + " FROM users u " + scope
     )
@@ -166,7 +166,7 @@ async def dashboard_stats(bot_key:str="")->dict:
     async with db.conn.execute(f"SELECT bot_key,COUNT(DISTINCT user_id) AS users FROM tasks {task_scope} GROUP BY bot_key ORDER BY users DESC",tuple(tp)) as c:bots=[dict(r) for r in await c.fetchall()]
     latest_columns, latest_args = _task_count_columns(bot_key)
     latest_query = (
-        "SELECT u.user_id,u.full_name,u.username,u.first_seen,u.last_seen,"
+        "SELECT u.user_id,u.full_name,u.username,u.first_seen,u.last_seen,"  # nosec B608 - static SQL; bound filters
         + latest_columns + " FROM users u " + uf
         + " ORDER BY COALESCE(u.last_seen,u.first_seen) DESC,u.user_id LIMIT 10"
     )
