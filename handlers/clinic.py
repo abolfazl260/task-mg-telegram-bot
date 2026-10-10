@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import logging
 import re
+from datetime import datetime, timedelta, timezone
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -57,7 +57,7 @@ def _patient_recovery_markup():
 
 
 def _looks_like_url(text):
-    return bool(re.search(r"(?:https?://|www\.|t\.me/|://)", text, flags=re.I))
+    return bool(re.search(r"(?:https?://|www\.|t\.me/|://)", text, flags=re.IGNORECASE))
 
 
 def _valid_patient_input(step, value):
