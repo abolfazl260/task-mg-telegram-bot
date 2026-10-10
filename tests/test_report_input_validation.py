@@ -1,4 +1,5 @@
 """Regression coverage for Web Report input limits and HTTP error boundaries (#223)."""
+
 from __future__ import annotations
 
 import io
@@ -11,6 +12,8 @@ import pytest
 
 from webapp import report_dashboard_service as dashboard
 from webapp import report_routes
+
+
 class _FakeHandler:
     def __init__(self, path):
         self.path = path
