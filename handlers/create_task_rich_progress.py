@@ -270,6 +270,7 @@ def install_create_task_rich_progress(task_module):
     original_optional = task_module.optional_field_callback
 
     async def show_summary_rich(query, context):
+        context.user_data["step"] = "summary"
         task = context.user_data.setdefault("new_task", {})
         if not task.get("description"):
             task["description"] = _description_text(context)
@@ -345,6 +346,9 @@ def install_create_task_rich_progress(task_module):
         query = update.callback_query
         if (query.data or "") != "description_skip":
             return await original_optional(update, context)
+        if context.user_data.get("step") != "description" or not isinstance(context.user_data.get("new_task"), dict):
+            await query.answer("این مرحله دیگر فعال نیست.", show_alert=True)
+            return
         await query.answer()
         task = context.user_data.setdefault("new_task", {})
         task["description"] = _description_text(context)
