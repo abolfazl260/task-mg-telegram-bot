@@ -36,7 +36,6 @@ async def test_get_task_rejects_task_not_visible(monkeypatch):
     async def fake_visible(user_id, task_id):
         assert user_id == 42
         assert task_id == "secret-task"
-        return None
 
     monkeypatch.setattr(tasks_api.task_service, "get_task_by_id_async", fake_get)
     monkeypatch.setattr(tasks_api.task_service, "get_visible_task_by_id_async", fake_visible)
