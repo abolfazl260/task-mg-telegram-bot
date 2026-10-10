@@ -126,6 +126,8 @@ def test_dashboard_trend_reuses_current_search_and_filters_for_previous_period(m
     calls = []
 
     monkeypatch.setattr(dashboard_service, "_access", lambda token: {"bot_key": "bot", "user_id": "1"})
+    monkeypatch.setattr(dashboard_service, "_query_completed_tasks", lambda *args, **kwargs: [])
+    monkeypatch.setattr(dashboard_service, "_open_deadline_counts", lambda *args, **kwargs: {"open_overdue": 0, "open_on_track": 0})
 
     def fake_query(access, start, end, search="", filters=None):
         calls.append({"start": start, "end": end, "search": search, "filters": dict(filters or {})})
@@ -171,6 +173,8 @@ def test_dashboard_tasks_page_size_zero_returns_all_filtered_rows(monkeypatch):
     ]
 
     monkeypatch.setattr(dashboard_service, "_access", lambda token: {"bot_key": "bot", "user_id": "1"})
+    monkeypatch.setattr(dashboard_service, "_query_completed_tasks", lambda *args, **kwargs: [])
+    monkeypatch.setattr(dashboard_service, "_open_deadline_counts", lambda *args, **kwargs: {"open_overdue": 0, "open_on_track": 0})
     monkeypatch.setattr(
         dashboard_service,
         "_query_tasks",
@@ -224,6 +228,8 @@ def test_dashboard_avoids_duplicate_full_reads_and_formats_only_requested_page(m
         return records
 
     monkeypatch.setattr(dashboard_service, "_access", lambda token: {"bot_key": "bot", "user_id": "1"})
+    monkeypatch.setattr(dashboard_service, "_query_completed_tasks", lambda *args, **kwargs: [])
+    monkeypatch.setattr(dashboard_service, "_open_deadline_counts", lambda *args, **kwargs: {"open_overdue": 0, "open_on_track": 0})
     monkeypatch.setattr(dashboard_service, "_query_tasks", query)
     monkeypatch.setattr(dashboard_service, "_count_query_tasks", lambda *args, **kwargs: 0)
     actual_row = dashboard_service._row
@@ -254,6 +260,8 @@ def test_filtered_report_fetches_options_population_separately(monkeypatch):
         return records
 
     monkeypatch.setattr(dashboard_service, "_access", lambda token: {"bot_key": "bot", "user_id": "1"})
+    monkeypatch.setattr(dashboard_service, "_query_completed_tasks", lambda *args, **kwargs: [])
+    monkeypatch.setattr(dashboard_service, "_open_deadline_counts", lambda *args, **kwargs: {"open_overdue": 0, "open_on_track": 0})
     monkeypatch.setattr(dashboard_service, "_query_tasks", query)
     monkeypatch.setattr(dashboard_service, "_count_query_tasks", lambda *args, **kwargs: 0)
     dashboard_report(
