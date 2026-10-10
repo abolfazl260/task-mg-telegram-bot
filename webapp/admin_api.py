@@ -104,7 +104,7 @@ async def get_user_profile(user_id: str, bot_key: str = "") -> dict | None:
     return dict(row) if row else None
 
 
-async def list_user_tasks(
+async def list_user_tasks_page(
     user_id: str, bot_key: str = "", *, view: str = "created",
     limit: int = 25, offset: int = 0,
 ) -> dict:
@@ -137,6 +137,24 @@ async def list_user_tasks(
         "tasks": rows, "total": total, "limit": limit, "offset": offset,
         "view": view, "user_id": str(user_id),
     }
+
+
+async def list_user_tasks(user_id: str, bot_key: str = "") -> list[dict]:
+    """Legacy internal list contract; the HTTP handler uses bounded pages.
+
+    Retain this return shape for existing integrations and Healthcare isolation
+    tests, while keeping the public admin API bounded via list_user_tasks_page.
+    """
+    db = await get_db()
+    scope = " AND bot_key=?" if bot_key else ""
+    params = (str(user_id), bot_key) if bot_key else (str(user_id),)
+    async with db.conn.execute(
+        "SELECT id,title,priority,status,deadline,category,tags,created_at,"
+        "completed_at,team_id,assignee_id,assignee_name,assignee_username "
+        "FROM tasks WHERE workspace_id IS NULL AND user_id=?" + scope
+        + " ORDER BY created_at DESC", params
+    ) as cur:
+        return [dict(row) for row in await cur.fetchall()]
 
 
 async def dashboard_stats(bot_key:str="")->dict:
