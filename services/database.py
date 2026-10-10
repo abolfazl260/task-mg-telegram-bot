@@ -5,9 +5,9 @@ import atexit
 import logging
 import random
 import sqlite3
-import uuid
 import threading
 import time
+import uuid
 from pathlib import Path
 
 import aiosqlite
