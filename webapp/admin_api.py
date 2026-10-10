@@ -23,21 +23,122 @@ from services.bot_management_service import (
 DB_PATH=Path("data/data.db")
 _STARTED_AT=time.time()
 def _since(days:int)->str:return (datetime.now(timezone.utc)-timedelta(days=days)).isoformat()
-def _user_scope(bot_key:str)->tuple[str,list[str]]: return ("WHERE u.user_id IN (SELECT DISTINCT user_id FROM tasks WHERE workspace_id IS NULL AND bot_key = ?)",[bot_key]) if bot_key else ("",[])
-async def list_users(bot_key:str="",search:str="",limit:int=50,offset:int=0)->dict:
-    db=await get_db(); limit=max(1,min(limit,100)); offset=max(0,offset); clauses,params=_user_scope(bot_key)
-    if search.strip(): clauses+=(" AND " if clauses else " WHERE ")+"(u.full_name LIKE ? OR u.username LIKE ? OR u.user_id LIKE ?)"; term=f"%{search.strip()}%"; params += [term,term,term]
-    async with db.conn.execute(f"SELECT COUNT(*) FROM users u {clauses}",tuple(params)) as cur: total=(await cur.fetchone())[0]
-    bot_task=" AND t.bot_key=?" if bot_key else ""; q=f"SELECT u.user_id,u.full_name,u.username,u.first_seen,u.last_seen,(SELECT COUNT(*) FROM team_members tm WHERE tm.user_id=u.user_id) AS team_count,(SELECT COUNT(*) FROM tasks t WHERE t.workspace_id IS NULL AND t.user_id=u.user_id{bot_task}) AS task_count FROM users u {clauses} ORDER BY COALESCE(u.last_seen,u.first_seen) DESC LIMIT ? OFFSET ?"; qp=list(params)+([bot_key] if bot_key else [])+[limit,offset]
-    async with db.conn.execute(q,tuple(qp)) as cur: users=[dict(r) for r in await cur.fetchall()]
-    return {"users":users,"total":total,"limit":limit,"offset":offset}
-async def get_user_profile(user_id:str,bot_key:str="")->dict|None:
-    db=await get_db(); scope="AND EXISTS (SELECT 1 FROM tasks tb WHERE tb.workspace_id IS NULL AND tb.user_id=u.user_id AND tb.bot_key=?)" if bot_key else ""; task=" AND t.bot_key=?" if bot_key else ""; params=[user_id]+([bot_key] if bot_key else [])+([bot_key] if bot_key else [])
-    async with db.conn.execute(f"SELECT u.*,(SELECT COUNT(*) FROM team_members tm WHERE tm.user_id=u.user_id) AS team_count,(SELECT COUNT(*) FROM tasks t WHERE t.workspace_id IS NULL AND t.user_id=u.user_id{task}) AS task_count FROM users u WHERE u.user_id=? {scope}",tuple(params)) as cur: row=await cur.fetchone()
+def _user_scope(bot_key: str) -> tuple[str, list[str]]:
+    """Restrict bot-specific lists to creators OR assignees of general tasks.
+
+    Clinic/workspace records are intentionally outside the generic back office
+    user/task explorer; they require vertical-specific permissions.
+    """
+    if not bot_key:
+        return "", []
+    return (
+        """WHERE EXISTS (
+             SELECT 1 FROM tasks t
+             WHERE t.workspace_id IS NULL AND t.bot_key=?
+               AND (t.user_id=u.user_id OR t.assignee_id=u.user_id)
+           )""",
+        [bot_key],
+    )
+
+
+def _task_count_columns(bot_key: str) -> tuple[str, list[str]]:
+    bot_clause = " AND t.bot_key=?" if bot_key else ""
+    sql = (
+        "(SELECT COUNT(*) FROM tasks t WHERE t.workspace_id IS NULL "
+        "AND t.user_id=u.user_id" + bot_clause + ") AS task_count, "
+        "(SELECT COUNT(*) FROM tasks t WHERE t.workspace_id IS NULL "
+        "AND t.assignee_id=u.user_id" + bot_clause + ") AS assigned_task_count"
+    )
+    return sql, ([bot_key, bot_key] if bot_key else [])
+
+
+async def list_users(bot_key: str = "", search: str = "", limit: int = 50, offset: int = 0) -> dict:
+    db = await get_db()
+    limit, offset = max(1, min(int(limit), 100)), max(0, int(offset))
+    clauses, params = _user_scope(bot_key)
+    if search.strip():
+        clauses += (" AND " if clauses else " WHERE ") + (
+            "(u.full_name LIKE ? OR u.username LIKE ? OR u.user_id LIKE ?)"
+        )
+        term = f"%{search.strip()}%"
+        params.extend([term, term, term])
+
+    async with db.conn.execute(
+        f"SELECT COUNT(*) FROM users u {clauses}", tuple(params)  # nosec B608 - static filter fragments and bound values
+    ) as cur:
+        total = (await cur.fetchone())[0]
+
+    count_columns, count_args = _task_count_columns(bot_key)
+    query = (
+        "SELECT u.user_id,u.full_name,u.username,u.first_seen,u.last_seen,"
+        "(SELECT COUNT(*) FROM team_members tm WHERE tm.user_id=u.user_id) AS team_count,"
+        + count_columns + " FROM users u " + clauses
+        + " ORDER BY COALESCE(u.last_seen,u.first_seen) DESC,u.user_id"
+        + " LIMIT ? OFFSET ?"
+    )
+    # SELECT count subqueries appear BEFORE the WHERE filter placeholders.
+    # Preserve SQL placeholder order even when search and bot filters coexist.
+    query_args = tuple(count_args + params + [limit, offset])
+    async with db.conn.execute(query, query_args) as cur:  # nosec B608 - fixed clauses and bound params
+        users = [dict(row) for row in await cur.fetchall()]
+    return {"users": users, "total": total, "limit": limit, "offset": offset}
+
+
+async def get_user_profile(user_id: str, bot_key: str = "") -> dict | None:
+    db = await get_db()
+    count_columns, count_args = _task_count_columns(bot_key)
+    scope, scope_args = _user_scope(bot_key)
+    if scope:
+        scope += " AND u.user_id=?"
+        where_args = scope_args + [user_id]
+    else:
+        scope = "WHERE u.user_id=?"
+        where_args = [user_id]
+    query = (
+        "SELECT u.*,"
+        "(SELECT COUNT(*) FROM team_members tm WHERE tm.user_id=u.user_id) AS team_count,"
+        + count_columns + " FROM users u " + scope
+    )
+    async with db.conn.execute(query, tuple(count_args + where_args)) as cur:  # nosec B608 - only fixed predicates and bound parameters
+        row = await cur.fetchone()
     return dict(row) if row else None
-async def list_user_tasks(user_id:str,bot_key:str="")->list[dict]:
-    db=await get_db(); clause="AND bot_key=?" if bot_key else ""; params=[user_id]+([bot_key] if bot_key else [])
-    async with db.conn.execute(f"SELECT id,title,priority,status,deadline,category,tags,created_at,completed_at,team_id,assignee_id,assignee_name,assignee_username FROM tasks WHERE workspace_id IS NULL AND user_id=? {clause} ORDER BY created_at DESC",tuple(params)) as cur:return [dict(r) for r in await cur.fetchall()]
+
+
+async def list_user_tasks(
+    user_id: str, bot_key: str = "", *, view: str = "created",
+    limit: int = 25, offset: int = 0,
+) -> dict:
+    """Paginate created OR currently assigned general tasks for an admin user.
+
+    A self-assigned task may appear in both tabs. Neither tab touches patient,
+    clinic or other workspace data.
+    """
+    if view not in {"created", "assigned"}:
+        raise ValueError("invalid_user_task_view")
+    limit, offset = max(1, min(int(limit), 100)), max(0, int(offset))
+    column = "user_id" if view == "created" else "assignee_id"
+    clause = " AND bot_key=?" if bot_key else ""
+    params = (str(user_id), bot_key) if bot_key else (str(user_id),)
+    db = await get_db()
+    where = f"workspace_id IS NULL AND {column}=?{clause}"
+    async with db.conn.execute(
+        f"SELECT COUNT(*) FROM tasks WHERE {where}", params  # nosec B608 - whitelisted column and bound values
+    ) as cur:
+        total = (await cur.fetchone())[0]
+    async with db.conn.execute(
+        "SELECT id,title,priority,status,deadline,category,tags,"
+        "created_at,completed_at,team_id,assignee_id,assignee_name,assignee_username,"
+        "user_id,bot_key FROM tasks WHERE " + where
+        + " ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",
+        params + (limit, offset),
+    ) as cur:
+        rows = [dict(row) for row in await cur.fetchall()]
+    return {
+        "tasks": rows, "total": total, "limit": limit, "offset": offset,
+        "view": view, "user_id": str(user_id),
+    }
+
+
 async def dashboard_stats(bot_key:str="")->dict:
     db=await get_db(); task_scope="WHERE workspace_id IS NULL AND bot_key=?" if bot_key else "WHERE workspace_id IS NULL"; tp=[bot_key] if bot_key else []; uf,up=_user_scope(bot_key)
     async with db.conn.execute(f"SELECT COUNT(*) FROM users u {uf}",tuple(up)) as c: total=(await c.fetchone())[0]
@@ -45,7 +146,14 @@ async def dashboard_stats(bot_key:str="")->dict:
     async with db.conn.execute(f"SELECT COUNT(*) FROM users u {uf} {'AND' if uf else 'WHERE'} last_seen>=?",(*up,_since(30))) as c:active=(await c.fetchone())[0]
     async with db.conn.execute(f"SELECT COUNT(*) FROM tasks {task_scope}",tuple(tp)) as c:tasks=(await c.fetchone())[0]
     async with db.conn.execute(f"SELECT bot_key,COUNT(DISTINCT user_id) AS users FROM tasks {task_scope} GROUP BY bot_key ORDER BY users DESC",tuple(tp)) as c:bots=[dict(r) for r in await c.fetchall()]
-    async with db.conn.execute(f"SELECT user_id,full_name,username,first_seen,last_seen FROM users u {uf} ORDER BY COALESCE(last_seen,first_seen) DESC LIMIT 10",tuple(up)) as c:latest=[dict(r) for r in await c.fetchall()]
+    latest_columns, latest_args = _task_count_columns(bot_key)
+    latest_query = (
+        "SELECT u.user_id,u.full_name,u.username,u.first_seen,u.last_seen,"
+        + latest_columns + " FROM users u " + uf
+        + " ORDER BY COALESCE(u.last_seen,u.first_seen) DESC,u.user_id LIMIT 10"
+    )
+    async with db.conn.execute(latest_query, tuple(latest_args + up)) as c:  # nosec B608 - bound params
+        latest = [dict(r) for r in await c.fetchall()]
     guest_sql=f"SELECT COUNT(*) FROM users u {uf} {'AND' if uf else 'WHERE'} NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.user_id=u.user_id)"
     async with db.conn.execute(guest_sql,tuple(up)) as c:guest=(await c.fetchone())[0]
     async with db.conn.execute("SELECT bot_key,bot_username,owner_name,status FROM custom_bots ORDER BY created_at DESC") as c:active_bots=[dict(r) for r in await c.fetchall()]
