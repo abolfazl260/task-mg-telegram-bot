@@ -153,7 +153,7 @@ async def show_task_by_id_if_matches(update, context) -> bool:
     return True
 
 async def _finalize_task(user_id, task):
-    return await create_task_async(user_id=user_id, title=task['title'], priority=task['priority'], deadline=task.get('deadline', ''), category=task.get('category', ''), tags=task.get('tags', ''), description=task.get('description', ''), team_id=task.get('team_id', '') or '', assignee=task.get('assignee'))
+    return await create_task_async(user_id=user_id, title=task['title'], priority=task['priority'], deadline=task.get('deadline', ''), category=task.get('category', ''), tags=task.get('tags', ''), description=task.get('description', ''), team_id=task.get('team_id', '') or '', assignee=task.get('assignee'), idempotency_key=task.get('_create_request_id'))
 
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['new_task'] = {}
