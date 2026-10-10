@@ -141,7 +141,12 @@ reports_handler.report_heatmap_week=calendar_runtime.report_heatmap_week
 reports_handler.report_today=calendar_runtime.report_today
 extra_reports_handler.report_compare_months=calendar_runtime.report_compare_months
 report_compare_months=calendar_runtime.report_compare_months
-deadline_selected=calendar_runtime_extensions.deadline_selected
+async def deadline_selected(update, context):
+    # Preserve legacy deadline callbacks while keeping an active Rich draft in
+    # its single-message state machine (including local timezone handling).
+    if context.user_data.get("create_task_message_id") and isinstance(context.user_data.get("new_task"), dict):
+        return await task_handler.deadline_selected(update, context)
+    return await calendar_runtime_extensions.deadline_selected(update, context)
 
 async def handle_tag_callback(update,context):
     callback=getattr(task_handler,"_handle_tag_callback",None)
@@ -307,11 +312,14 @@ def build_application(profile):
             app.add_handler(CallbackQueryHandler(optional_field_callback,pattern="^(?:category_skip|category_pick_[0-9]+|tags_skip|description_skip)$"))
         if _feature(app,"tags") and _permission(app,"tags.manage"):
             app.add_handler(CallbackQueryHandler(handle_tag_callback,pattern="^(tag_|tags_|step_back_description|step_back_category)"))
+        if _permission(app,"tasks.create"):
+            # Rich create confirmation/cancellation must work even when
+            # the current profile intentionally disables assignment.
+            app.add_handler(CallbackQueryHandler(safe_assignment_confirm,pattern="^assign_confirm_create$"))
+            app.add_handler(CallbackQueryHandler(assignment_callback,pattern="^assign_(?!confirm_create$).+"))
         if _feature(app,"assignment") and _permission(app,"assignment.manage"):
             app.add_handler(CallbackQueryHandler(take_confirm,pattern="^take_(confirm|cancel)$"))
             app.add_handler(CallbackQueryHandler(take_assignment,pattern="^take_[A-Za-z0-9]"))
-            app.add_handler(CallbackQueryHandler(safe_assignment_confirm,pattern="^assign_confirm_create$"))
-            app.add_handler(CallbackQueryHandler(assignment_callback,pattern="^assign_"))
             app.add_handler(CallbackQueryHandler(assignment_manage_callback,pattern="^(owner_|asg_|chg_)"))
         if _feature(app,"comments") and _permission(app,"comments.manage"):
             app.add_handler(CallbackQueryHandler(comment_callback,pattern="^comment_add_"))
