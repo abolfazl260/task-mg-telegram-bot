@@ -33,10 +33,11 @@ _PATIENT_STEPS = {
 
 
 def _reset_patient(state, *, reason):
+    prior_step = state.get("clinic_input")
     if clear_flow(state, step_key="clinic_input", flow_key="clinic_flow",
                   flow_name=_PATIENT_FLOW, draft_keys=_PATIENT_DRAFT_KEYS):
         logger.info("clinic_flow_reset flow=patient_registration step=%s reason=%s",
-                    state.get("clinic_input") or "cleared", reason)
+                    prior_step or "unknown", reason)
     else:
         # Reject partially written legacy state without deleting other flows.
         for key in _PATIENT_DRAFT_KEYS:
@@ -56,7 +57,7 @@ def _patient_recovery_markup():
 
 
 def _looks_like_url(text):
-    return bool(re.search(r"(?:https?://|www\\.|t\\.me/|://)", text, flags=re.I))
+    return bool(re.search(r"(?:https?://|www\.|t\.me/|://)", text, flags=re.I))
 
 
 def _valid_patient_input(step, value):
@@ -65,13 +66,16 @@ def _valid_patient_input(step, value):
     if step in {"patient_name", "patient_family"}:
         return value != "-" and not any(x in value for x in "/\\\\@")
     if step == "patient_phone":
-        return value == "-" or bool(re.fullmatch(r"\\+?[0-9۰-۹٠-٩ ()-]{7,25}", value))
+        return value == "-" or bool(re.fullmatch(r"\+?[0-9۰-۹٠-٩ ()-]{7,25}", value))
     if step == "patient_reference":
-        return value == "-" or bool(re.fullmatch(r"[\\w .\\-/]{1,80}", value, re.UNICODE))
+        return value == "-" or bool(re.fullmatch(r"[\w .\-/]{1,80}", value, re.UNICODE))
     return False
 
 
 async def _begin_patient(update, context):
+    if context.user_data.get("clinic_patient_submitting"):
+        await update.effective_message.reply_text("درخواست قبلی در حال ثبت است.")
+        return
     scope = await _scope(update, context)
     branch_id = context.user_data.get("clinic_branch_id")
     if not branch_id:
@@ -307,6 +311,22 @@ async def handle_clinic_input(update, context):
             reply_markup=_patient_recovery_markup(),
         )
         return True
+    required = {
+        "followup_title": ("clinic_case_id",),
+        "followup_custom_date": ("clinic_case_id", "clinic_followup_title"),
+        "typed_session_title": ("clinic_patient_id",),
+        "typed_session_custom_date": ("clinic_patient_id", "clinic_session_title"),
+        "typed_case_title": ("clinic_patient_id",),
+        "typed_reschedule": ("clinic_reschedule_task_id",),
+    }
+    if any(not context.user_data.get(key) for key in required.get(step, ())):
+        logger.info("clinic_flow_reset flow=clinic step=%s reason=missing_prerequisite", step)
+        context.user_data.pop("clinic_input", None)
+        await update.effective_message.reply_text(
+            "اطلاعات این مرحله ناقص یا منقضی شده است؛ از منو دوباره شروع کنید.",
+            reply_markup=_patient_recovery_markup(),
+        )
+        return True
     profile = context.application.bot_data.get("bot_config")
     try:
         memberships = await actor_scopes(str(update.effective_user.id), profile.key)
@@ -331,10 +351,11 @@ async def handle_clinic_input(update, context):
             due = parse_deadline_input(value)
             if not due: raise ValueError("invalid_date")
             scope = Scope(memberships[0]["organization_id"], str(update.effective_user.id))
-            case_id = context.user_data.pop("clinic_case_id")
-            title = context.user_data.pop("clinic_followup_title")
+            case_id = context.user_data.get("clinic_case_id")
+            title = context.user_data.get("clinic_followup_title")
             await followups.create_followup(scope, case_id, str(update.effective_user.id), due, title=title)
-            context.user_data.pop("clinic_input", None)
+            for key in ("clinic_case_id", "clinic_followup_title", "clinic_input"):
+                context.user_data.pop(key, None)
             await update.effective_message.reply_text("✅ پیگیری ثبت شد.")
         elif step == "typed_session_title":
             context.user_data["clinic_session_title"] = value
@@ -345,8 +366,8 @@ async def handle_clinic_input(update, context):
             scheduled = parse_deadline_input(value)
             if not scheduled: raise ValueError("invalid_date")
             scope = Scope(memberships[0]["organization_id"], str(update.effective_user.id))
-            patient_id = context.user_data.pop("clinic_patient_id")
-            title = context.user_data.pop("clinic_session_title")
+            patient_id = context.user_data.get("clinic_patient_id")
+            title = context.user_data.get("clinic_session_title")
             typed_patient = await clinic_typed.ensure_typed_patient_for_legacy_async(
                 scope, patient_id
             )
@@ -358,17 +379,20 @@ async def handle_clinic_input(update, context):
                 scheduled_at=scheduled,
                 doctor_id=typed_patient.get("assignee_id"),
             )
-            context.user_data.pop("clinic_input", None)
+            for key in ("clinic_patient_id", "clinic_session_title", "clinic_input"):
+                context.user_data.pop(key, None)
             await update.effective_message.reply_text("✅ جلسه بیمار برای تاریخ شمسی انتخاب‌شده ایجاد شد.")
         elif step == "typed_case_title":
             scope = Scope(memberships[0]["organization_id"], str(update.effective_user.id))
-            patient_id = context.user_data.pop("clinic_patient_id")
+            patient_id = context.user_data.get("clinic_patient_id")
             await service.create_case(scope, patient_id, value, str(update.effective_user.id))
+            context.user_data.pop("clinic_patient_id", None)
             context.user_data.pop("clinic_input", None)
             await update.effective_message.reply_text("✅ پرونده عملیاتی بیمار ایجاد شد.")
         elif step == "typed_reschedule":
-            task_id = context.user_data.pop("clinic_reschedule_task_id")
+            task_id = context.user_data.get("clinic_reschedule_task_id")
             await clinic_typed.reschedule_async(task_id, str(update.effective_user.id), value)
+            context.user_data.pop("clinic_reschedule_task_id", None)
             context.user_data.pop("clinic_input", None)
             await update.effective_message.reply_text("✅ زمان جلسه تغییر کرد.")
         else:
@@ -380,8 +404,11 @@ async def handle_clinic_input(update, context):
             )
         return True
     except (ClinicAccessError, ValueError):
-        context.user_data.pop("clinic_input", None)
-        await update.effective_message.reply_text("ثبت بیمار انجام نشد؛ ابتدا شعبه کلینیک را تعریف کنید.")
+        logger.info("clinic_flow_failed flow=clinic step=%s reason=invalid_input_or_access", step)
+        await update.effective_message.reply_text(
+            "این عملیات انجام نشد. ورودی یا دسترسی را بررسی کنید؛ برای شروع مجدد از منو استفاده کنید.",
+            reply_markup=_patient_recovery_markup(),
+        )
         return True
 
 
@@ -566,8 +593,10 @@ async def clinic_callback(update, context):
                 context.user_data["clinic_input"] = "typed_session_custom_date"
                 return await query.message.reply_text("تاریخ را به شمسی وارد کنید؛ مثال: ۱۴۰۵/۰۷/۱۵ یا 1405-07-15")
             scope = await _scope(update, context)
-            patient_id = context.user_data.pop("clinic_patient_id")
-            title = context.user_data.pop("clinic_session_title")
+            patient_id = context.user_data.get("clinic_patient_id")
+            title = context.user_data.get("clinic_session_title")
+            if not patient_id or not title:
+                raise ValueError("session_draft_expired")
             expected = None if choice == "none" else (datetime.now(timezone.utc) + timedelta(days=int(choice))).date().isoformat()
             typed_patient = await clinic_typed.ensure_typed_patient_for_legacy_async(
                 scope, patient_id
@@ -580,7 +609,8 @@ async def clinic_callback(update, context):
                 scheduled_at=expected,
                 doctor_id=typed_patient.get("assignee_id"),
             )
-            context.user_data.pop("clinic_input", None)
+            for key in ("clinic_patient_id", "clinic_session_title", "clinic_input"):
+                context.user_data.pop(key, None)
             return await query.message.reply_text("✅ جلسه بیمار ایجاد شد.")
         if parts[1] == "new_session":
             context.user_data["clinic_patient_id"] = parts[2]
@@ -609,10 +639,13 @@ async def clinic_callback(update, context):
                 context.user_data["clinic_input"] = "followup_custom_date"
                 return await query.message.reply_text("تاریخ شمسی را وارد کنید؛ مثال: ۱۴۰۵/۰۷/۱۵")
             scope = await _scope(update, context)
-            title = context.user_data.pop("clinic_followup_title")
+            title = context.user_data.get("clinic_followup_title")
+            if not title or context.user_data.get("clinic_case_id") != case_id:
+                raise ValueError("followup_draft_expired")
             due = deadline_value(int(choice))
             await followups.create_followup(scope, case_id, str(update.effective_user.id), due, title=title)
-            context.user_data.pop("clinic_case_id", None); context.user_data.pop("clinic_input", None)
+            for key in ("clinic_case_id", "clinic_followup_title", "clinic_input"):
+                context.user_data.pop(key, None)
             return await query.message.reply_text("✅ پیگیری ثبت شد.")
         if parts[1] == "case_followups":
             scope = await _scope(update, context)
