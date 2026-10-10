@@ -4,9 +4,13 @@ The create flow deliberately uses one Telegram Rich Message. Every step edits
 that message in place; legacy inline keyboards are not used for this flow.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from html import escape
+from types import SimpleNamespace
 import sys
+import uuid
+
+from services.timezone_service import get_current_local_datetime_async
 
 import jdatetime
 from services.date_picker import deadline_label as _shared_deadline_label
@@ -15,6 +19,49 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 CREATE_CANCEL_CALLBACK = "assign_cancel_create"
 CREATE_CANCEL_LABEL = "❌ لغو ایجاد تسک"
 _VALID_PRIORITIES = {"high", "medium", "low"}
+
+
+def _allowed(context, feature, permission, option=None):
+    """Evaluate both Bot Profile permissions and legacy task options."""
+    from services.task_capabilities import task_option_enabled, task_permission_enabled
+
+    profile = (getattr(context, "bot_data", None) or {}).get("bot_config")
+    if profile is not None and not profile.feature_enabled(feature):
+        return False
+    return (
+        task_permission_enabled(context, permission)
+        and (option is None or task_option_enabled(context, option))
+    )
+
+
+def _can_priority(context):
+    return _allowed(context, "priority", "priority.set", "allow_priority")
+
+
+def _can_deadline(context):
+    return _allowed(context, "deadline", "deadline.set")
+
+
+def _can_category(context):
+    return _allowed(context, "categories", "categories.manage", "allow_categories")
+
+
+def _can_tags(context):
+    return _allowed(context, "tags", "tags.manage", "allow_tags")
+
+
+def _can_assignment(context):
+    return _allowed(context, "assignment", "assignment.manage", "allow_assignment")
+
+
+def _can_attachments(context):
+    return _allowed(context, "attachments", "attachments.manage")
+
+
+async def _local_today(user_id):
+    _, now = await get_current_local_datetime_async(user_id)
+    return now.date()
+
 
 
 def _cancel_button():
@@ -44,7 +91,9 @@ def clear_create_task_state(context) -> None:
     for key in (
         "new_task", "step", "tag_suggestions", "awaiting_tag_input",
         "create_task_finalizing", "create_task_message_id", "create_task_user_id",
-        "_create_selected_team_id",
+        "_create_selected_team_id", "create_task_request_id",
+        "created_task_id", "_create_task_submitting",
+        "create_task_media_saved", "description_media", "description_text_parts",
     ):
         context.user_data.pop(key, None)
 
@@ -109,14 +158,14 @@ def _priority_html():
     )
 
 
-def _deadline_label(days):
-    return _shared_deadline_label(days)
+def _deadline_label(days, today=None):
+    return _shared_deadline_label(days, today=today)
 
 
-def _deadline_html():
-    dates = [_button(f"📅 {_deadline_label(i)}", f"deadline_{i}", "success" if i == 0 else "primary" if i == 1 else "primary") for i in range(8)]
+def _deadline_html(today=None):
+    dates = [_button(f"📅 {_deadline_label(i, today=today)}", f"deadline_{i}", "success" if i == 0 else "primary") for i in range(8)]
     actions = [
-        _button("🕐 تاریخ و زمان دلخواه", "deadline_custom", "primary"),
+        _button("📅 تاریخ دلخواه", "deadline_custom", "primary"),
         _button("⏭ بدون زمان‌بندی", "deadline_none"),
     ]
     return (
@@ -124,11 +173,14 @@ def _deadline_html():
         '<p>زمان موردنظر را انتخاب کنید:</p>'
         + _rows(dates, 2)
         + _rows(actions, 2)
-        + _footer(True, "step_back_priority")
+        + _footer()
     )
 
 
 async def _show_category(task_module, message, context, user_id):
+    if not _can_category(context):
+        context.user_data.setdefault("new_task", {})["category"] = ""
+        return await _show_tags(message, context)
     categories = await task_module._category_options(user_id)
     buttons = [_button(f"📂 {str(category)[:32]}", f"category_pick_{i}") for i, category in enumerate(categories)]
     if buttons:
@@ -141,6 +193,9 @@ async def _show_category(task_module, message, context, user_id):
 
 
 async def _show_tags(message, context):
+    if not _can_tags(context):
+        context.user_data.setdefault("new_task", {})["tags"] = ""
+        return await _show_description(message, context)
     from handlers import tag_suggestions_legacy as legacy
     user_id = context.user_data.get("create_task_user_id") or getattr(getattr(message, "from_user", None), "id", 0)
     _, tags = await legacy.recent_tag_keyboard(user_id, limit=3)
@@ -150,7 +205,7 @@ async def _show_tags(message, context):
     if buttons:
         html += _rows(buttons, 2)
     html += _rows([_button("➕ تگ جدید", "tag_new", "success"), _button("⏭ بدون تگ", "tags_skip")], 2)
-    html += _footer(True, "step_back_category")
+    html += _footer(_can_category(context), "step_back_category")
     context.user_data["step"] = "tags"
     await _edit_rich(context, message, html)
 
@@ -162,13 +217,17 @@ async def _show_description(message, context):
         '<p>توضیح یا یادداشت را در پیام بعدی ارسال کنید.</p>'
         '<p><i>این بخش اختیاری است.</i></p>'
         + _rows([_button("⏭ بدون توضیحات", "description_skip")])
-        + _footer(True, "step_back_tags")
+        + _footer(_can_tags(context), "step_back_tags")
     )
     await _edit_rich(context, message, html)
 
 
 async def _show_assignment(message, context):
     context.user_data["step"] = "assignment_method"
+    if not _can_assignment(context):
+        context.user_data.setdefault("new_task", {})["assignee"] = None
+        context.user_data["new_task"]["team_id"] = ""
+        return await _show_summary(SimpleNamespace(message=message), context)
     html = (
         '<p><b>👤 انتخاب مسئول</b></p><p>این تسک به چه کسی اختصاص داده شود؟</p>'
         + _rows([
@@ -177,7 +236,7 @@ async def _show_assignment(message, context):
             _button("🔎 جستجوی کاربر", "assign_search", "primary"),
             _button("⏭ بدون مسئول", "assign_none"),
         ], 2)
-        + _footer(True, "step_back_description")
+        + _footer(_can_tags(context), "step_back_description")
     )
     await _edit_rich(context, message, html)
 
@@ -198,10 +257,11 @@ async def _show_summary(query, context):
         f'<p>📂 <b>دسته‌بندی:</b> {escape(str(task.get("category") or "بدون دسته‌بندی"))}</p>'
         f'<p>🏷 <b>تگ:</b> {escape(str(task.get("tags") or "بدون تگ"))}</p>'
         f'<p>👤 <b>مسئول:</b> {escape(str(name))}</p>'
-        + _rows([
-            _button("✅ ثبت تسک", "assign_confirm_create", "success"),
-            _button("✏️ تغییر مسئول", "assign_change_create", "primary"),
-        ], 2)
+        + _rows(
+            [_button("✅ ثبت تسک", "assign_confirm_create", "success")]
+            + ([_button("✏️ تغییر مسئول", "assign_change_create", "primary")] if _can_assignment(context) else []),
+            2,
+        )
         + _footer()
     )
     await _edit_rich(context, query.message, html)
@@ -219,7 +279,11 @@ def install_create_task_flow(task_module):
     original_optional = task_module.optional_field_callback
 
     async def add_task_rich(update, context):
+        if not _allowed(context, "tasks", "tasks.create"):
+            await update.effective_message.reply_text("⛔️ ایجاد تسک برای این ربات مجاز نیست.")
+            return
         clear_create_task_state(context)
+        context.user_data["create_task_request_id"] = str(uuid.uuid4())
         context.user_data["new_task"] = {}
         context.user_data["step"] = "title"
         context.user_data["create_task_user_id"] = update.effective_user.id
@@ -252,6 +316,15 @@ def install_create_task_flow(task_module):
     task_module._ask_description = ask_description
     task_module._ask_assignment = ask_assignment
 
+    async def _after_priority(message, context, user_id):
+        if _can_deadline(context):
+            context.user_data["step"] = "deadline"
+            today = await _local_today(user_id)
+            await _edit_rich(context, message, _deadline_html(today))
+            return
+        context.user_data.setdefault("new_task", {})["deadline"] = ""
+        await _show_category(task_module, message, context, user_id)
+
     async def save_task_rich(update, context):
         step = context.user_data.get("step")
         message = update.effective_message
@@ -267,8 +340,12 @@ def install_create_task_flow(task_module):
                 await _edit_rich(context, message, '<p><b>⚠️ عنوان بیش از حد طولانی است.</b></p><p>حداکثر ۲۰۰ کاراکتر مجاز است.</p>' + _footer())
                 return
             context.user_data.setdefault("new_task", {})["title"] = title
-            context.user_data["step"] = "priority"
-            await _edit_rich(context, message, _priority_html())
+            if _can_priority(context):
+                context.user_data["step"] = "priority"
+                await _edit_rich(context, message, _priority_html())
+            else:
+                context.user_data["new_task"]["priority"] = "medium"
+                await _after_priority(message, context, update.effective_user.id)
             return
 
         if step == "deadline_custom":
@@ -294,12 +371,14 @@ def install_create_task_flow(task_module):
         query = update.callback_query
         await query.answer()
         value = (query.data or "").replace("priority_", "", 1)
+        if not _can_priority(context):
+            await query.answer("این قابلیت برای این ربات مجاز نیست.", show_alert=True)
+            return
         if value not in _VALID_PRIORITIES:
             await query.answer("اولویت نامعتبر است.", show_alert=True)
             return
         context.user_data.setdefault("new_task", {})["priority"] = value
-        context.user_data["step"] = "deadline"
-        await _edit_rich(context, query.message, _deadline_html())
+        await _after_priority(query.message, context, update.effective_user.id)
 
     async def deadline_rich(update, context):
         query = update.callback_query
@@ -309,20 +388,26 @@ def install_create_task_flow(task_module):
         if not isinstance(task, dict):
             await query.answer("فرایند ایجاد تسک فعال نیست.", show_alert=True)
             return
+        if not _can_deadline(context):
+            await query.answer("زمان‌بندی برای این ربات مجاز نیست.", show_alert=True)
+            return
         value = data.replace("deadline_", "", 1)
         if value == "custom":
             context.user_data["step"] = "deadline_custom"
-            await _edit_rich(context, query.message, '<p><b>🕐 تاریخ دلخواه</b></p><p>تاریخ و زمان را در پیام بعدی ارسال کنید.</p><p>مثال: <code>1405-06-15</code> یا <code>2026-09-06</code></p>' + _footer())
+            await _edit_rich(context, query.message, '<p><b>📅 تاریخ دلخواه</b></p><p>تاریخ را در پیام بعدی ارسال کنید.</p><p>مثال: <code>1405-06-15</code> یا <code>2026-09-06</code></p>' + _footer())
             return
         if value == "none":
             task["deadline"] = ""
         else:
             try:
                 days = int(value)
-                task["deadline"] = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+                if not 0 <= days <= 7:
+                    raise ValueError
             except ValueError:
                 await query.answer("تاریخ نامعتبر است.", show_alert=True)
                 return
+            today = await _local_today(update.effective_user.id)
+            task["deadline"] = (today + timedelta(days=days)).isoformat()
         await _show_category(task_module, query.message, context, update.effective_user.id)
 
     task_module.priority_selected = priority_rich
@@ -340,6 +425,9 @@ def install_create_task_flow(task_module):
             await _show_tags(query.message, context)
             return
         if data.startswith("category_pick_"):
+            if not _can_category(context):
+                await query.answer("دسته‌بندی برای این ربات مجاز نیست.", show_alert=True)
+                return
             await query.answer()
             try:
                 index = int(data.rsplit("_", 1)[1])
@@ -371,6 +459,9 @@ def install_create_task_flow(task_module):
         task = context.user_data.get("new_task")
         if not isinstance(task, dict):
             await query.answer("فرایند ایجاد تسک فعال نیست.", show_alert=True)
+            return
+        if not _can_tags(context):
+            await query.answer("تگ برای این ربات مجاز نیست.", show_alert=True)
             return
         await query.answer()
         if data in {"tags_skip", "tag_none"}:
@@ -409,6 +500,8 @@ def install_create_task_flow(task_module):
     async def tag_text_rich(update, context):
         if context.user_data.get("step") != "tags":
             return False
+        if not _can_tags(context):
+            return False
         text = str(getattr(update.effective_message, "text", "") or "").strip()
         if not text:
             return False
@@ -426,6 +519,9 @@ def install_create_task_flow(task_module):
         if not data.startswith("assign_") and data not in {"step_back_tags", CREATE_CANCEL_CALLBACK}:
             return await original_assignment(update, context)
         await query.answer()
+        if not _can_assignment(context) and data not in {CREATE_CANCEL_CALLBACK, "assign_confirm_create"}:
+            await query.answer("انتخاب مسئول برای این ربات مجاز نیست.", show_alert=True)
+            return
         if data == CREATE_CANCEL_CALLBACK:
             await _edit_rich(context, query.message, '<p><b>❌ ایجاد تسک لغو شد.</b></p>')
             clear_create_task_state(context)
