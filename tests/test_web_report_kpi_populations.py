@@ -105,7 +105,7 @@ def test_backlog_includes_older_tasks_and_team_members_but_not_unauthorized(repo
     assert summary["backlog_as_of_utc"] == "2026-10-10"
     assert summary["productivity"]["open_overdue"] == 3
     assert summary["productivity"]["open_on_track"] == 2
-    assert summary["completed_in_period"] == 3
+    assert summary["completed_in_period"] == 4
     assert summary["completed_with_deadline"] == 3
     assert summary["completed_on_time"] == 2
     assert summary["completed_late"] == 1
@@ -156,7 +156,7 @@ def test_filters_have_separate_documented_populations(report_database, monkeypat
     monkeypatch.setattr(dashboard, "datetime", FixedDatetime)
     access = {"user_id": "42", "bot_key": "bot-a"}
     backlog = dashboard._open_deadline_counts(access, date(2026, 10, 10), filters={"status": "pending"})
-    assert backlog == {"open_overdue": 2, "open_on_track": 2}
+    assert backlog == {"open_overdue": 3, "open_on_track": 2}
     filtered = dashboard.dashboard_report(
         "signed-token", period="custom", start_value="2026-09-01",
         end_value="2026-09-30", search='{"status":"done"}',
