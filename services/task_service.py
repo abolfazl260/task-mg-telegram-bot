@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -117,8 +118,23 @@ async def update_task_status_async(task_id,new_status,actor_id):
     if not task or not await user_can_modify_task_async(actor_id,task): return False
     await execute("UPDATE tasks SET status=?,completed_at=? WHERE id=?",(new_status,_now() if new_status=="done" else "",task_id)); return True
 
-async def create_task_async(user_id,title,priority,deadline,category,tags,description="",team_id="",assignee=None,work_item_type=None,parent_task_id=None):
+async def create_task_async(user_id,title,priority,deadline,category,tags,description="",team_id="",assignee=None,work_item_type=None,parent_task_id=None,idempotency_key=None):
     if priority not in VALID_PRIORITIES: raise ValueError("invalid priority")
+    request_id = str(idempotency_key or "").strip()
+    async def existing_request_task():
+        row = await fetch_one_sql(
+            "SELECT task_id, user_id FROM task_creation_requests WHERE request_id=?",
+            (request_id,),
+        )
+        if not row:
+            return None
+        if row["user_id"] != str(user_id):
+            raise PermissionError("task_creation_request_owner_mismatch")
+        return row["task_id"]
+    if request_id:
+        existing = await existing_request_task()
+        if existing:
+            return existing
     item_type = await validate_work_item_type_async(work_item_type, _bot())
     await _ensure_user_async(user_id); tid=_new_task_id()
     await _validate_parent_async(parent_task_id, item_type, str(user_id))
@@ -128,7 +144,22 @@ async def create_task_async(user_id,title,priority,deadline,category,tags,descri
     if aid: await _ensure_user_async(aid)
     now=_now(); statements=[("""INSERT INTO tasks(id,bot_key,work_item_type,parent_task_id,user_id,title,priority,status,deadline,category,tags,description,created_at,team_id,assignee_id,assignee_name,assignee_username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(tid,_bot(),item_type,parent_task_id or None,str(user_id),title,priority,"pending",deadline or "",category or "",tags or "",description or "",now,team_id or None,aid,(assignee or {}).get("display_name") or "",(assignee or {}).get("username") or ""))]
     if assignee: statements.append(("""INSERT INTO task_assignment_history(task_id,actor_id,action,old_assignee_name,new_assignee_name,created_at) VALUES(?,?,?,?,?,?)""",(tid,str(user_id),"assigned","",(assignee or {}).get("display_name") or "",now)))
-    await transaction(statements); return tid
+    if request_id:
+        statements.append((
+            "INSERT INTO task_creation_requests(request_id,task_id,user_id,created_at) VALUES(?,?,?,?)",
+            (request_id, tid, str(user_id), now),
+        ))
+    try:
+        await transaction(statements)
+    except sqlite3.IntegrityError:
+        # Another request might have committed the same key between the read
+        # and the transaction. Return the original task, never create a second.
+        if request_id:
+            existing = await existing_request_task()
+            if existing:
+                return existing
+        raise
+    return tid
 
 
 async def create_child_task_async(parent_task_id, user_id, title, priority="medium", deadline="",
