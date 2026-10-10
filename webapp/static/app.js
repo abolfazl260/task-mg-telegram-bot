@@ -86,6 +86,10 @@
   const btnTableAdd = document.getElementById('btn-table-add');
 
   let tasks = [];
+  let taskOffset = 0;
+  let taskTotal = 0;
+  const TASK_PAGE_LIMIT = 50;
+  const pageNav = document.getElementById('pagination');
   const pageParams = new URLSearchParams(window.location.search);
   const botKey = pageParams.get('bot_key') || window.__dashboardTaskToken || '';
   const initData = tg?.initData || '';
@@ -295,7 +299,7 @@
 
   function render() {
     const list = filteredTasks();
-    if (resultCountEl) resultCountEl.textContent = `${list.length} وظیفه`;
+    if (resultCountEl) resultCountEl.textContent = `${list.length} وظیفه در این صفحه (از ${taskTotal} وظیفه)`;
     renderTable(list);
     renderBoard(list);
     renderAnalytics(list);
@@ -398,19 +402,35 @@
       const t = tasks.find(x => String(x.id) === String(id));
       if (t) t.status = newStatus;
       render();
+      renderTaskPagination();
     } catch (err) {
       console.error(err);
       load();
     }
   }
 
+  function renderTaskPagination() {
+    if (!pageNav) return;
+    const pages = Math.max(1, Math.ceil(taskTotal / TASK_PAGE_LIMIT));
+    const page = Math.floor(taskOffset / TASK_PAGE_LIMIT) + 1;
+    pageNav.hidden = taskTotal <= TASK_PAGE_LIMIT;
+    if (!pageNav.hidden) {
+      pageNav.innerHTML = `<button type="button" class="notion-btn" data-task-page="prev" ${page <= 1 ? 'disabled' : ''}>قبلی</button><span>صفحه ${page} از ${pages} — فیلتر و نمودار مربوط به صفحه جاری‌اند</span><button type="button" class="notion-btn" data-task-page="next" ${page >= pages ? 'disabled' : ''}>بعدی</button>`;
+    }
+  }
+
   async function load() {
     if (state) { state.hidden = false; state.textContent = 'در حال بارگذاری وظایف...'; }
     try {
-      const res = await fetch(apiUrl('/api/tasks'), { headers, cache: 'no-store' });
+      const res = await fetch(apiUrl('/api/tasks') + `&limit=${TASK_PAGE_LIMIT}&offset=${taskOffset}`, { headers, cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       tasks = Array.isArray(data.tasks) ? data.tasks : [];
+      taskTotal = Number.isFinite(Number(data.total)) ? Number(data.total) : tasks.length;
+      if (taskOffset >= taskTotal && taskOffset > 0) {
+        taskOffset = Math.max(0, (Math.ceil(taskTotal / TASK_PAGE_LIMIT) - 1) * TASK_PAGE_LIMIT);
+        return load();
+      }
       const categoryFilter = document.querySelector('[data-column-filter=\"category\"]');
       if (categoryFilter) { const current = categoryFilter.value; const cats = [...new Set(tasks.map(t => t.category).filter(Boolean))].sort(); categoryFilter.innerHTML = '<option value="">همه</option>' + cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join(''); categoryFilter.value = cats.includes(current) ? current : ''; }
       if (state) state.hidden = true;
@@ -434,6 +454,16 @@
   statusEl?.addEventListener('change', render);
   priorityEl?.addEventListener('change', render);
   refreshEl?.addEventListener('click', load);
+  pageNav?.addEventListener('click', (event) => {
+    const action = event.target.closest('[data-task-page]')?.dataset.taskPage;
+    if (action === 'prev' && taskOffset > 0) {
+      taskOffset = Math.max(0, taskOffset - TASK_PAGE_LIMIT);
+      load();
+    } else if (action === 'next' && taskOffset + TASK_PAGE_LIMIT < taskTotal) {
+      taskOffset += TASK_PAGE_LIMIT;
+      load();
+    }
+  });
   modalDeadline?.addEventListener('input', updateDeadlineHelper);
 
   themeToggleEl?.addEventListener('click', () => {
