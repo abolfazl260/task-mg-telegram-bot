@@ -221,7 +221,14 @@ def _calendar_data(access, start: date, end: date, search: str, filters: dict) -
     tasks = _query_calendar_tasks(access, start, end, search, filters)
     # Preserve the legacy rows shape while removing the misleading 25-row cap.
     # Each day is a lightweight index; task details are in the complete rows.
-    rows = [_row(task) for task in tasks]
+    rows = []
+    for task in tasks:
+        try:
+            due = date.fromisoformat(str(task.get("deadline") or "")[:10])
+        except ValueError:
+            continue
+        if start <= due <= end:
+            rows.append(_row(task))
     rows.sort(key=lambda item: (str(item.get("deadline") or "")[:10], str(item.get("id") or "")))
     counts = {}
     for item in rows:
