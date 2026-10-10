@@ -226,7 +226,7 @@ def _open_deadline_counts(access, today: date, search: str = "", filters: dict |
         access, today, today, search, filters, population="open_backlog"
     )
     scope, scope_params = _task_scope(access)
-    sql = (
+    sql = (  # nosec B608 - fixed scoped predicate, user values always bound
         "SELECT "
         "COALESCE(SUM(CASE WHEN substr(deadline,1,10)<? THEN 1 ELSE 0 END),0) AS open_overdue, "
         "COALESCE(SUM(CASE WHEN substr(deadline,1,10)>=? THEN 1 ELSE 0 END),0) AS open_on_track "
