@@ -226,12 +226,7 @@ def _open_deadline_counts(access, today: date, search: str = "", filters: dict |
         access, today, today, search, filters, population="open_backlog"
     )
     scope, scope_params = _task_scope(access)
-    sql = (  # nosec B608 - fixed scoped predicate, user values always bound
-        "SELECT "
-        "COALESCE(SUM(CASE WHEN substr(deadline,1,10)<? THEN 1 ELSE 0 END),0) AS open_overdue, "
-        "COALESCE(SUM(CASE WHEN substr(deadline,1,10)>=? THEN 1 ELSE 0 END),0) AS open_on_track "
-        "FROM tasks WHERE " + scope + " AND (" + where + ")"
-    )  # nosec B608 - internal fixed predicate with bound values and Core authorization
+    sql = "SELECT COALESCE(SUM(CASE WHEN substr(deadline,1,10)<? THEN 1 ELSE 0 END),0) AS open_overdue, COALESCE(SUM(CASE WHEN substr(deadline,1,10)>=? THEN 1 ELSE 0 END),0) AS open_on_track FROM tasks WHERE " + scope + " AND (" + where + ")"  # nosec B608 - fixed scoped SQL predicate, bound parameters
     result = sync_query_one(sql, (today.isoformat(), today.isoformat()) + scope_params + params)
     return {
         "open_overdue": int(result["open_overdue"]) if result else 0,
