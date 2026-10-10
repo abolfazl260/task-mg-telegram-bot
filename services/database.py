@@ -65,6 +65,16 @@ CREATE TABLE IF NOT EXISTS task_assignment_history (
     actor_id TEXT REFERENCES users(user_id) ON DELETE SET NULL, action TEXT NOT NULL DEFAULT '', old_assignee_name TEXT NOT NULL DEFAULT '',
     new_assignee_name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT ''
 );
+-- Stable creation request identity, committed atomically with the task.
+-- Existing tasks require no backfill; historical rows remain unchanged.
+CREATE TABLE IF NOT EXISTS task_creation_requests (
+    request_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_task_creation_requests_task ON task_creation_requests(task_id);
+
 CREATE TABLE IF NOT EXISTS habits (
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, title TEXT NOT NULL,
     category TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', repeat_type TEXT NOT NULL DEFAULT 'daily', target TEXT NOT NULL DEFAULT '',
