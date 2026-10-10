@@ -238,6 +238,90 @@ async def update_task_async(task_id,user_id,**changes):
     await execute(f"UPDATE tasks SET {assignments} WHERE id=?",tuple(values.values())+(task_id,))
     return True
 
+
+# Bounded task queries for interactive consumers. Legacy full-list functions
+# below remain available for workflows that explicitly process all tasks.
+DEFAULT_TASK_PAGE_SIZE = 50
+MAX_TASK_PAGE_SIZE = 100
+
+
+def _task_pagination(limit: int, offset: int) -> tuple[int, int]:
+    try:
+        limit, offset = int(limit), int(offset)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid_pagination") from exc
+    if limit < 1 or offset < 0:
+        raise ValueError("invalid_pagination")
+    return min(limit, MAX_TASK_PAGE_SIZE), offset
+
+
+async def list_visible_tasks_page_async(
+    user_id, team_id=None, *, active=False, work_item_type=None,
+    limit=DEFAULT_TASK_PAGE_SIZE, offset=0, sort_key="created",
+) -> dict:
+    """SQL-scoped pagination across personal and current team memberships.
+
+    Bot keys are provenance, not a visibility boundary. Workspace records are
+    deliberately excluded. EXISTS avoids duplicate rows for team memberships.
+    """
+    limit, offset = _task_pagination(limit, offset)
+    item_type = await validate_work_item_type_async(work_item_type, _bot()) if work_item_type else None
+    if team_id:
+        if not await ais_member(team_id, user_id):
+            return {"tasks": [], "total": 0, "limit": limit, "offset": offset, "has_more": False}
+        conditions = ["t.workspace_id IS NULL", "t.team_id=?"]
+        params = [str(team_id)]
+    else:
+        conditions = [
+            "t.workspace_id IS NULL",
+            """(((t.team_id IS NULL OR t.team_id='') AND t.user_id=?)
+                OR ((t.team_id IS NOT NULL AND t.team_id!='') AND EXISTS (
+                    SELECT 1 FROM team_members tm
+                    WHERE tm.team_id=t.team_id AND tm.user_id=?
+                )))""",
+        ]
+        params = [str(user_id), str(user_id)]
+    if active:
+        conditions.append("t.status IN ('pending','in_progress')")
+    if item_type:
+        conditions.append("t.work_item_type=?")
+        params.append(item_type)
+    where = " AND ".join(conditions)
+    # Column names and sort expressions are fixed: never interpolate caller SQL.
+    orderings = {
+        "created": "t.created_at DESC,t.id DESC",
+        "deadline": "CASE WHEN COALESCE(t.deadline,'')='' THEN 1 ELSE 0 END,t.deadline ASC,t.id ASC",
+        "priority": "CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 9 END,t.created_at DESC,t.id DESC",
+    }
+    if sort_key not in orderings:
+        raise ValueError("invalid_task_sort")
+    count = await fetch_one_sql("SELECT COUNT(*) AS n FROM tasks t WHERE " + where, tuple(params))  # nosec B608 - fixed predicates with bound values
+    total = int((count or {}).get("n") or 0)
+    tasks = await fetch_all_sql(
+        "SELECT t.* FROM tasks t WHERE " + where  # nosec B608 - only fixed SQL fragments and bound values
+        + " ORDER BY " + orderings[sort_key] + " LIMIT ? OFFSET ?",
+        tuple(params) + (limit, offset),
+    )
+    return {
+        "tasks": tasks, "total": total, "limit": limit, "offset": offset,
+        "has_more": offset + len(tasks) < total,
+    }
+
+
+async def get_visible_task_by_id_async(user_id, task_id) -> dict | None:
+    """Check one task's read scope in SQL, never by loading the user's archive."""
+    return await fetch_one_sql(
+        """SELECT t.* FROM tasks t
+           WHERE t.id=? AND t.workspace_id IS NULL
+             AND (((t.team_id IS NULL OR t.team_id='') AND t.user_id=?)
+               OR ((t.team_id IS NOT NULL AND t.team_id!='') AND EXISTS (
+                   SELECT 1 FROM team_members tm
+                   WHERE tm.team_id=t.team_id AND tm.user_id=?
+               )))""",
+        (str(task_id), str(user_id), str(user_id)),
+    )
+
+
 async def _visible_async(user_id,team_id=None,active=False,work_item_type=None):
     item_type = await validate_work_item_type_async(work_item_type, _bot()) if work_item_type else None
     if team_id:
