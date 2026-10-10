@@ -223,9 +223,9 @@ async def test_check_deadline_reminders_delegates_to_morning_task_reminder(conte
 
 @pytest.mark.asyncio
 async def test_habit_reminders_sends_only_active_due_habits_with_matching_time(context, monkeypatch):
-    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda: _async_value(["101"]))
+    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda **kwargs: _async_value(["101"]))
     monkeypatch.setattr(reminders, "_user_now", lambda user_id: SimpleNamespace(strftime=lambda fmt: "09:00"))
-    monkeypatch.setattr(reminders, "get_user_habits_async", lambda user_id, active_only=False: _async_value([
+    monkeypatch.setattr(reminders, "get_user_habits_async", lambda user_id, active_only=False, **kwargs: _async_value([
         {"id": "h1", "title": "Drink water", "reminder_time": "09:00", "repeat_type": "daily", "start_date": "2026-01-01"},
         {"id": "h2", "title": "Read", "reminder_time": "10:00", "repeat_type": "daily", "start_date": "2026-01-01"},
         {"id": "h3", "title": "Inactive", "reminder_time": "09:00", "repeat_type": "daily", "start_date": "2026-01-01"},
@@ -246,7 +246,7 @@ async def test_habit_reminders_sends_only_active_due_habits_with_matching_time(c
 
 @pytest.mark.asyncio
 async def test_habit_reminders_does_not_send_when_no_time_matches(context, monkeypatch):
-    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda: _async_value(["101"]))
+    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda **kwargs: _async_value(["101"]))
     monkeypatch.setattr(reminders, "_user_now", lambda user_id: SimpleNamespace(strftime=lambda fmt: "09:01"))
     monkeypatch.setattr(reminders, "get_user_habits_async", lambda *args, **kwargs: _async_value([
         {"id": "h1", "title": "Habit", "reminder_time": "09:00", "repeat_type": "daily", "start_date": "2026-01-01"}
@@ -259,7 +259,7 @@ async def test_habit_reminders_does_not_send_when_no_time_matches(context, monke
 
 @pytest.mark.asyncio
 async def test_habit_reminders_skips_invalid_user_ids_and_continues(context, monkeypatch):
-    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda: _async_value(["bad", "101"]))
+    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda **kwargs: _async_value(["bad", "101"]))
     monkeypatch.setattr(reminders, "_user_now", lambda user_id: SimpleNamespace(strftime=lambda fmt: "09:00"))
     monkeypatch.setattr(reminders, "get_user_habits_async", lambda *args, **kwargs: _async_value([
         {"id": "h1", "title": "Habit", "reminder_time": "09:00"}
@@ -274,7 +274,7 @@ async def test_habit_reminders_skips_invalid_user_ids_and_continues(context, mon
 @pytest.mark.asyncio
 async def test_habit_reminders_continues_when_telegram_send_fails(context, monkeypatch):
     context.bot.fail = True
-    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda: _async_value(["101"]))
+    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda **kwargs: _async_value(["101"]))
     monkeypatch.setattr(reminders, "_user_now", lambda user_id: SimpleNamespace(strftime=lambda fmt: "09:00"))
     monkeypatch.setattr(reminders, "get_user_habits_async", lambda *args, **kwargs: _async_value([
         {"id": "h1", "title": "Habit", "reminder_time": "09:00"}
@@ -287,7 +287,7 @@ async def test_habit_reminders_continues_when_telegram_send_fails(context, monke
 
 @pytest.mark.asyncio
 async def test_weekly_habit_reports_runs_only_friday_at_18_and_builds_report(context, monkeypatch):
-    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda: _async_value(["101"]))
+    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda **kwargs: _async_value(["101"]))
     monkeypatch.setattr(reminders, "_user_now", lambda user_id: SimpleNamespace(
         weekday=lambda: 4,
         hour=18,
@@ -305,7 +305,7 @@ async def test_weekly_habit_reports_runs_only_friday_at_18_and_builds_report(con
         {"habit_id": "h1", "done_date": "2026-09-09"},
         {"habit_id": "h2", "done_date": "2026-09-07"},
     ]))
-    monkeypatch.setattr(reminders, "stats_for_habit_async", lambda habit, user_id: _async_value(
+    monkeypatch.setattr(reminders, "stats_for_habit_async", lambda habit, user_id, **kwargs: _async_value(
         {"best": 5 if habit["id"] == "h2" else 3}
     ))
 
@@ -324,7 +324,7 @@ async def test_weekly_habit_reports_runs_only_friday_at_18_and_builds_report(con
 
 @pytest.mark.asyncio
 async def test_weekly_habit_reports_skips_when_not_friday_or_not_six_pm(context, monkeypatch):
-    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda: _async_value(["101"]))
+    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda **kwargs: _async_value(["101"]))
     monkeypatch.setattr(reminders, "get_user_habits_async", lambda *args, **kwargs: _async_value([
         {"id": "h1", "title": "Habit"}
     ]))
@@ -350,7 +350,7 @@ async def test_weekly_habit_reports_skips_when_not_friday_or_not_six_pm(context,
 
 @pytest.mark.asyncio
 async def test_weekly_habit_reports_skips_users_without_active_habits(context, monkeypatch):
-    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda: _async_value(["101"]))
+    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda **kwargs: _async_value(["101"]))
     monkeypatch.setattr(reminders, "_user_now", lambda user_id: SimpleNamespace(
         weekday=lambda: 4,
         hour=18,
@@ -365,7 +365,7 @@ async def test_weekly_habit_reports_skips_users_without_active_habits(context, m
 @pytest.mark.asyncio
 async def test_weekly_habit_reports_continues_when_telegram_send_fails(context, monkeypatch):
     context.bot.fail = True
-    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda: _async_value(["101"]))
+    monkeypatch.setattr(reminders, "get_all_habit_user_ids_async", lambda **kwargs: _async_value(["101"]))
     monkeypatch.setattr(reminders, "_user_now", lambda user_id: SimpleNamespace(
         weekday=lambda: 4,
         hour=18,
@@ -376,7 +376,7 @@ async def test_weekly_habit_reports_continues_when_telegram_send_fails(context, 
         {"id": "h1", "title": "Habit"}
     ]))
     monkeypatch.setattr(reminders, "get_logs_async", lambda **kwargs: _async_value([]))
-    monkeypatch.setattr(reminders, "stats_for_habit_async", lambda habit, user_id: _async_value({"best": 0}))
+    monkeypatch.setattr(reminders, "stats_for_habit_async", lambda habit, user_id, **kwargs: _async_value({"best": 0}))
 
     await reminders.weekly_habit_reports(context)
     assert context.bot.messages == []
