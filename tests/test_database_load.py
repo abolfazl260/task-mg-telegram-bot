@@ -5,7 +5,7 @@ exercise the database timeout, WAL and retry behavior without touching the
 real application database.
 """
 
-import asyncio
+import asyncio  # noqa: I001 - preserve existing import order in legacy stress test
 import sqlite3
 import time
 
