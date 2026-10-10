@@ -138,3 +138,39 @@ async def test_sync_bridge_uses_shared_async_writer_without_extra_sqlite_connect
         "UPDATE users SET messages_count=messages_count+1 WHERE user_id=?", ("lock-user",),
     )
     assert (await database.fetch_one("users", "user_id=?", ("lock-user",)))["messages_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_scheduler_backup_claim_is_atomic_and_idempotent(temp_db, monkeypatch):
+    from services import database_backup
+
+    monkeypatch.setattr(database_backup, "MIN_START_GAP_SECONDS", 60)
+    claimed = await asyncio.gather(*(database_backup._claim_backup_due() for _ in range(12)))
+    assert claimed.count(True) == 1
+    assert claimed.count(False) == 11
+    assert not await database_backup._claim_backup_due()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_handles_persistent_sqlite_lock_without_crashing(temp_db, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from services import database_backup
+
+    db, path = temp_db
+    monkeypatch.setattr(database_backup, "_backup_running", False)
+    monkeypatch.setattr(database_backup, "_last_backup_started_at", 0.0)
+    monkeypatch.setattr(database, "SQLITE_MAX_RETRIES", 1)
+    monkeypatch.setattr(database, "_retry_delay", lambda attempt: 0.001)
+    await db.conn.execute("PRAGMA busy_timeout=20")
+    backup = AsyncMock()
+    monkeypatch.setattr(database_backup, "run_database_backup", backup)
+    external = sqlite3.connect(path, timeout=0.1)
+    external.execute("BEGIN IMMEDIATE")
+    try:
+        await database_backup.database_backup_job(SimpleNamespace(bot=object()))
+        backup.assert_not_awaited()
+    finally:
+        external.rollback()
+        external.close()
