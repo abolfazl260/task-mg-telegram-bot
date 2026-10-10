@@ -12,7 +12,7 @@ from .config import WEBAPP_HOST, WEBAPP_PORT
 from .api import authenticate_telegram_request
 from .auth import TelegramWebAppAuthError
 from .bot_profile import WebAppBotProfileError, get_webapp_bot_profile
-from .tasks_api import WebAppTaskAccessError, get_task, list_tasks, list_work_item_types, create_task, update_task, change_status
+from .tasks_api import WebAppTaskAccessError, get_task, list_tasks_page, task_page_params, list_work_item_types, create_task, update_task, change_status
 from .public_tasks import handle_public_task_get, handle_public_task_api
 from .database_explorer import database_explorer_rows, database_explorer_tables
 from .admin_api import (
@@ -208,8 +208,12 @@ class WebAppHandler(BaseHTTPRequestHandler):
         if path=="/api/tasks" and method=="GET":
             if not profile.permission_enabled("tasks.view"):
                 raise WebAppTaskAccessError("tasks_view_permission_denied")
-            work_item_type=(parse_qs(urlparse(self.path).query).get("work_item_type") or [None])[0]
-            return self._json(200,{"tasks":self.server.webapp_runtime.submit(list_tasks(user.id,bot_key,work_item_type=work_item_type))})
+            query=parse_qs(urlparse(self.path).query)
+            work_item_type=(query.get("work_item_type") or [None])[0]
+            limit,offset=task_page_params(query)
+            return self._json(200,self.server.webapp_runtime.submit(list_tasks_page(
+                user.id,bot_key,work_item_type=work_item_type,limit=limit,offset=offset
+            )))
         if path=="/api/tasks" and method=="POST":
             if not profile.permission_enabled("tasks.create"):
                 raise WebAppTaskAccessError("tasks_create_permission_denied")
