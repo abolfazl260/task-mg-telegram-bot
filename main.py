@@ -302,11 +302,11 @@ def build_application(profile):
         if _feature(app,"priority") and _permission(app,"priority.set"):
             app.add_handler(CallbackQueryHandler(priority_selected,pattern="^priority_(high|medium|low)$"))
         if _feature(app,"deadline") and _permission(app,"deadline.set"):
-            app.add_handler(CallbackQueryHandler(deadline_selected,pattern="^deadline_(?:0|1|2|3|4|5|6|7|custom|none)$"))
+            app.add_handler(CallbackQueryHandler(deadline_selected,pattern="^(?:deadline_(?:0|1|2|3|4|5|6|7|custom|none)|step_back_priority)$"))
         if _permission(app,"tasks.create"):
             app.add_handler(CallbackQueryHandler(optional_field_callback,pattern="^(?:category_skip|category_pick_[0-9]+|tags_skip|description_skip)$"))
         if _feature(app,"tags") and _permission(app,"tags.manage"):
-            app.add_handler(CallbackQueryHandler(handle_tag_callback,pattern="^(tag_|tags_|step_back_description|step_back_category)"))
+            app.add_handler(CallbackQueryHandler(handle_tag_callback,pattern="^(tag_|tags_|step_back_description|step_back_category|step_back_tags)"))
         # Confirmation and cancellation are part of task creation, not
         # assignment. They must remain available for assignment-disabled bots.
         if _permission(app,"tasks.create"):
