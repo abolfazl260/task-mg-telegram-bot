@@ -294,7 +294,7 @@ def test_sql_count_and_task_reader_use_identical_scoped_filters(monkeypatch):
         return [dict(row) for row in conn.execute(sql, params)]
 
     def query_tasks(access, where="", params=()):
-        sql = "SELECT * FROM tasks WHERE workspace_id IS NULL AND bot_key=? AND user_id=? AND " + where
+        sql = "SELECT * FROM tasks WHERE workspace_id IS NULL AND bot_key=? AND user_id=? AND " + where  # nosec B608 - test's internal SQL predicate
         return execute(sql, (access["bot_key"], str(access["user_id"])) + tuple(params))
 
     monkeypatch.setattr(dashboard_service, "_task_rows", query_tasks)
