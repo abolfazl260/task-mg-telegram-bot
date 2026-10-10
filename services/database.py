@@ -551,7 +551,7 @@ async def get_db() -> Database:
     if db is None:
         db = Database()
         _db_by_loop[loop] = db
-    await db.connect()
+    await _retry_read("connect", db.connect)
     return db
 
 async def init_db():
