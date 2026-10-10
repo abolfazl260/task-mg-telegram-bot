@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS task_assignment_history (
     new_assignee_name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS habits (
-    id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, title TEXT NOT NULL,
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, bot_key TEXT NOT NULL DEFAULT 'default', title TEXT NOT NULL,
     category TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', repeat_type TEXT NOT NULL DEFAULT 'daily', target TEXT NOT NULL DEFAULT '',
     reminder_time TEXT NOT NULL DEFAULT '', start_date TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT ''
 );
@@ -308,6 +308,20 @@ CORE_SCHEMA = SCHEMA
 
 async def migrate_core_schema(conn) -> None:
     """Apply additive migrations required before post-schema indexes exist."""
+    # Legacy habits had no bot provenance. Keep their IDs and logs unchanged,
+    # assigning historical rows to the default profile rather than exposing
+    # them to every enabled bot. The habit ID in habit_logs retains the scope.
+    async with conn.execute("PRAGMA table_info(habits)") as cursor:
+        habit_columns = {row[1] for row in await cursor.fetchall()}
+    if habit_columns:
+        if "bot_key" not in habit_columns:
+            await conn.execute(
+                "ALTER TABLE habits ADD COLUMN bot_key TEXT NOT NULL DEFAULT 'default'"
+            )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_habits_bot_user ON habits(bot_key, user_id)"
+        )
+
     async with conn.execute("PRAGMA table_info(tasks)") as cursor:
         task_columns = {row[1] for row in await cursor.fetchall()}
     if "work_item_type" not in task_columns:

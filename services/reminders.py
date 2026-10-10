@@ -121,15 +121,22 @@ def _habit_reminder_times(value):
     return {item.strip() for item in str(value).split(",") if item.strip()}
 
 
+def _habit_job_bot_key(context):
+    application = getattr(context, "application", None)
+    profile = getattr(application, "bot_data", {}).get("bot_config")
+    return profile.key if profile else "default"
+
+
 async def habit_reminders(context):
-    for uid in await get_all_habit_user_ids_async():
+    bot_key = _habit_job_bot_key(context)
+    for uid in await get_all_habit_user_ids_async(bot_key=bot_key):
         try:
             user_id = int(uid)
         except (ValueError, TypeError):
             continue
         user_now = _user_now(user_id)
         now_time = user_now.strftime("%H:%M")
-        for habit in await get_user_habits_async(user_id, active_only=True):
+        for habit in await get_user_habits_async(user_id, active_only=True, bot_key=bot_key):
             if not is_habit_due_on(habit) or now_time not in _habit_reminder_times(habit.get("reminder_time")):
                 continue
             keyboard = InlineKeyboardMarkup([
@@ -143,7 +150,8 @@ async def habit_reminders(context):
 
 
 async def weekly_habit_reports(context):
-    for uid in await get_all_habit_user_ids_async():
+    bot_key = _habit_job_bot_key(context)
+    for uid in await get_all_habit_user_ids_async(bot_key=bot_key):
         try:
             user_id = int(uid)
         except (ValueError, TypeError):
@@ -152,10 +160,10 @@ async def weekly_habit_reports(context):
             continue
         end = _user_now(user_id).date()
         start = end - timedelta(days=6)
-        habits = await get_user_habits_async(user_id, active_only=True)
+        habits = await get_user_habits_async(user_id, active_only=True, bot_key=bot_key)
         if not habits:
             continue
-        logs = [log for log in await get_logs_async(user_id=user_id) if start.isoformat() <= log.get("done_date", "") <= end.isoformat()]
+        logs = [log for log in await get_logs_async(user_id=user_id, bot_key=bot_key) if start.isoformat() <= log.get("done_date", "") <= end.isoformat()]
         counts = {habit["id"]: 0 for habit in habits}
         for log in logs:
             if log.get("habit_id") in counts:
@@ -167,7 +175,7 @@ async def weekly_habit_reports(context):
         record = None
         record_stats = {"best": 0}
         for habit in habits:
-            stats = await stats_for_habit_async(habit, user_id)
+            stats = await stats_for_habit_async(habit, user_id, bot_key=bot_key)
             if record is None or stats["best"] > record_stats["best"]:
                 record = habit
                 record_stats = stats
