@@ -7,7 +7,7 @@ from statistics import mean
 
 from services.database import sync_query_one
 
-from .reports import _access, _change, _jmonth, _priority, _status, _task_rows, _week, _habits, _recent
+from .reports import _access, _change, _jmonth, _priority, _status, _task_rows, _task_scope, _week, _habits, _recent
 from .activity_feed import activity_feed
 
 STATUS_ALIASES = {
@@ -156,13 +156,10 @@ def _query_tasks(access, start: date, end: date, search: str = "", filters: dict
 def _count_query_tasks(access, start: date, end: date, search: str = "", filters: dict | None = None):
     """Count earlier-period tasks in SQLite rather than pulling every historical row."""
     where, params = _task_predicate(access, start, end, search, filters)
-    # Match the same ownership and bot scope as _task_rows; changing report
-    # visibility must be coordinated with the separate #222 workstream.
-    sql = (
-        "SELECT COUNT(*) AS total FROM tasks WHERE "
-        "workspace_id IS NULL AND bot_key=? AND user_id=? AND " + where  # nosec B608 - internally constructed clauses, parameterized user input
-    )
-    row = sync_query_one(sql, (access["bot_key"], str(access["user_id"])) + params)
+    # Match exactly the same Core task visibility predicate used for rows.
+    scope, scope_params = _task_scope(access)
+    sql = "SELECT COUNT(*) AS total FROM tasks WHERE " + scope + " AND (" + where + ")"  # nosec B608 - fixed scoped predicate, parameterized filters
+    row = sync_query_one(sql, scope_params + params)
     return int(row["total"]) if row else 0
 
 
